@@ -30,14 +30,11 @@ bin. Any of these fields may be NULL if not applicable.
 """
 
 from __future__ import annotations
-
-import os
+from pathlib import Path
 import sqlite3
 from typing import Dict, List, Tuple, Optional
 
-
-DB_PATH = os.environ.get("LEGO_DB_PATH", os.path.join(os.path.dirname(__file__), "lego_inventory.db"))
-
+DB_PATH = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
 
 def get_connection() -> sqlite3.Connection:
     """Return a new SQLite connection.

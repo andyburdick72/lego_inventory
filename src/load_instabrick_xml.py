@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Optional
 
 from . import inventory_db as db
 
+DEFAULT_XML = Path(__file__).resolve().parents[1] / "data" / "instabrick_inventory.xml"
+xml_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_XML
 
 STATUS_MAP = {
     "In Box": "in_box",
