@@ -22,14 +22,11 @@ share a consistent layout defined in the helper methods.
 
 from __future__ import annotations
 
+import inventory_db as db
 import os
-import posixpath
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Dict, List, Optional
-
-from . import inventory_db as db
-
 
 class InventoryRequestHandler(BaseHTTPRequestHandler):
     """Request handler for the inventory web interface."""

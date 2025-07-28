@@ -9,8 +9,7 @@ repopulating. To run:
     python3 -m lego_inventory.sample_data
 """
 
-from . import inventory_db as db
-
+import inventory_db as db
 
 def main() -> None:
     db.init_db()
