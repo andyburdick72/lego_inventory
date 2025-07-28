@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}LEGO Inventory{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header>
+      <nav class="navbar">
+        <div class="nav-wrapper">
+          <a href="{{ url_for('index') }}" class="brand">LEGO Inventory</a>
+          <ul class="nav-links">
+            <li><a href="{{ url_for('index') }}">Parts</a></li>
+            <li><a href="{{ url_for('locations') }}">Locations</a></li>
+            <li>
+              <form action="{{ url_for('search') }}" method="get" class="search-form">
+                <input type="text" name="q" value="{{ query if query is defined else '' }}" placeholder="Search part number or name" required>
+                <button type="submit">Search</button>
+              </form>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

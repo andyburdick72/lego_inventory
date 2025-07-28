@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+
+{% block title %}
+  {% if query is defined %}Search results for "{{ query }}"{% else %}Parts{% endif %} - LEGO Inventory
+{% endblock %}
+
+{% block content %}
+  <h1>{% if query is defined %}Search results{% else %}Parts{% endif %}</h1>
+  {% if query is defined %}
+    <p class="message">Showing results for query "{{ query }}".</p>
+  {% endif %}
+  {% if not parts_with_totals %}
+    <p>No parts found.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Part Number</th>
+          <th>Name</th>
+          <th>Total Quantity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for part, total in parts_with_totals %}
+        <tr>
+          <td><a href="{{ url_for('part_detail', part_id=part.id) }}">{{ part.part_number }}</a></td>
+          <td>{{ part.name }}</td>
+          <td>{{ total }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+
+{% block title %}Part {{ part.part_number }} - LEGO Inventory{% endblock %}
+
+{% block content %}
+  <h1>Part {{ part.part_number }}</h1>
+  <p>Name: <strong>{{ part.name }}</strong></p>
+  <a href="{{ url_for('index') }}">&larr; Back to parts list</a>
+  {% if not records %}
+    <p>No inventory records found for this part.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Colour</th>
+          <th>Quantity</th>
+          <th>Status</th>
+          <th>Location</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in records %}
+        <tr>
+          <td>{{ record.colour }}</td>
+          <td>{{ record.quantity }}</td>
+          <td>{{ record.status.value.replace('_', ' ').title() }}</td>
+          <td>{{ record.location_str() }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}
