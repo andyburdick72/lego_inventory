@@ -1,123 +1,157 @@
-"""Load inventory data from an Instabrick XML export into the SQLite database.
-
-This script parses the XML format produced by Instabrick and inserts
-each item into the ``lego_inventory`` database. It uses the helper
-functions defined in ``inventory_db.py`` to insert parts and
-inventory records. If a part already exists, the existing record is
-reused rather than creating a duplicate. Colour codes are stored as
-their numeric identifiers if no mapping is available. Status values
-found in the XML are mapped to the canonical statuses used in the
-database (``in_box``, ``built``, ``teardown``, ``loose``). Any
-unrecognised status will be converted to a lower‑case, underscore
-version of the raw text. Locations extracted from remarks without
-explicit status are stored in the ``bin`` field.
-
-Usage:
-
-    python3 -m lego_inventory.load_instabrick_xml path/to/instabrick_inventory.xml
-
-The script will create the database if it does not exist and insert
-records accordingly.
 """
+Load inventory data from an **Instabrick** XML export into lego_inventory.db
+using the v2 canonical Rebrickable schema.
 
+* Translates BrickLink / Instabrick ITEMID → Rebrickable design_id via
+  utils.rebrickable_api.bulk_parts_by_bricklink (batched to avoid 429s).
+* Translates BrickLink colour ids → Rebrickable colour ids via the
+  ``color_aliases`` table (populated by load_rebrickable_colors.py).
+* Parses remarks to extract status, drawer, container, set_number.
+
+Run::
+
+    python src/load_instabrick_xml.py  data/instabrick_inventory.xml
+"""
 from __future__ import annotations
 
-import inventory_db as db
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
-DEFAULT_XML = Path(__file__).resolve().parents[1] / "data" / "instabrick_inventory.xml"
-xml_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_XML
+import inventory_db as db
+from utils.rebrickable_api import bulk_parts_by_bricklink
+from inventory_db import resolve_part, add_part_alias, insert_part, resolve_color
 
+# --------------------------------------------------------------------------- status map
 STATUS_MAP = {
     "In Box": "in_box",
     "Built": "built",
     "Teardown": "teardown",
-    "Work in Progress": "work_in_progress",
-    "WIP": "work_in_progress",
+    "Work in Progress": "wip",
+    "WIP": "wip",
 }
 
+# --------------------------------------------------------------------------- remarks parser
+RE_REMARK = re.compile(r"^\[IB\](.*)\[IB\]$")
 
-def parse_remarks(remarks: str) -> tuple[Optional[str], str]:
-    """Parse the remarks string into a tuple of (location, status).
 
-    The Instabrick remarks are wrapped in ``[IB]... [IB]`` markers. If
-    the content starts with a parenthesised status (e.g. ``(Built)``),
-    that status is extracted and returned; the location is left as
-    ``None``. Otherwise the text before the first ``|`` is treated as
-    the location and the status is assumed to be ``loose``. If no
-    recognised pattern is found, both values are ``None``.
+def parse_remarks(raw: str) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """
-    if not remarks:
-        return None, "loose"
-    # Remove surrounding [IB] markers
-    text = remarks
-    if text.startswith("[IB]"):
-        text = text[4:]
-    if text.endswith("[IB]"):
-        text = text[:-4]
-    text = text.strip()
-    if not text:
-        return None, "loose"
-    # Status enclosed in parentheses at start
+    Return (status, drawer, container, set_number).
+
+    * Loose parts:  [IB]Drawer|Container[IB]
+    * Built/WIP/etc: [IB](Built)|10787-1 Gabby's Dollhouse[IB]
+    """
+    if not raw:
+        return "loose", None, None, None
+
+    m = RE_REMARK.match(raw.strip())
+    text = m.group(1) if m else raw.strip()
+
+    # Leading (Status)
     if text.startswith("("):
-        end = text.find(")")
-        if end != -1:
-            status_text = text[1:end]
-            status_key = STATUS_MAP.get(status_text, status_text.lower().replace(" ", "_"))
-            return None, status_key
-    # Otherwise treat text before first | as location
-    parts = text.split("|", 1)
-    location = parts[0].strip() if parts[0].strip() else None
-    return location, "loose"
+        close = text.find(")")
+        status_text = text[1:close]
+        status = STATUS_MAP.get(status_text, status_text.lower().replace(" ", "_"))
+        # remainder contains set number
+        parts = text[close + 1 :].lstrip("|").split("|", 1)
+        set_no = parts[0].strip() if parts else None
+        return status, None, None, set_no
+
+    # Otherwise loose
+    drawer, container = None, None
+    if "|" in text:
+        drawer, container = (s.strip() for s in text.split("|", 1))
+    else:
+        drawer = text.strip()
+    return "loose", drawer or None, container or None, None
 
 
-def load_xml(path: str) -> None:
-    tree = ET.parse(path)
-    root = tree.getroot()
-    db.init_db()
-    inserted_parts = 0
-    inserted_records = 0
-    for item_el in root.findall("ITEM"):
-        item_id = (item_el.findtext("ITEMID") or "").strip()
-        if not item_id:
-            continue
-        # Insert part (use item_id as both part number and name if name unknown)
-        part_id = db.insert_part(item_id, item_id)
-        inserted_parts += 1
-        # Colour code
-        colour = (item_el.findtext("COLOR") or "").strip() or "unknown"
-        # Quantity
-        qty_text = (item_el.findtext("QTY") or "0").strip()
-        try:
-            quantity = int(qty_text)
-        except ValueError:
-            quantity = 0
-        # Remarks for status and location
-        remarks = (item_el.findtext("REMARKS") or "").strip()
-        location, status = parse_remarks(remarks)
-        # Insert inventory record
+# --------------------------------------------------------------------------- loader
+MAX_BATCH = 50  # keep well under API limit to reduce 429s
+
+
+def _batch_translate_parts(alias_ids: List[str]) -> Dict[str, Tuple[str, str]]:
+    """Return alias → (design_id, name) mapping, inserting into DB as needed."""
+    mapping: Dict[str, Tuple[str, str]] = {}
+    unresolved: List[str] = []
+
+    for aid in alias_ids:
+        did = resolve_part(aid)
+        if did:
+            mapping[aid] = (did, None)  # name not needed
+        else:
+            unresolved.append(aid)
+
+    for i in range(0, len(unresolved), MAX_BATCH):
+        chunk = unresolved[i : i + MAX_BATCH]
+        remote = bulk_parts_by_bricklink(chunk)
+        for alias, (design_id, name) in remote.items():
+            insert_part(design_id, name)
+            add_part_alias(alias, design_id)
+            mapping[alias] = (design_id, name)
+    return mapping
+
+
+def load_xml(xml_path: Path) -> None:
+    print(f"Loading {xml_path} …")
+    tree = ET.parse(xml_path)
+    items = tree.findall(".//ITEM")
+
+    # Collect all unique ITEMID and COLOR IDs first
+    alias_ids = [it.findtext("ITEMID").strip() for it in items]
+    color_aliases = {int(it.findtext("COLOR")) for it in items}
+
+    part_map = _batch_translate_parts(alias_ids)
+
+    missing_colors = []
+    color_map: Dict[int, int] = {}
+    for aid in color_aliases:
+        cid = resolve_color(aid)
+        if cid:
+            color_map[aid] = cid
+        else:
+            missing_colors.append(aid)
+
+    if missing_colors:
+        print("Error: missing color aliases for:", missing_colors)
+        sys.exit(1)
+
+    inserted = 0
+    for it in items:
+        alias = it.findtext("ITEMID").strip()
+        design_id, _ = part_map[alias]
+        color_id = color_map[int(it.findtext("COLOR"))]
+        quantity = int(it.findtext("QTY"))
+
+        status, drawer, container, set_no = parse_remarks(it.findtext("REMARKS", ""))
+
         db.insert_inventory(
-            part_id=part_id,
-            colour=colour,
+            design_id=design_id,
+            color_id=color_id,
             quantity=quantity,
             status=status,
-            container=None,
-            drawer=None,
-            bin_name=location,
+            drawer=drawer,
+            container=container,
+            set_number=set_no,
         )
-        inserted_records += 1
-    print(f"Inserted {inserted_records} inventory records for {inserted_parts} parts.")
+        inserted += 1
+
+    print(f"Inserted {inserted} inventory records.")
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: python3 -m lego_inventory.load_instabrick_xml <xml_file>")
+    path = (
+        Path(sys.argv[1])
+        if len(sys.argv) > 1
+        else Path(__file__).resolve().parents[1] / "data" / "instabrick_inventory.xml"
+    )
+    if not path.exists():
+        print(f"File not found: {path}")
         sys.exit(1)
-    xml_path = sys.argv[1]
-    load_xml(xml_path)
+    load_xml(path)
 
 
 if __name__ == "__main__":

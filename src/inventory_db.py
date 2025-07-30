@@ -1,260 +1,272 @@
-"""SQLite-based data access layer for the LEGO inventory system.
 
-This module manages a simple SQLite database that stores LEGO parts and
-inventory information. It exposes convenience functions for
-initialising the database, inserting data and querying it for use in a
-web interface. Only Python's standard library is used to ensure that
-the application runs in environments without external package
-dependencies.
-
-Database schema
----------------
-
-``parts``
-    id INTEGER PRIMARY KEY
-    part_number TEXT NOT NULL UNIQUE
-    name TEXT NOT NULL
-
-``inventory``
-    id INTEGER PRIMARY KEY
-    part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE
-    colour TEXT NOT NULL
-    quantity INTEGER NOT NULL
-    status TEXT NOT NULL
-    container TEXT
-    drawer TEXT
-    bin TEXT
-
-Locations are represented by the combination of container, drawer and
-bin. Any of these fields may be NULL if not applicable.
 """
+SQLite data‑access layer, **v2**.
 
+Canonical keys = Rebrickable IDs.
+BrickLink / Instabrick IDs are kept only in alias tables.
+
+Schema
+------
+
+colors
+    id INTEGER PRIMARY KEY          – Rebrickable colour id
+    name TEXT
+    hex  TEXT
+    r, g, b INTEGER                 – pre‑split RGB (convenience)
+
+color_aliases
+    alias_id INTEGER PRIMARY KEY    – BrickLink colour id
+    color_id INTEGER REFERENCES colors(id)
+
+parts
+    design_id TEXT PRIMARY KEY      – Rebrickable design‑id
+    name      TEXT
+
+part_aliases
+    alias TEXT PRIMARY KEY          – BrickLink/Instabrick id
+    design_id TEXT REFERENCES parts(design_id)
+
+inventory
+    id INTEGER PRIMARY KEY
+    design_id TEXT  REFERENCES parts(design_id)
+    color_id  INTEGER REFERENCES colors(id)
+    quantity  INTEGER
+    status    TEXT                  – loose / built / wip / in_box / teardown
+    drawer    TEXT                  – loose only
+    container TEXT                  – loose only
+    set_number TEXT                 – built/WIP/In‑Box
+
+Only stdlib; no external deps.
+"""
 from __future__ import annotations
-from pathlib import Path
+
 import sqlite3
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
 
-def get_connection() -> sqlite3.Connection:
-    """Return a new SQLite connection.
 
-    ``row_factory`` is set to ``sqlite3.Row`` to allow name-based column
-    access like a dict. Callers should close the connection when
-    finished.
-    """
+# --------------------------------------------------------------------------- helpers
+def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+# --------------------------------------------------------------------------- schema
 def init_db() -> None:
-    """Create database tables if they do not already exist."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+    """(Re)create all tables if they don't already exist."""
+    with _connect() as conn:
+        c = conn.cursor()
+        c.executescript(
             """
-            CREATE TABLE IF NOT EXISTS parts (
-                id INTEGER PRIMARY KEY,
-                part_number TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS colors(
+                id   INTEGER PRIMARY KEY,
+                name TEXT,
+                hex  TEXT,
+                r    INTEGER,
+                g    INTEGER,
+                b    INTEGER
             );
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS inventory (
-                id INTEGER PRIMARY KEY,
-                part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
-                colour TEXT NOT NULL,
-                quantity INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                container TEXT,
-                drawer TEXT,
-                bin TEXT
+
+            CREATE TABLE IF NOT EXISTS color_aliases(
+                alias_id INTEGER PRIMARY KEY,
+                color_id INTEGER REFERENCES colors(id)
             );
+
+            CREATE TABLE IF NOT EXISTS parts(
+                design_id TEXT PRIMARY KEY,
+                name      TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS part_aliases(
+                alias     TEXT PRIMARY KEY,
+                design_id TEXT REFERENCES parts(design_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory(
+                id         INTEGER PRIMARY KEY,
+                design_id  TEXT    REFERENCES parts(design_id),
+                color_id   INTEGER REFERENCES colors(id),
+                quantity   INTEGER,
+                status     TEXT,
+                drawer     TEXT,
+                container  TEXT,
+                set_number TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inv_status       ON inventory(status);
+            CREATE INDEX IF NOT EXISTS idx_inv_part_color   ON inventory(design_id,color_id);
+            CREATE INDEX IF NOT EXISTS idx_color_alias      ON color_aliases(alias_id);
+            CREATE INDEX IF NOT EXISTS idx_part_alias       ON part_aliases(alias);
             """
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def insert_part(part_number: str, name: str) -> int:
-    """Insert a part and return its ID.
-
-    If a part with the same part_number already exists, its ID is
-    returned without inserting a duplicate.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM parts WHERE part_number = ?", (part_number,))
-        row = cur.fetchone()
-        if row:
-            return row["id"]
-        cur.execute("INSERT INTO parts (part_number, name) VALUES (?, ?)", (part_number, name))
+# --------------------------------------------------------------------------- color helpers
+def insert_color(color_id: int, name: str, hex_code: str) -> None:
+    r, g, b = tuple(int(hex_code[i : i + 2], 16) for i in (0, 2, 4))
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO colors(id,name,hex,r,g,b) VALUES (?,?,?,?,?,?)",
+            (color_id, name, hex_code.upper(), r, g, b),
+        )
         conn.commit()
-        return cur.lastrowid
-    finally:
-        conn.close()
 
 
+def add_color_alias(bl_id: int, color_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO color_aliases(alias_id,color_id) VALUES (?,?)",
+            (bl_id, color_id),
+        )
+        conn.commit()
+
+
+def resolve_color(bl_id: int) -> Optional[int]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT color_id FROM color_aliases WHERE alias_id=?", (bl_id,)
+        ).fetchone()
+        return row["color_id"] if row else None
+
+
+# --------------------------------------------------------------------------- part helpers
+def insert_part(design_id: str, name: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
+            (design_id, name),
+        )
+        conn.commit()
+
+
+def add_part_alias(alias: str, design_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO part_aliases(alias,design_id) VALUES (?,?)",
+            (alias, design_id),
+        )
+        conn.commit()
+
+
+def resolve_part(alias: str) -> Optional[str]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT design_id FROM part_aliases WHERE alias=?", (alias,)
+        ).fetchone()
+        return row["design_id"] if row else None
+
+
+# --------------------------------------------------------------------------- inventory
 def insert_inventory(
-    part_id: int,
-    colour: str,
+    design_id: str,
+    color_id: int,
     quantity: int,
     status: str,
-    container: Optional[str] = None,
     drawer: Optional[str] = None,
-    bin_name: Optional[str] = None,
-) -> int:
-    """Insert an inventory record and return its ID."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+    container: Optional[str] = None,
+    set_number: Optional[str] = None,
+) -> None:
+    with _connect() as conn:
+        conn.execute(
             """
-            INSERT INTO inventory (part_id, colour, quantity, status, container, drawer, bin)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO inventory
+            (design_id,color_id,quantity,status,drawer,container,set_number)
+            VALUES (?,?,?,?,?,?,?)
             """,
-            (part_id, colour, quantity, status, container, drawer, bin_name),
+            (
+                design_id,
+                color_id,
+                quantity,
+                status,
+                drawer,
+                container,
+                set_number,
+            ),
         )
         conn.commit()
-        return cur.lastrowid
-    finally:
-        conn.close()
 
 
-def get_parts_with_totals() -> List[Dict]:
-    """Return a list of parts with their total quantity across all inventory records.
-
-    Each list item is a dict with keys ``id``, ``part_number``, ``name`` and
-    ``total_quantity``. Parts with no inventory records are included with
-    ``total_quantity`` set to 0.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+# --------------------------------------------------------------------------- queries
+def parts_with_totals() -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
             """
-            SELECT p.id, p.part_number, p.name, IFNULL(SUM(i.quantity), 0) AS total_quantity
+            SELECT p.design_id, p.name,
+                   SUM(i.quantity) AS total_quantity
             FROM parts p
-            LEFT JOIN inventory i ON i.part_id = p.id
-            GROUP BY p.id
-            ORDER BY p.part_number
+            LEFT JOIN inventory i ON i.design_id = p.design_id
+            GROUP BY p.design_id
+            ORDER BY p.design_id
             """
-        )
-        return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
-def get_inventory_records_by_part(part_id: int) -> List[Dict]:
-    """Return all inventory records for a given part ID.
-
-    Records are returned as dicts with keys ``colour``, ``quantity``, ``status``,
-    ``container``, ``drawer`` and ``bin``. Results are ordered by colour,
-    status and location.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
+def inventory_by_part(design_id: str) -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
             """
-            SELECT colour, quantity, status, container, drawer, bin
-            FROM inventory
-            WHERE part_id = ?
-            ORDER BY colour, status, container, drawer, bin
-            """,
-            (part_id,),
-        )
-        return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
-
-
-def get_part(part_id: int) -> Optional[Dict]:
-    """Return a single part by ID or ``None`` if not found."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, part_number, name FROM parts WHERE id = ?", (part_id,))
-        row = cur.fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def get_locations_map() -> Dict[Tuple[Optional[str], Optional[str], Optional[str]], List[Dict]]:
-    """Group inventory records by location and return a mapping.
-
-    The keys of the returned dict are (container, drawer, bin) tuples.
-    The values are lists of dicts with keys ``part_id``, ``part_number``, ``name``,
-    ``colour`` and ``quantity`` for the aggregated quantities at that location.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                i.container,
-                i.drawer,
-                i.bin,
-                p.id AS part_id,
-                p.part_number,
-                p.name,
-                i.colour,
-                SUM(i.quantity) AS quantity
+            SELECT c.name AS color_name, c.hex,
+                   i.color_id, i.quantity, i.status,
+                   i.drawer, i.container, i.set_number
             FROM inventory i
-            JOIN parts p ON p.id = i.part_id
-            GROUP BY i.container, i.drawer, i.bin, p.id, i.colour
-            ORDER BY i.container, i.drawer, i.bin, p.part_number, i.colour
+            JOIN colors c ON c.id = i.color_id
+            WHERE i.design_id = ?
+            ORDER BY i.status, i.drawer, i.container, i.color_id
+            """,
+            (design_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
+    """Return hierarchical mapping for loose parts (drawer → container)."""
+    with _connect() as conn:
+        rows = conn.execute(
             """
-        )
-        locations: Dict[Tuple[Optional[str], Optional[str], Optional[str]], List[Dict]] = {}
-        for row in cur.fetchall():
-            key = (row["container"], row["drawer"], row["bin"])
-            if key not in locations:
-                locations[key] = []
-            locations[key].append(
-                {
-                    "part_id": row["part_id"],
-                    "part_number": row["part_number"],
-                    "name": row["name"],
-                    "colour": row["colour"],
-                    "quantity": row["quantity"],
-                }
-            )
-        return locations
-    finally:
-        conn.close()
+            SELECT i.drawer, i.container,
+                   p.design_id, p.name,
+                   c.name AS color_name, c.hex,
+                   SUM(i.quantity) AS qty
+            FROM inventory i
+            JOIN parts p  ON p.design_id = i.design_id
+            JOIN colors c ON c.id = i.color_id
+            WHERE i.status = 'loose'
+            GROUP BY i.drawer, i.container, p.design_id, i.color_id
+            ORDER BY i.drawer, i.container
+            """
+        ).fetchall()
+    tree: Dict[Tuple[str, str], List[Dict]] = {}
+    for r in rows:
+        key = (r["drawer"], r["container"])
+        tree.setdefault(key, []).append(dict(r))
+    return tree
 
 
 def search_parts(query: str) -> List[Dict]:
-    """Search parts by part number or name and return parts with totals.
-
-    The search is case-insensitive and matches if the query string
-    appears anywhere in the part number or name. Returns a list of
-    dicts with the same structure as ``get_parts_with_totals()``.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        pattern = f"%{query}%"
-        cur.execute(
+    pattern = f"%{query}%"
+    with _connect() as conn:
+        rows = conn.execute(
             """
-            SELECT p.id, p.part_number, p.name, IFNULL(SUM(i.quantity), 0) AS total_quantity
+            SELECT p.design_id, p.name,
+                   SUM(i.quantity) AS total_quantity
             FROM parts p
-            LEFT JOIN inventory i ON i.part_id = p.id
-            WHERE p.part_number LIKE ? OR p.name LIKE ?
-            GROUP BY p.id
-            ORDER BY p.part_number
+            LEFT JOIN inventory i ON i.design_id = p.design_id
+            WHERE p.design_id LIKE ? OR p.name LIKE ?
+            GROUP BY p.design_id
+            ORDER BY p.design_id
             """,
             (pattern, pattern),
-        )
-        return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+# --------------------------------------------------------------------------- main
+if __name__ == "__main__":
+    init_db()
+    print("Database schema created.")
