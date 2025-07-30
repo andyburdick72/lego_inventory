@@ -59,7 +59,7 @@ class InventoryRequestHandler(BaseHTTPRequestHandler):
     # Route handlers
     #
     def handle_parts_list(self, params: Dict[str, List[str]]) -> None:
-        parts = db.get_parts_with_totals()
+        parts = db.parts_with_totals()
         html = self.render_parts_list(parts)
         self.respond(html)
 
@@ -153,7 +153,7 @@ class InventoryRequestHandler(BaseHTTPRequestHandler):
         message = f"Showing results for query \"{query}\"." if query else ""
         rows_html = ""
         for part in parts:
-            rows_html += f"<tr><td><a href='/parts/{part['id']}'>{part['part_number']}</a></td><td>{part['name']}</td><td>{part['total_quantity']}</td></tr>\n"
+            rows_html += f"<tr><td><a href='/parts/{part['design_id']}'>{part['design_id']}</a></td><td>{part['name']}</td><td>{part['total_quantity']}</td></tr>\n"
         table_html = (
             "<p>No parts found.</p>" if not parts else
             f"""
@@ -183,13 +183,13 @@ class InventoryRequestHandler(BaseHTTPRequestHandler):
             if rec['bin']:
                 location_parts.append(f"Bin {rec['bin']}")
             location_str = ' - '.join(location_parts) if location_parts else 'N/A'
-            rows_html += f"<tr><td>{rec['colour']}</td><td>{rec['quantity']}</td><td>{status_display}</td><td>{location_str}</td></tr>\n"
+            rows_html += f"<tr><td>{rec['color']}</td><td>{rec['quantity']}</td><td>{status_display}</td><td>{location_str}</td></tr>\n"
         table_html = (
             "<p>No inventory records found for this part.</p>" if not records else
             f"""
             <table>
               <thead>
-                <tr><th>Colour</th><th>Quantity</th><th>Status</th><th>Location</th></tr>
+                <tr><th>Color</th><th>Quantity</th><th>Status</th><th>Location</th></tr>
               </thead>
               <tbody>
                 {rows_html}
@@ -197,8 +197,8 @@ class InventoryRequestHandler(BaseHTTPRequestHandler):
             </table>
             """
         )
-        content = f"<h1>Part {part['part_number']}</h1><p>Name: <strong>{part['name']}</strong></p><a href='/'>← Back to parts list</a>" + table_html
-        return self.render_layout(f"{part['part_number']} - LEGO Inventory", content)
+        content = f"<h1>Part {part['design_id']}</h1><p>Name: <strong>{part['name']}</strong></p><a href='/'>← Back to parts list</a>" + table_html
+        return self.render_layout(f"{part['design_id']} - LEGO Inventory", content)
 
     def render_locations(self, locations_map: Dict) -> str:
         """Render the locations page."""
@@ -218,11 +218,11 @@ class InventoryRequestHandler(BaseHTTPRequestHandler):
                 # Build table rows
                 rows_html = ""
                 for rec in records:
-                    rows_html += f"<tr><td><a href='/parts/{rec['part_id']}'>{rec['part_number']}</a></td><td>{rec['name']}</td><td>{rec['colour']}</td><td>{rec['quantity']}</td></tr>\n"
+                    rows_html += f"<tr><td><a href='/parts/{rec['design_id']}'>{rec['design_id']}</a></td><td>{rec['name']}</td><td>{rec['color']}</td><td>{rec['quantity']}</td></tr>\n"
                 table_html = f"""
                 <table>
                   <thead>
-                    <tr><th>Part Number</th><th>Name</th><th>Colour</th><th>Quantity</th></tr>
+                    <tr><th>Part Number</th><th>Name</th><th>Color</th><th>Quantity</th></tr>
                   </thead>
                   <tbody>
                     {rows_html}

@@ -137,12 +137,35 @@ def resolve_color(bl_id: int) -> Optional[int]:
 
 # --------------------------------------------------------------------------- part helpers
 def insert_part(design_id: str, name: str) -> None:
+    """
+    Insert a part or update its placeholder name.
+
+    * If the part is new → insert (design_id, name).
+    * If the part already exists **and** the stored name is
+      'Unknown part' → upgrade it to the supplied name.
+    * Otherwise leave the existing (non‑placeholder) name untouched.
+    """
     with _connect() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
+            """
+            INSERT INTO parts(design_id, name) VALUES (?, ?)
+            ON CONFLICT(design_id) DO
+              UPDATE SET name = excluded.name
+              WHERE parts.name = 'Unknown part'
+            """,
             (design_id, name),
         )
         conn.commit()
+
+
+# List all design_ids whose name is still the placeholder
+def unknown_parts() -> List[str]:
+    """Return a list of design_ids whose name is still the placeholder."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT design_id FROM parts WHERE name = 'Unknown part'"
+        ).fetchall()
+    return [r["design_id"] for r in rows]
 
 
 def add_part_alias(alias: str, design_id: str) -> None:
@@ -160,6 +183,20 @@ def resolve_part(alias: str) -> Optional[str]:
             "SELECT design_id FROM part_aliases WHERE alias=?", (alias,)
         ).fetchone()
         return row["design_id"] if row else None
+
+
+# --------------------------------------------------------------------------- new helper: get_part
+def get_part(design_id: str) -> Optional[Dict]:
+    """
+    Retrieve a single part row (design_id, name) as a dict, or None
+    if the part is not in the table.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT design_id, name FROM parts WHERE design_id = ?",
+            (design_id,),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 # --------------------------------------------------------------------------- inventory
