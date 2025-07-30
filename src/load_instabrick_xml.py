@@ -109,6 +109,13 @@ def load_xml(xml_path: Path) -> None:
 
     # Collect all unique ITEMID and COLOR IDs first
     alias_ids = [it.findtext("ITEMID").strip() for it in items]
+
+    # Map ITEMID → ITEMNAME so we can create placeholder parts for aliases
+    alias_to_name = {
+        it.findtext("ITEMID").strip(): it.findtext("ITEMNAME", "").strip()
+        for it in items
+    }
+
     color_aliases = {int(it.findtext("COLOR")) for it in items}
 
     part_map = _batch_translate_parts(alias_ids)
@@ -152,6 +159,15 @@ def load_xml(xml_path: Path) -> None:
     inserted = 0
     for it in items:
         alias = it.findtext("ITEMID").strip()
+
+        # If the alias is still unresolved, create a local placeholder part
+        if alias not in part_map:
+            placeholder_name = alias_to_name.get(alias, "Unknown part")
+            insert_part(alias, placeholder_name or "Unknown part")
+            add_part_alias(alias, alias)
+            part_map[alias] = (alias, placeholder_name)
+            print(f"  • Added local part record for BL-only alias {alias} – '{placeholder_name}'")
+
         design_id, _ = part_map[alias]
         color_id = color_map[int(it.findtext("COLOR"))]
         quantity = int(it.findtext("QTY"))
