@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 import inventory_db as db
 from utils.rebrickable_api import bulk_parts_by_bricklink
+from utils.rebrickable_api import get_json
 from inventory_db import resolve_part, add_part_alias, insert_part, resolve_color
 
 # --------------------------------------------------------------------------- status map
@@ -92,6 +93,10 @@ def _batch_translate_parts(alias_ids: List[str]) -> Dict[str, Tuple[str, str]]:
             insert_part(design_id, name)
             add_part_alias(alias, design_id)
             mapping[alias] = (design_id, name)
+    # Any aliases still not in mapping could not be resolved via the API
+    still_missing = [a for a in unresolved if a not in mapping]
+    if still_missing:
+        print("Warning: BrickLink/Instabrick part IDs not found in Rebrickable:", still_missing)
     return mapping
 
 
@@ -99,6 +104,8 @@ def load_xml(xml_path: Path) -> None:
     print(f"Loading {xml_path} …")
     tree = ET.parse(xml_path)
     items = tree.findall(".//ITEM")
+    total_items = len(items)
+    print(f"Found {total_items} inventory records in XML. Beginning import …")
 
     # Collect all unique ITEMID and COLOR IDs first
     alias_ids = [it.findtext("ITEMID").strip() for it in items]
@@ -116,8 +123,31 @@ def load_xml(xml_path: Path) -> None:
             missing_colors.append(aid)
 
     if missing_colors:
-        print("Error: missing color aliases for:", missing_colors)
-        sys.exit(1)
+        print("Resolving", len(missing_colors), "missing BrickLink color IDs via Rebrickable …")
+        for bl_id in missing_colors:
+            data = get_json(
+                "/colors/",
+                params={"bricklink_id__in": bl_id},
+            )
+            if data["results"]:
+                c = data["results"][0]
+                rb_id = int(c["id"])
+                name = c["name"]
+                hex_code = c["rgb"].lstrip("#").upper()
+                # Insert color + alias
+                db.insert_color(rb_id, name, hex_code)
+                db.add_color_alias(bl_id, rb_id)
+                color_map[bl_id] = rb_id
+                print(f"  • BL {bl_id} → RB {rb_id} ({name})")
+            else:
+                print(f"  • Warning: BrickLink color {bl_id} not found in Rebrickable")
+                # Leave unresolved; will trigger error below
+
+        # After attempting fallback, abort if any still unresolved
+        unresolved = [bl for bl in missing_colors if bl not in color_map]
+        if unresolved:
+            print("Error: still missing color aliases for:", unresolved)
+            sys.exit(1)
 
     inserted = 0
     for it in items:
@@ -138,8 +168,10 @@ def load_xml(xml_path: Path) -> None:
             set_number=set_no,
         )
         inserted += 1
+        if inserted % 100 == 0:
+            print(f"  … {inserted}/{total_items} processed")
 
-    print(f"Inserted {inserted} inventory records.")
+    print(f"Import complete: {inserted}/{total_items} records inserted.")
 
 
 def main() -> None:
