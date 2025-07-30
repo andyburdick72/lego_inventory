@@ -31,11 +31,8 @@ import sqlite3
 from pathlib import Path
 from typing import List
 
-import inventory_db as db
-from utils.rebrickable_api import (
-    bulk_parts_by_bricklink,
-    load_rebrickable_environment,
-)
+from utils.rebrickable_api import bulk_parts_by_bricklink
+from utils.common_functions import load_rebrickable_environment
 
 MAX_BATCH = 50
 
@@ -43,7 +40,7 @@ MAX_BATCH = 50
 def get_placeholders(conn: sqlite3.Connection) -> List[str]:
     """Return BrickLink alias IDs that currently point to themselves."""
     rows = conn.execute(
-        "SELECT alias_id FROM part_aliases WHERE alias_id = design_id"
+        "SELECT alias FROM part_aliases WHERE alias = design_id"
     ).fetchall()
     return [row[0] for row in rows]
 
@@ -55,10 +52,16 @@ def reconcile_batch(conn: sqlite3.Connection, aliases: List[str]) -> int:
 
     for alias, (rb_id, name) in remote.items():
         # 1) canonical part
-        db.insert_part(rb_id, name)
+        conn.execute(
+            "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
+            (rb_id, name),
+        )
 
         # 2) alias row
-        db.add_part_alias(alias, rb_id)
+        conn.execute(
+            "INSERT OR IGNORE INTO part_aliases(alias,design_id) VALUES (?,?)",
+            (alias, rb_id),
+        )
 
         # 3) relink inventory
         conn.execute(
@@ -69,7 +72,7 @@ def reconcile_batch(conn: sqlite3.Connection, aliases: List[str]) -> int:
         # 4) remove placeholder
         conn.execute("DELETE FROM parts WHERE design_id = ?", (alias,))
         conn.execute(
-            "DELETE FROM part_aliases WHERE alias_id = ? AND design_id = ?",
+            "DELETE FROM part_aliases WHERE alias = ? AND design_id = ?",
             (alias, alias),
         )
 
@@ -85,6 +88,9 @@ def main() -> None:
 
     db_path = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
     with sqlite3.connect(db_path) as conn:
+        # Enable write-ahead logging to reduce locking conflicts
+        conn.execute("PRAGMA journal_mode=WAL;")
+
         placeholders = get_placeholders(conn)
         total = len(placeholders)
 
