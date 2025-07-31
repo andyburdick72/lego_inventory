@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+import random
 from typing import Any, Dict, Iterator, Optional, Tuple
 
 import requests
@@ -18,6 +19,7 @@ from utils.common_functions import load_rebrickable_environment as _load_env
 
 RB_API_BASE = "https://rebrickable.com/api/v3/lego"
 DEFAULT_TIMEOUT = 30  # seconds
+MAX_RETRIES = 5      # total attempts for transient errors
 RETRY_STATUS = {429, 502, 503, 504}  # include rate‑limit 429
 
 # --------------------------------------------------------------------------- core helpers
@@ -48,22 +50,44 @@ def _headers() -> Dict[str, str]:
 def get_json(endpoint: str, *, params: Optional[Dict[str, Any]] = None, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
     """GET *endpoint* (relative to RB_API_BASE) and return decoded JSON.
 
-    Retries once on the usual transient 50x errors.
+    Retries the usual transient errors (429, 502, 503, 504) **up to MAX_RETRIES**
+    using exponential back‑off (1 s, 2 s, 4 s, …) plus a small random jitter.
     """
     url = endpoint if endpoint.startswith("http") else f"{RB_API_BASE}{endpoint}"
-    for attempt in (1, 2):
+
+    for attempt in range(1, MAX_RETRIES + 1):
         resp = requests.get(url, headers=_headers(), params=params, timeout=timeout)
-        # If we hit Rebrickable's rate limit, sleep per Retry‑After header (or 5 s) then retry once
-        if resp.status_code == 429 and attempt == 1:
-            delay = int(resp.headers.get("Retry-After", "5"))
+
+        # --- Successful response ---
+        if resp.status_code < 400:
+            return resp.json()
+
+        # --- Retryable responses ---
+        if resp.status_code in RETRY_STATUS and attempt < MAX_RETRIES:
+            # Rate‑limit 429 honour explicit Retry‑After header, otherwise
+            # exponential back‑off: 1s, 2s, 4s, 8s… plus jitter
+            if resp.status_code == 429:
+                delay = int(resp.headers.get("Retry-After", "5"))
+            else:
+                delay = 2 ** (attempt - 1)
+            delay += random.uniform(0, 0.5)
             time.sleep(delay)
             continue
-        if resp.status_code in RETRY_STATUS and attempt == 1:
-            time.sleep(1)
-            continue
+
+        # --- Non‑retryable or final failure ---
         resp.raise_for_status()
-        return resp.json()
-    raise AssertionError("Unreachable")
+
+    raise RuntimeError("Unreachable – retries exhausted")
+
+def _single_part_name(part_num: str) -> Optional[str]:
+    """Return the canonical name for *part_num* or None if 404."""
+    try:
+        data = get_json(f"/parts/{part_num}/")
+        return data["name"]
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
 
 # --------------------------------------------------------------------------- pagination helpers
 
@@ -101,4 +125,34 @@ def bulk_parts_by_bricklink(bricklink_ids: list[str | int]) -> Dict[str, Tuple[s
         name = p["name"]
         for bl in p["external_ids"].get("BrickLink", []):
             mapping[str(bl)] = (design_id, name)
+    return mapping
+
+def bulk_parts(design_ids: list[str]) -> Dict[str, str]:
+    """
+    Return a mapping {design_id -> proper name} for ≤100 Rebrickable design‑IDs.
+
+    The Rebrickable parts endpoint accepts up to 100 comma‑separated part
+    numbers at a time.  Any unknown IDs are silently ignored so callers can
+    pass raw lists without pre‑validation.
+    """
+    assert len(design_ids) <= 100, "Pass at most 100 ids per call (API hard limit)"
+    ids_param = ",".join(design_ids)
+    try:
+        data = get_json(
+            "/parts/",
+            params={"part_nums": ids_param},
+        )
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in RETRY_STATUS:
+            mapping: Dict[str, str] = {}
+            for pid in design_ids:
+                name = _single_part_name(pid)
+                if name:
+                    mapping[pid] = name
+            return mapping
+        else:
+            raise
+    mapping: Dict[str, str] = {}
+    for part in data.get("results", []):
+        mapping[part["part_num"]] = part["name"]
     return mapping
