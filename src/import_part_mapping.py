@@ -3,7 +3,7 @@
 Load BrickLink→Rebrickable mappings from a CSV produced from the Excel sheet.
 
 Usage:
-    python src/import_mapping.py data/bricklink_to_rebrickable.csv
+    python3 src/import_part_mapping.py data/bricklink_to_rebrickable.csv
 """
 from __future__ import annotations
 import csv, sys, sqlite3, pathlib

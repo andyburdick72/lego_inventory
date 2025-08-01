@@ -17,8 +17,9 @@ import sqlite3
 import time
 import sys
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 import re
+from requests.exceptions import HTTPError
 
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 from utils.common_functions import load_rebrickable_environment
@@ -38,6 +39,12 @@ def get_placeholders(conn: sqlite3.Connection) -> List[str]:
 def _looks_like_bricklink_id(pid: str) -> bool:
     """Return True if *pid* is all-digits or digits + single suffix."""
     return bool(re.fullmatch(r"\d+[a-z]?", pid, re.IGNORECASE))
+
+
+def strip_base_alias(pid: str) -> Optional[str]:
+    """Extract leading digits plus optional single letter (e.g. '3068b' from '3068bpb1291')."""
+    m = re.match(r'^(\d+[a-z]?)', pid, flags=re.IGNORECASE)
+    return m.group(1) if m else None
 
 
 def reconcile_batch(conn: sqlite3.Connection, aliases: List[str]) -> int:
@@ -160,6 +167,40 @@ def main() -> None:
         if num_fixed:
             print(f"Numeric-ID reconciliation fixed {num_fixed} more.")
 
+        # Phase 1c: strip complex-suffix aliases (e.g. '3068bpb1291' → '3068b')
+        unknown_ids = get_unknown_design_ids(conn)
+        stripped_fixed = 0
+        for alias in unknown_ids:
+            base = strip_base_alias(alias)
+            if base and base != alias:
+                try:
+                    remote = bulk_parts_by_bricklink([base])
+                except Exception:
+                    continue
+                if base in remote:
+                    rb_id, name = remote[base]
+                    # ensure canonical part exists
+                    conn.execute(
+                        "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
+                        (rb_id, name),
+                    )
+                    # alias mapping
+                    conn.execute(
+                        "INSERT OR IGNORE INTO part_aliases(alias,design_id) VALUES (?,?)",
+                        (alias, rb_id),
+                    )
+                    # move inventory
+                    conn.execute(
+                        "UPDATE inventory SET design_id = ? WHERE design_id = ?",
+                        (rb_id, alias),
+                    )
+                    # cleanup old placeholder part
+                    conn.execute("DELETE FROM parts WHERE design_id = ?", (alias,))
+                    stripped_fixed += 1
+        if stripped_fixed:
+            conn.commit()
+            print(f"Stripped-suffix reconciliation fixed {stripped_fixed} more.")
+
         # Phase 2: fill in names via bulk_parts_by_bricklink on design_ids
         unknown_ids = get_unknown_design_ids(conn)
         remaining = len(unknown_ids)
@@ -178,42 +219,58 @@ def main() -> None:
         else:
             print("No 'Unknown part' rows remain.")
 
-        # Phase 3: fallback search for any still unknown
+        # Phase 3: direct lookup for any still unknown parts
         unknown_ids = get_unknown_design_ids(conn)
         total = len(unknown_ids)
         if total:
-            print(f"Attempting fallback search for {total} parts…")
+            print(f"Direct lookup for {total} parts…")
             resolved = 0
             for alias in unknown_ids:
                 try:
-                    data = get_json("/parts/", params={"search": alias})
-                except Exception:
-                    continue
-                for p in data.get("results", []):
-                    part_num = p.get("part_num")
-                    if not part_num:
+                    part_data = get_json(f"/parts/{alias}/")
+                except HTTPError as e:
+                    # skip parts that truly don't exist
+                    if e.response is not None and e.response.status_code == 404:
                         continue
-                    ext_ids = [str(x) for x in p.get("external_ids", {}).get("BrickLink", [])]
-                    if alias.lower() in [e.lower() for e in ext_ids] or part_num.lower().startswith(alias.lower()):
-                        name = p.get("name", "")
-                        # update mapping + inventory
-                        conn.execute(
-                            "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
-                            (part_num, name),
-                        )
-                        conn.execute(
-                            "INSERT OR IGNORE INTO part_aliases(alias,design_id) VALUES (?,?)",
-                            (alias, part_num),
-                        )
-                        conn.execute(
-                            "UPDATE inventory SET design_id = ? WHERE design_id = ?",
-                            (part_num, alias),
-                        )
-                        conn.execute("DELETE FROM parts WHERE design_id = ?", (alias,))
-                        conn.commit()
-                        resolved += 1
-                        break
-            print(f"Fallback search complete: {resolved}/{total} resolved.")
+                    # other HTTP errors: report and continue
+                    print(f"  ! HTTP error fetching {alias}: {e}")
+                    continue
+                except Exception as e:
+                    # non-HTTP errors
+                    print(f"  ! could not fetch {alias}: {e}")
+                    continue
+                canonical = part_data.get("part_num")
+                name = part_data.get("name", "")
+                if not canonical or not name:
+                    continue
+                if canonical != alias:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO parts(design_id,name) VALUES (?,?)",
+                        (canonical, name),
+                    )
+                    conn.execute(
+                        "INSERT OR IGNORE INTO part_aliases(alias,design_id) VALUES (?,?)",
+                        (alias, canonical),
+                    )
+                    conn.execute(
+                        "UPDATE inventory SET design_id = ? WHERE design_id = ?",
+                        (canonical, alias),
+                    )
+                    conn.execute("DELETE FROM parts WHERE design_id = ?", (alias,))
+                else:
+                    conn.execute(
+                        """
+                        UPDATE parts
+                           SET name = ?
+                         WHERE design_id = ?
+                           AND name = 'Unknown part'
+                        """,
+                        (name, alias),
+                    )
+                conn.commit()
+                resolved += 1
+                print(f"  • {alias} → {canonical}")
+            print(f"Direct lookup complete: {resolved}/{total} resolved.")
         else:
             print("All parts now have proper names.")
 
