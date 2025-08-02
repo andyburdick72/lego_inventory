@@ -1,94 +1,36 @@
 """
-Load inventory data from an Instabrick XML export into lego_inventory.db
-using only preloaded Rebrickable parts and colors.
-
-Each BrickLink ITEMID and COLOR is mapped to its Rebrickable equivalent
-via the part_aliases and color_aliases tables. No Rebrickable API access
-is used in this script.
+Precheck inventory XML for missing part and color aliases and allow interactive resolution.
 
 Usage:
-
-    python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
+    python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml
 """
-from __future__ import annotations
 
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import inventory_db as db
-from inventory_db import resolve_part, resolve_color
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 
-# --------------------------------------------------------------------------- status map and parser
+from inventory_db import resolve_part, resolve_color
 
-STATUS_MAP = {
-    "In Box": "In Box",
-    "Built": "Built",
-    "Teardown": "Teardown",
-    "Work in Progress": "Work in Progress",
-    "WIP": "Work in Progress",
-}
-
-RE_REMARK = re.compile(r"^\[IB\](.*)\[IB\]$")
-
-
-def parse_remarks(raw: str) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
-    """Return (status, drawer, container, set_number) parsed from REMARKS."""
-    if not raw:
-        return "loose", None, None, None
-    m = RE_REMARK.match(raw.strip())
-    text = m.group(1) if m else raw.strip()
-    if text.startswith("("):
-        close = text.find(")")
-        status_text = text[1:close]
-        status = STATUS_MAP.get(status_text, status_text)
-        parts = text[close + 1 :].lstrip("|").split("|", 1)
-        set_no = parts[0].strip() if parts else None
-        return status, None, None, set_no
-    drawer, container = None, None
-    if "|" in text:
-        drawer, container = (s.strip() for s in text.split("|", 1))
-    else:
-        drawer = text.strip()
-    return "loose", drawer or None, container or None, None
-
-
-# --------------------------------------------------------------------------- main loader
-
-def load_xml(xml_path: Path) -> None:
-    print(f"Loading XML from: {xml_path}")
+def precheck_xml(xml_path: Path) -> None:
+    print(f"Prechecking XML from: {xml_path}")
     tree = ET.parse(xml_path)
     items = tree.findall(".//ITEM")
     print(f"→ Found {len(items)} inventory records.")
 
     unknown_parts: set[str] = set()
     unknown_colors: set[int] = set()
-    prepared = []
 
     for item in items:
         alias = item.findtext("ITEMID").strip()
         bl_color = int(item.findtext("COLOR"))
-        qty = int(item.findtext("QTY"))
 
-        design_id = resolve_part(alias)
-        color_id = resolve_color(bl_color)
-
-        if not design_id:
+        if not resolve_part(alias):
             unknown_parts.add(alias)
-            continue
-        if not color_id:
+        if not resolve_color(bl_color):
             unknown_colors.add(bl_color)
-            continue
-
-        remarks = item.findtext("REMARKS", "")
-        status, drawer, container, set_no = parse_remarks(remarks)
-
-        prepared.append(
-            (design_id, color_id, qty, status, drawer, container, set_no)
-        )
 
     # Try to resolve missing part aliases via API or prompt user
     for alias in sorted(unknown_parts):
@@ -136,13 +78,7 @@ def load_xml(xml_path: Path) -> None:
             else:
                 print(f"⚠️ Skipping color: {bl_color}")
 
-    for idx, rec in enumerate(prepared, start=1):
-        db.insert_inventory(*rec)
-        if idx % 100 == 0:
-            print(f"  … {idx}/{len(prepared)} inserted")
-
-    print(f"✅ Import complete: {len(prepared)} inventory records inserted.")
-
+    print("\n✅ Precheck complete. You may now safely run load_instabrick_inventory.py.")
 
 def main() -> None:
     path = (
@@ -153,8 +89,7 @@ def main() -> None:
     if not path.exists():
         print(f"File not found: {path}")
         sys.exit(1)
-    load_xml(path)
-
+    precheck_xml(path)
 
 if __name__ == "__main__":
     main()

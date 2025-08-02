@@ -112,7 +112,8 @@ def paginate(endpoint: str, *, params: Optional[Dict[str, Any]] = None, timeout:
 def bulk_parts_by_bricklink(bricklink_ids: list[str | int]) -> Dict[str, Tuple[str, str]]:
     """Return mapping alias → (design_id, name) for <=50 BrickLink ids.
 
-    Works best under Rebrickable's rate‑limit; hard max is 100."""
+    Works best under Rebrickable's rate‑limit; hard max is 100.
+    Skips parts that are identified as sticker sheets (category ID 327)."""
     assert len(bricklink_ids) <= 50, "Pass at most 50 ids per call to avoid 429s"
     ids_param = ",".join(map(str, bricklink_ids))
     data = get_json(
@@ -121,6 +122,8 @@ def bulk_parts_by_bricklink(bricklink_ids: list[str | int]) -> Dict[str, Tuple[s
     )
     mapping: Dict[str, Tuple[str, str]] = {}
     for p in data.get("results", []):
+        if p.get("part_category_id") == 327:
+            continue  # Skip sticker sheets
         design_id = p["part_num"]
         name = p["name"]
         for bl in p["external_ids"].get("BrickLink", []):

@@ -7,9 +7,9 @@ This script relies on shared utilities:
 * ``utils.rebrickable_api.paginate`` handles paginated API calls and
   reuses the same API key.
 
-Run::
+Usage:
 
-    python src/load_rebrickable_colors.py
+    python3 src/load_rebrickable_colors.py
 
 (Ensure your ``.env`` has ``REBRICKABLE_API_KEY``.)
 """
