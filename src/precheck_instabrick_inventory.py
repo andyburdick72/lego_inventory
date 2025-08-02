@@ -33,7 +33,8 @@ def precheck_xml(xml_path: Path) -> None:
             unknown_colors.add(bl_color)
 
     # Try to resolve missing part aliases via API or prompt user
-    for alias in sorted(unknown_parts):
+    total_parts = len(unknown_parts)
+    for idx, alias in enumerate(sorted(unknown_parts), 1):
         matching_items = [it for it in items if it.findtext("ITEMID").strip() == alias]
         example = matching_items[0] if matching_items else None
         print(f"\n🔍 Missing part alias: {alias}")
@@ -49,19 +50,23 @@ def precheck_xml(xml_path: Path) -> None:
             db.insert_part(design_id, name)
             db.add_part_alias(alias, design_id)
         else:
-            user_input = input(f"❓ Could not resolve {alias}. Enter Rebrickable design ID (or blank to skip): ").strip()
+            user_input = input(f"❓ Could not resolve {alias}. Enter Rebrickable design ID(s), comma- or semicolon-separated (or blank to skip): ").strip()
             if user_input:
-                try:
-                    part_data = get_json(f"/parts/{user_input}/")
-                    name = part_data.get("name", "Unknown part")
-                    db.insert_part(user_input, name)
-                    db.add_part_alias(alias, user_input)
-                    print(f"✔️ Added part: {user_input} – {name}")
-                except Exception as e:
-                    print(f"❌ Error retrieving part info from Rebrickable: {e}")
-                    print(f"⚠️ Skipping alias: {alias}")
+                part_ids = [pid.strip() for pid in user_input.replace(";", ",").split(",") if pid.strip()]
+                for pid in part_ids:
+                    try:
+                        part_data = get_json(f"/parts/{pid}/")
+                        name = part_data.get("name", "Unknown part")
+                        db.insert_part(pid, name)
+                        db.add_part_alias(alias, pid)
+                        print(f"✔️ Added part: {pid} – {name}")
+                    except Exception as e:
+                        print(f"❌ Error retrieving part {pid} from Rebrickable: {e}")
             else:
                 print(f"⚠️ Skipping alias: {alias}")
+
+        progress = (idx / total_parts) * 100
+        print(f"🧭 Progress: {idx}/{total_parts} ({progress:.1f}%)")
 
     # Try to resolve missing colors via API or prompt user
     for bl_color in sorted(unknown_colors):
