@@ -51,8 +51,15 @@ def precheck_xml(xml_path: Path) -> None:
         else:
             user_input = input(f"❓ Could not resolve {alias}. Enter Rebrickable design ID (or blank to skip): ").strip()
             if user_input:
-                db.insert_part(user_input, "Unknown part")
-                db.add_part_alias(alias, user_input)
+                try:
+                    part_data = get_json(f"/parts/{user_input}/")
+                    name = part_data.get("name", "Unknown part")
+                    db.insert_part(user_input, name)
+                    db.add_part_alias(alias, user_input)
+                    print(f"✔️ Added part: {user_input} – {name}")
+                except Exception as e:
+                    print(f"❌ Error retrieving part info from Rebrickable: {e}")
+                    print(f"⚠️ Skipping alias: {alias}")
             else:
                 print(f"⚠️ Skipping alias: {alias}")
 
@@ -74,7 +81,16 @@ def precheck_xml(xml_path: Path) -> None:
         except Exception:
             user_input = input(f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): ").strip()
             if user_input.isdigit():
-                db.add_color_alias(bl_color, int(user_input))
+                try:
+                    data = get_json(f"/colors/{user_input}/")
+                    name = data.get("name", "Unknown color")
+                    hex_code = data.get("rgb", "").lstrip("#").upper()
+                    db.insert_color(int(user_input), name, hex_code)
+                    db.add_color_alias(bl_color, int(user_input))
+                    print(f"✔️ Added color: BL {bl_color} → RB {user_input} ({name})")
+                except Exception as e:
+                    print(f"❌ Error retrieving color info from Rebrickable: {e}")
+                    print(f"⚠️ Skipping color: {bl_color}")
             else:
                 print(f"⚠️ Skipping color: {bl_color}")
 

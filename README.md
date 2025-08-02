@@ -13,25 +13,26 @@ Repository Structure
 
 lego_inventory/
 ├── data/
-│   ├── lego_inventory.db             # SQLite database (WAL + SHM)
-│   ├── instabrick_inventory.xml      # Sample Instabrick export
-│   └── *.csv                         # Mapping CSV files
+│   ├── lego_inventory.db                # SQLite database (WAL + SHM)
+│   ├── instabrick_inventory.xml         # Sample Instabrick export
+│   └── *.csv                            # Mapping CSV files
 ├── src/
-│   ├── inventory_db.py               # Create and execute against DB
-│   ├── load_my_rebrickable_parts.py  # Load all the parts for my Rebrickable sets into DB
-│   ├── load_rebrickable_colors.py    # Load Rebrickable colors into DB
-│   ├── load_instabrick_inventory.py  # Load Instabrick inventory from XML file into DB and convert to Rebrickable IDs
-│   ├── server.py                     # Lightweight HTTP server for the UI
+│   ├── inventory_db.py                  # Create and execute against DB
+│   ├── load_my_rebrickable_parts.py     # Load all the parts for my Rebrickable sets into DB
+│   ├── load_rebrickable_colors.py       # Load Rebrickable colors into DB
+│   ├── precheck_instabrick_inventory.py # Pre-check Instabrick inventory in XML file and add any missing Rebrickable part or color IDs
+│   ├── load_instabrick_inventory.py     # Load Instabrick inventory from XML file into DB and convert to Rebrickable IDs
+│   ├── server.py                        # Lightweight HTTP server for the UI
 │   └── utils/
-│       ├── rebrickable_api.py        # Rebrickable API client helpers
-│       └── common_functions.py       # .env loader for API keys
+│       ├── rebrickable_api.py           # Rebrickable API client helpers
+│       └── common_functions.py          # .env loader for API keys
 └── README.md
 
 Prerequisites
 
 * Python 3.9+
 * Dependencies (in src/utils/rebrickable_api.py): requests
-* A Rebrickable API key and user token in a .env file
+* A Rebrickable API key and user token (and username and password, if you need to generate a user token) in a .env file
 
 REBRICKABLE_API_KEY=<your_api_key>
 REBRICKABLE_USER_TOKEN=<your_user_token>
@@ -64,6 +65,7 @@ python3 src/create_inventory_db.py
 
 python3 src/load_my_rebrickable_parts.py
 python3 src/load_rebrickable_colors.py
+python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml (optional)
 
 3. Load Instabrick XML
 
