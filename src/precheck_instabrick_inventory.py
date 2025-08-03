@@ -37,6 +37,21 @@ def precheck_xml(xml_path: Path) -> None:
     for idx, alias in enumerate(sorted(unknown_parts), 1):
         matching_items = [it for it in items if it.findtext("ITEMID").strip() == alias]
         example = matching_items[0] if matching_items else None
+        # Check if the alias itself is a valid Rebrickable part ID
+        try:
+            part_data = get_json(f"/parts/{alias}/")
+            name = part_data.get("name", "Unknown part")
+            confirm = input(f"❓ Use '{alias}' as Rebrickable ID? Found: {name} [y/N]: ").strip().lower()
+            if confirm == "y":
+                db.insert_part(alias, name)
+                db.add_part_alias(alias, alias)
+                print(f"✔️ Added part: {alias} – {name}")
+                progress = (idx / total_parts) * 100
+                print(f"🧭 Progress: {idx}/{total_parts} ({progress:.1f}%)")
+                continue
+        except Exception:
+            pass  # silently continue if not valid
+
         print(f"\n🔍 Missing part alias: {alias}")
         if example is not None:
             print("Example from XML:")
