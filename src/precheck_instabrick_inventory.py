@@ -41,7 +41,7 @@ def precheck_xml(xml_path: Path) -> None:
         try:
             part_data = get_json(f"/parts/{alias}/")
             name = part_data.get("name", "Unknown part")
-            confirm = input(f"❓ Use '{alias}' as Rebrickable ID? Found: {name} [y/N]: ").strip().lower()
+            confirm = input(f"❓ Use '{alias}' as Rebrickable ID? Found: {name} [y/n]: ").strip().lower()
             if confirm == "y":
                 db.insert_part(alias, name)
                 db.add_part_alias(alias, alias)
