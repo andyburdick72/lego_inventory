@@ -73,10 +73,12 @@ def load_xml(xml_path: Path) -> None:
         bl_color = int(item.findtext("COLOR"))
         qty = int(item.findtext("QTY"))
 
-        design_id = resolve_part(alias)
+        design_ids = resolve_part(alias)
+        if isinstance(design_ids, str):
+            design_ids = [design_ids]
         color_id = resolve_color(bl_color)
 
-        if not design_id:
+        if not design_ids:
             unknown_parts.add(alias)
             continue
         if not color_id:
@@ -86,9 +88,10 @@ def load_xml(xml_path: Path) -> None:
         remarks = item.findtext("REMARKS", "")
         status, drawer, container, set_no = parse_remarks(remarks)
 
-        prepared.append(
-            (design_id, color_id, qty, status, drawer, container, set_no)
-        )
+        for design_id in design_ids:
+            prepared.append(
+                (design_id, color_id, qty, status, drawer, container, set_no)
+            )
 
     # Try to resolve missing part aliases via API or prompt user
     for alias in sorted(unknown_parts):
@@ -107,10 +110,19 @@ def load_xml(xml_path: Path) -> None:
             db.insert_part(design_id, name)
             db.add_part_alias(alias, design_id)
         else:
-            user_input = input(f"❓ Could not resolve {alias}. Enter Rebrickable design ID (or blank to skip): ").strip()
+            user_input = input(f"❓ Could not resolve {alias}. Enter one or more Rebrickable design IDs (comma- or semicolon-separated, or blank to skip): ").strip()
             if user_input:
-                db.insert_part(user_input, "Unknown part")
-                db.add_part_alias(alias, user_input)
+                design_ids = [pid.strip() for pid in re.split(r"[;,]", user_input) if pid.strip()]
+                for pid in design_ids:
+                    try:
+                        name = db.fetch_part_name(pid)
+                        if not name:
+                            data = get_json(f"/parts/{pid}/")
+                            name = data["name"]
+                            db.insert_part(pid, name)
+                        db.add_part_alias(alias, pid)
+                    except Exception as e:
+                        print(f"❌ Error fetching or inserting part {pid}: {e}")
             else:
                 print(f"⚠️ Skipping alias: {alias}")
 
