@@ -93,11 +93,14 @@ def precheck_xml(xml_path: Path) -> None:
                 rb_id = int(color["id"])
                 name = color["name"]
                 hex_code = color["rgb"].lstrip("#").upper()
-                db.insert_color(rb_id, name, hex_code)
-                db.add_color_alias(bl_color, rb_id)
-                print(f"✔️ Found and added color: BL {bl_color} → RB {rb_id} ({name})")
+                if rb_id != -1:
+                    db.insert_color(rb_id, name, hex_code)
+                    db.add_color_alias(bl_color, rb_id)
+                    print(f"✔️ Found and added color: BL {bl_color} → RB {rb_id} ({name})")
+                else:
+                    raise ValueError(f"Rebrickable returned invalid ID (-1) for BL color {bl_color}")
             else:
-                raise ValueError("No match found")
+                raise ValueError(f"No match found for BrickLink color {bl_color}")
         except Exception:
             user_input = input(f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): ").strip()
             if user_input.isdigit():
