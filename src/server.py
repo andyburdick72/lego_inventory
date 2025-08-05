@@ -18,6 +18,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List, Tuple
+import urllib.parse
 
 # --------------------------------------------------------------------------- local import
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,26 +29,33 @@ SET_STATUSES = {"built", "wip", "in_box", "teardown"}
 
 
 # --------------------------------------------------------------------------- helpers
-def _html_page(title: str, body_html: str) -> str:
-    """Very small HTML skeleton."""
+def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
+    """Very small HTML skeleton with improved header."""
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>{html.escape(title)}</title>
 <style>
- body {{ font-family: sans-serif; }}
+ body {{ font-family: sans-serif; margin: 0; padding: 0; }}
+ header {{ background: #0645ad; color: white; padding: 1rem; text-align: center; }}
+ nav {{ background: #f2f2f2; padding: 0.5rem; text-align: center; }}
+ nav a {{ margin: 0 1em; text-decoration: none; color: #0645ad; font-weight: bold; }}
  table {{ border-collapse: collapse; width: 100%; }}
  th, td {{ border: 1px solid #ccc; padding: 2px 6px; }}
  th {{ background: #eee; text-align: left; }}
- a {{ text-decoration: none; color: #0645ad; }}
  tr:hover {{ background: #ffffe0; }}
 </style>
-</head><body>
+</head>
+<body>
+<header>
+  <h1>Ervin-Burdick's Bricks</h1>
+  {f"<p><strong>Total Parts in Inventory:</strong> {total_qty:,}</p>" if total_qty is not None else ""}
+</header>
 <nav>
-  <a href="/">Parts</a> |
-  <a href="/locations">Locations</a> |
-  <a href="/sets">Sets</a>
+  <a href="/">All Parts</a>
+  <a href="/locations">Loose Parts by Location</a>
+  <a href="/sets">Parts by Set</a>
 </nav>
 <hr>
 {body_html}
@@ -151,7 +159,16 @@ class Handler(BaseHTTPRequestHandler):
                 m = re.match(r"^/parts/([^/?#]+)", self.path)
                 self._serve_part(m.group(1)) if m else self._not_found()
             elif self.path.startswith("/locations"):
-                self._serve_locations()
+                prefix = "/locations/"
+                if self.path.startswith(prefix) and self.path != prefix:
+                    path_suffix = urllib.parse.unquote(self.path[len(prefix):])
+                    if "/" in path_suffix:
+                        drawer, container = path_suffix.rsplit("/", 1)
+                        self._serve_location_parts(drawer, container)
+                    else:
+                        self._serve_location_containers(path_suffix)
+                else:
+                    self._serve_location_drawers()
             elif self.path.startswith("/sets"):
                 self._serve_sets()
             else:
@@ -164,7 +181,9 @@ class Handler(BaseHTTPRequestHandler):
     # ..................................................................... pages
     def _serve_master(self):
         rows = _query_master_rows()
-        body = ["<h1>Inventory – Parts view</h1>", "<table><thead><tr>",
+        total_qty = sum(r["qty"] for r in rows)
+        body = [f"<h1>All Parts by Status and Location</h1>",
+                "<table><thead><tr>",
                 "<th>ID</th><th>Name</th><th>Colour</th><th>Status</th>",
                 "<th>Location</th><th>Qty</th></tr></thead><tbody>"]
         for r in rows:
@@ -179,9 +198,10 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td>{r['qty']}</td>")
             body.append("</tr>")
         body.append("</tbody></table>")
-        self._send_ok(_html_page("Inventory – Parts", "".join(body)))
+        self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=total_qty))
 
     def _serve_part(self, design_id: str):
+        total_qty = sum(r["qty"] for r in _query_master_rows())
         part = db.get_part(design_id)
         if not part:
             self._not_found()
@@ -203,27 +223,59 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td>{r['quantity']}</td>")
             body.append("</tr>")
         body.append("</tbody></table>")
-        self._send_ok(_html_page(f"Part {design_id}", "".join(body)))
+        self._send_ok(_html_page(f"Part {design_id}", "".join(body), total_qty=total_qty))
 
     def _serve_locations(self):
+        # Legacy: redirect to drawers listing
+        self._serve_location_drawers()
+
+    def _serve_location_drawers(self):
+        total_qty = sum(r["qty"] for r in _query_master_rows())
         tree = db.locations_map()
-        body = ["<h1>Loose-parts locations</h1>"]
-        for (drawer, container), parts in tree.items():
-            body.append(f"<h2>Drawer {html.escape(drawer)} / {html.escape(container)}</h2>")
-            body.append("<table><thead><tr><th>ID</th><th>Name</th>"
-                        "<th>Colour</th><th>Qty</th></tr></thead><tbody>")
-            for p in parts:
-                body.append("<tr>")
-                body.append(
-                    f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
-                )
-                body.append(f"<td>{html.escape(p['name'])}</td>")
-                body.append(_make_colour_cell(p["color_name"], p["hex"]))
-                body.append(f"<td>{p['qty']}</td></tr>")
-            body.append("</tbody></table>")
-        self._send_ok(_html_page("Locations", "".join(body)))
+        drawers = sorted(set(drawer for (drawer, _), _ in tree.items()))
+        body = ["<h1>Loose Parts: Drawers</h1><ul>"]
+        for drawer in drawers:
+            body.append(f"<li><a href='/locations/{html.escape(drawer)}'>{html.escape(drawer)}</a></li>")
+        body.append("</ul>")
+        self._send_ok(_html_page("Drawers", "".join(body), total_qty=total_qty))
+
+    def _serve_location_containers(self, drawer: str):
+        total_qty = sum(r["qty"] for r in _query_master_rows())
+        tree = db.locations_map()
+        containers = sorted((container for (d, container), _ in tree.items() if d == drawer), key=str.lower)
+        # If there's only one container (""), skip to parts
+        if containers == [""]:
+            self._serve_location_parts(drawer, "")
+            return
+        body = [f"<p><a href='/locations'>⬅ Back to Drawers</a></p>",
+                f"<h1>Drawer: {html.escape(drawer)}</h1><ul>"]
+        for container in containers:
+            body.append(f"<li><a href='/locations/{html.escape(drawer)}/{html.escape(container)}'>{html.escape(container)}</a></li>")
+        body.append("</ul>")
+        self._send_ok(_html_page(f"Drawer {drawer}", "".join(body), total_qty=total_qty))
+
+    def _serve_location_parts(self, drawer: str, container: str):
+        total_qty = sum(r["qty"] for r in _query_master_rows())
+        tree = db.locations_map()
+        parts = tree.get((drawer, container), [])
+        body = [f"<p><a href='/locations'>⬅ Back to Drawers</a> | "
+                f"<a href='/locations/{html.escape(drawer)}'>Back to {html.escape(drawer)}</a></p>",
+                f"<h1>Parts in {html.escape(drawer)} / {html.escape(container)}</h1>",
+                "<table><thead><tr><th>ID</th><th>Name</th>"
+                "<th>Colour</th><th>Qty</th></tr></thead><tbody>"]
+        for p in parts:
+            body.append("<tr>")
+            body.append(
+                f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
+            )
+            body.append(f"<td>{html.escape(p['name'])}</td>")
+            body.append(_make_colour_cell(p["color_name"], p["hex"]))
+            body.append(f"<td>{p['qty']}</td></tr>")
+        body.append("</tbody></table>")
+        self._send_ok(_html_page(f"Parts in {drawer}/{container}", "".join(body), total_qty=total_qty))
 
     def _serve_sets(self):
+        total_qty = sum(r["qty"] for r in _query_master_rows())
         sets = _build_sets_map()
         body = ["<h1>Set inventory</h1>"]
         for set_no, parts in sets.items():
@@ -239,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                 body.append(_make_colour_cell(p["colour_name"], p["hex"]))
                 body.append(f"<td>{p['qty']}</td></tr>")
             body.append("</tbody></table>")
-        self._send_ok(_html_page("Sets", "".join(body)))
+        self._send_ok(_html_page("Sets", "".join(body), total_qty=total_qty))
 
     # ..................................................................... utilities
     def _not_found(self):
