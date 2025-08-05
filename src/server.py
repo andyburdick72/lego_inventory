@@ -37,15 +37,18 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 <head>
 <meta charset="utf-8">
 <title>{html.escape(title)}</title>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <style>
- body {{ font-family: sans-serif; margin: 0; padding: 0; }}
- header {{ background: #0645ad; color: white; padding: 1rem; text-align: center; }}
- nav {{ background: #f2f2f2; padding: 0.5rem; text-align: center; }}
- nav a {{ margin: 0 1em; text-decoration: none; color: #0645ad; font-weight: bold; }}
- table {{ border-collapse: collapse; width: 100%; }}
- th, td {{ border: 1px solid #ccc; padding: 2px 6px; }}
- th {{ background: #eee; text-align: left; }}
- tr:hover {{ background: #ffffe0; }}
+  body {{ font-family: sans-serif; margin: 0; padding: 0; }}
+  header {{ background: #0645ad; color: white; padding: 1rem; text-align: center; }}
+  nav {{ background: #f2f2f2; padding: 0.5rem; text-align: center; }}
+  nav a {{ margin: 0 1em; text-decoration: none; color: #0645ad; font-weight: bold; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #ccc; padding: 2px 6px; }}
+  th {{ background: #eee; text-align: left; }}
+  tr:hover {{ background: #ffffe0; }}
 </style>
 </head>
 <body>
@@ -63,6 +66,35 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 </nav>
 <hr>
 {body_html}
+<script>
+  $(document).ready(function () {{
+    $("table").each(function () {{
+      var table = $(this).DataTable({{
+        paging: false,
+        order: [],
+        language: {{
+          search: "Search all columns:",
+          zeroRecords: "No matching parts found"
+        }},
+        initComplete: function () {{
+          this.api().columns().every(function () {{
+            var column = this;
+            var th = $(column.header());
+            var title = th.text();
+            th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');)
+            var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
+              .appendTo(th)
+              .on('keyup change clear', function () {{
+                if (column.search() !== this.value) {{
+                  column.search(this.value).draw();
+                }}
+              }});
+          }});
+        }}
+      }});
+    }});
+  }});
+</script>
 </body></html>"""
 
 
