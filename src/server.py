@@ -159,16 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                 m = re.match(r"^/parts/([^/?#]+)", self.path)
                 self._serve_part(m.group(1)) if m else self._not_found()
             elif self.path.startswith("/locations"):
-                prefix = "/locations/"
-                if self.path.startswith(prefix) and self.path != prefix:
-                    path_suffix = urllib.parse.unquote(self.path[len(prefix):])
-                    if "/" in path_suffix:
-                        drawer, container = path_suffix.rsplit("/", 1)
-                        self._serve_location_parts(drawer, container)
-                    else:
-                        self._serve_location_containers(path_suffix)
-                else:
-                    self._serve_location_drawers()
+                self._serve_locations()
             elif self.path.startswith("/sets"):
                 self._serve_sets()
             else:
@@ -226,58 +217,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send_ok(_html_page(f"Part {design_id}", "".join(body), total_qty=total_qty))
 
     def _serve_locations(self):
-        # Legacy: redirect to drawers listing
-        self._serve_location_drawers()
-
-    def _serve_location_drawers(self):
         total_qty = sum(r["qty"] for r in _query_master_rows())
         tree = db.locations_map()
-        drawers = sorted(set(drawer for (drawer, _), _ in tree.items()))
-        body = ["<h1>Loose Parts: Drawers</h1><ul>"]
-        for drawer in drawers:
-            body.append(f"<li><a href='/locations/{html.escape(drawer)}'>{html.escape(drawer)}</a></li>")
-        body.append("</ul>")
-        self._send_ok(_html_page("Drawers", "".join(body), total_qty=total_qty))
-
-    def _serve_location_containers(self, drawer: str):
-        total_qty = sum(r["qty"] for r in _query_master_rows())
-        tree = db.locations_map()
-        containers = sorted((container for (d, container), _ in tree.items() if d == drawer), key=str.lower)
-        # If there's only one container (""), skip to parts
-        if containers == [""]:
-            self._serve_location_parts(drawer, "")
-            return
-        body = [f"<p><a href='/locations'>⬅ Back to Drawers</a></p>",
-                f"<h1>Drawer: {html.escape(drawer)}</h1><ul>"]
-        for container in containers:
-            body.append(f"<li><a href='/locations/{html.escape(drawer)}/{html.escape(container)}'>{html.escape(container)}</a></li>")
-        body.append("</ul>")
-        self._send_ok(_html_page(f"Drawer {drawer}", "".join(body), total_qty=total_qty))
-
-    def _serve_location_parts(self, drawer: str, container: str):
-        total_qty = sum(r["qty"] for r in _query_master_rows())
-        tree = db.locations_map()
-        parts = tree.get((drawer, container), [])
-        body = [f"<p><a href='/locations'>⬅ Back to Drawers</a> | "
-                f"<a href='/locations/{html.escape(drawer)}'>Back to {html.escape(drawer)}</a></p>",
-                f"<h1>Parts in {html.escape(drawer)} / {html.escape(container)}</h1>",
-                "<table><thead><tr><th>ID</th><th>Name</th>"
-                "<th>Colour</th><th>Qty</th></tr></thead><tbody>"]
-        for p in parts:
-            body.append("<tr>")
-            body.append(
-                f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
-            )
-            body.append(f"<td>{html.escape(p['name'])}</td>")
-            body.append(_make_colour_cell(p["color_name"], p["hex"]))
-            body.append(f"<td>{p['qty']}</td></tr>")
-        body.append("</tbody></table>")
-        self._send_ok(_html_page(f"Parts in {drawer}/{container}", "".join(body), total_qty=total_qty))
+        body = ["<h1>Loose Parts by Location</h1>"]
+        for (drawer, container), parts in tree.items():
+            body.append(f"<h2>Drawer {html.escape(drawer)} / {html.escape(container)}</h2>")
+            body.append("<table><thead><tr><th>ID</th><th>Name</th>"
+                        "<th>Colour</th><th>Qty</th></tr></thead><tbody>")
+            for p in parts:
+                body.append("<tr>")
+                body.append(
+                    f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
+                )
+                body.append(f"<td>{html.escape(p['name'])}</td>")
+                body.append(_make_colour_cell(p["color_name"], p["hex"]))
+                body.append(f"<td>{p['qty']}</td></tr>")
+            body.append("</tbody></table>")
+        self._send_ok(_html_page("Locations", "".join(body), total_qty=total_qty))
 
     def _serve_sets(self):
         total_qty = sum(r["qty"] for r in _query_master_rows())
         sets = _build_sets_map()
-        body = ["<h1>Set inventory</h1>"]
+        body = ["<h1>Sets</h1>"]
         for set_no, parts in sets.items():
             body.append(f"<h2>Set {html.escape(set_no)}</h2>")
             body.append("<table><thead><tr><th>ID</th><th>Name</th>"
