@@ -7,7 +7,9 @@ Light-weight HTTP UI for the Lego inventory database (inventory_db.py).
 * “/sets”          – set-parts  hierarchy   (set-number ▸ parts)
 
 No external dependencies – just the std-lib.
-Run with:  python -m http.server 8000 --bind 127.0.0.1 (or simply `python server.py`)
+
+Usage:
+    python3 src/server.py
 """
 from __future__ import annotations
 
@@ -17,8 +19,7 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, List, Tuple
-import urllib.parse
+from typing import Dict, List
 
 # --------------------------------------------------------------------------- local import
 REPO_ROOT = Path(__file__).resolve().parents[1]
