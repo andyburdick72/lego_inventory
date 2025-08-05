@@ -271,9 +271,19 @@ class Handler(BaseHTTPRequestHandler):
 
 # --------------------------------------------------------------------------- bootstrap
 def main():
-    host, port = "127.0.0.1", int(os.environ.get("PORT", 8000))
+    host, port = "0.0.0.0", int(os.environ.get("PORT", 8000))
+    # Auto-detect and print the local IP address for user convenience
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        local_ip = s.getsockname()[0]
+    except Exception:
+        local_ip = "localhost"
+    finally:
+        s.close()
     httpd = HTTPServer((host, port), Handler)
-    print(f"Serving on http://{host}:{port}  – Ctrl+C to quit")
+    print(f"Serving on http://{local_ip}:{port}  – Ctrl+C to quit")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
