@@ -25,11 +25,11 @@ from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 # --------------------------------------------------------------------------- status map and parser
 
 STATUS_MAP = {
-    "In Box": "In Box",
-    "Built": "Built",
-    "Teardown": "Teardown",
-    "Work in Progress": "Work in Progress",
-    "WIP": "Work in Progress",
+    "In Box": "in_box",
+    "Built": "built",
+    "Teardown": "teardown",
+    "Work in Progress": "wip",
+    "WIP": "wip",
 }
 
 RE_REMARK = re.compile(r"^\[IB\](.*)\[IB\]$")
