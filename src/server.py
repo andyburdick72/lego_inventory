@@ -26,7 +26,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can import inventory_db
 import inventory_db as db  # noqa: E402
 
+
 SET_STATUSES = {"built", "wip", "in_box", "teardown"}
+
+# Mapping from status code to display-friendly name
+STATUS_DISPLAY_NAMES = {
+    "built": "Built",
+    "wip": "Work in Progress",
+    "in_box": "In Box",
+    "teardown": "Teardown",
+}
 
 
 # --------------------------------------------------------------------------- helpers
@@ -70,25 +79,28 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
   $(document).ready(function () {{
     $("table").each(function () {{
       var table = $(this).DataTable({{
-        paging: false,
+        pageLength: 50,
         order: [],
+        paging: true,
         language: {{
           search: "Search all columns:",
           zeroRecords: "No matching parts found"
         }},
         initComplete: function () {{
-          this.api().columns().every(function () {{
+          this.api().columns().every(function (index) {{
             var column = this;
             var th = $(column.header());
             var title = th.text();
-            th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');)
-            var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
-              .appendTo(th)
-              .on('keyup change clear', function () {{
-                if (column.search() !== this.value) {{
-                  column.search(this.value).draw();
-                }}
-              }});
+            th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');
+            if (title !== "Qty" && title !== "Total Quantity") {{
+              var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
+                .appendTo(th)
+                .on('keyup change clear', function () {{
+                  if (column.search() !== this.value) {{
+                    column.search(this.value).draw();
+                  }}
+                }});
+            }}
           }});
         }}
       }});
@@ -150,13 +162,14 @@ def _query_master_rows() -> List[Dict]:
 
 def _build_sets_map() -> Dict[str, List[Dict]]:
     """
-    {set_number: [{design_id, part_name, color_name, hex, qty}, …]}
+    {status: {set_number: [{design_id, part_name, color_name, hex, qty}, …]}}
     Only parts whose status is in SET_STATUSES.
     """
     with db._connect() as conn:  # pylint: disable=protected-access
         rows = conn.execute(
             f"""
-            SELECT i.set_number,
+            SELECT i.status,
+                   i.set_number,
                    i.design_id,
                    p.name  AS part_name,
                    c.name  AS color_name,
@@ -166,14 +179,16 @@ def _build_sets_map() -> Dict[str, List[Dict]]:
             JOIN parts  p ON p.design_id = i.design_id
             JOIN colors c ON c.id        = i.color_id
             WHERE i.status IN ({','.join('?' * len(SET_STATUSES))})
-            GROUP BY i.set_number, i.design_id, i.color_id
-            ORDER BY i.design_id
+            GROUP BY i.status, i.set_number, i.design_id, i.color_id
+            ORDER BY i.status, i.set_number, i.design_id
             """,
             tuple(SET_STATUSES),
         ).fetchall()
-    sets: Dict[str, List[Dict]] = {}
+    sets: Dict[str, Dict[str, List[Dict]]] = {}
     for r in rows:
-        sets.setdefault(r["set_number"] or "(unknown)", []).append(
+        status = r["status"]
+        set_number = r["set_number"] or "(unknown)"
+        sets.setdefault(status, {}).setdefault(set_number, []).append(
             dict(
                 design_id=r["design_id"],
                 part_name=r["part_name"],
@@ -185,11 +200,17 @@ def _build_sets_map() -> Dict[str, List[Dict]]:
     return sets
 
 
+
 def _numeric_set_sort_key(set_no: str) -> int:
     try:
         return int(set_no)
     except ValueError:
         return float('inf')
+
+
+# Helper to get display-friendly status name
+def _display_status(status: str) -> str:
+    return STATUS_DISPLAY_NAMES.get(status, "Loose")
 
 
 # --------------------------------------------------------------------------- request-handler
@@ -230,6 +251,11 @@ class Handler(BaseHTTPRequestHandler):
                 GROUP BY i.drawer, i.container
                 """
             ).fetchall()
+            # Get total quantity of all inventory rows (not just filtered)
+            total_qty_row = conn.execute(
+                "SELECT SUM(quantity) AS total_qty FROM inventory"
+            ).fetchone()
+            total_qty = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
 
         locations = []
         for r in rows:
@@ -244,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             locations.append((loc, r["total_qty"]))
 
         locations.sort(key=lambda x: x[1], reverse=True)
-        total_qty = sum(qty for _, qty in locations)
+        subtotal = sum(qty for _, qty in locations)
 
         body = ["<h1>Storage Location Counts</h1>",
                 "<table><thead><tr><th>Location</th><th>Total Quantity</th></tr></thead><tbody>"]
@@ -253,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<tr><td>{html.escape(loc)}</td><td>{qty:,}</td></tr>")
 
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th>Total</th><th>{total_qty:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th>Total</th><th>{subtotal:,}</th></tr></tfoot>")
         body.append("</table>")
 
         self._send_ok(_html_page("Storage Location Counts", "".join(body), total_qty=total_qty))
@@ -273,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(_make_color_cell(r["color_name"], r["hex"]))
-            body.append(f"<td>{html.escape(r['status'])}</td>")
+            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
             body.append(f"<td>{html.escape(r['location'])}</td>")
             body.append(f"<td>{r['qty']}</td>")
             body.append("</tr>")
@@ -300,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 loc = f"{r['drawer']}/{r['container']}".strip("/")
             body.append("<tr>")
             body.append(_make_color_cell(r["color_name"], r["hex"]))
-            body.append(f"<td>{html.escape(r['status'])}</td>")
+            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
             body.append(f"<td>{html.escape(loc)}</td>")
             body.append(f"<td>{r['quantity']}</td>")
             body.append("</tr>")
@@ -326,8 +352,9 @@ class Handler(BaseHTTPRequestHandler):
                 container_total = sum(p["qty"] for p in parts)
                 container_totals[container] = container_total
                 drawer_total += container_total
-            # Drawer heading as <h2>
-            body.append(f"<h2>{html.escape(drawer)} (total quantity: {drawer_total:,})</h2>")
+            # Drawer heading as <details>/<summary>
+            body.append(f"<details>")
+            body.append(f"<summary style='font-size: 1.5em; font-weight: bold; margin-top: 1em;'>{html.escape(drawer)} (total quantity: {drawer_total:,})</summary>")
             for container, parts in containers.items():
                 container_total = container_totals[container]
                 # Container details with increased indent and total in summary
@@ -347,29 +374,37 @@ class Handler(BaseHTTPRequestHandler):
                 body.append("</tbody>")
                 body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{container_total:,}</th></tr></tfoot>")
                 body.append("</table></details>")
+            body.append("</details>")
         self._send_ok(_html_page("Locations", "".join(body), total_qty=total_qty))
 
     def _serve_sets(self):
         total_qty = sum(r["qty"] for r in _query_master_rows())
-        sets = _build_sets_map()
+        sets_map = _build_sets_map()
         body = ["<h1>Sets</h1>"]
-        for set_no in sorted(sets.keys(), key=str):
-            parts = sets[set_no]
-            set_total = sum(p["qty"] for p in parts)
-            body.append(f"<details><summary>{html.escape(set_no)} (total: {set_total:,})</summary>")
-            body.append("<table><thead><tr><th>ID</th><th>Name</th>"
-                        "<th>Color</th><th>Qty</th></tr></thead><tbody>")
-            for p in parts:
-                body.append("<tr>")
-                body.append(
-                    f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
-                )
-                body.append(f"<td>{html.escape(p['part_name'])}</td>")
-                body.append(_make_color_cell(p["color_name"], p["hex"]))
-                body.append(f"<td>{p['qty']}</td></tr>")
-            body.append("</tbody>")
-            body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{set_total:,}</th></tr></tfoot>")
-            body.append("</table></details>")
+        # Group by status first
+        for status in sorted(sets_map.keys()):
+            sets = sets_map[status]
+            status_total = sum(p["qty"] for parts in sets.values() for p in parts)
+            body.append(f"<details>")
+            body.append(f"<summary style='font-size: 1.5em; font-weight: bold; margin-top: 1em;'>Status: {html.escape(_display_status(status))} (total quantity: {status_total:,})</summary>")
+            for set_no in sorted(sets.keys(), key=str):
+                parts = sets[set_no]
+                set_total = sum(p["qty"] for p in parts)
+                body.append(f"<details style='margin-left: 4em;'><summary>{html.escape(set_no)} (total: {set_total:,})</summary>")
+                body.append("<table><thead><tr><th>ID</th><th>Name</th>"
+                            "<th>Color</th><th>Qty</th></tr></thead><tbody>")
+                for p in parts:
+                    body.append("<tr>")
+                    body.append(
+                        f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
+                    )
+                    body.append(f"<td>{html.escape(p['part_name'])}</td>")
+                    body.append(_make_color_cell(p["color_name"], p["hex"]))
+                    body.append(f"<td>{p['qty']}</td></tr>")
+                body.append("</tbody>")
+                body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{set_total:,}</th></tr></tfoot>")
+                body.append("</table></details>")
+            body.append("</details>")
         self._send_ok(_html_page("Sets", "".join(body), total_qty=total_qty))
 
     def _serve_part_counts(self):
