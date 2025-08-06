@@ -69,6 +69,7 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
   <a href="/">All Parts</a>
   <a href="/locations">Loose Parts by Location</a>
   <a href="/sets">Parts by Set</a>
+  <a href="/my-sets">Sets</a>
   <a href="/part-counts">Part Counts</a>
   <a href="/part-color-counts">Part + Color Counts</a>
   <a href="/location-counts">Storage Location Counts</a>
@@ -210,6 +211,8 @@ def _numeric_set_sort_key(set_no: str) -> int:
 
 # Helper to get display-friendly status name
 def _display_status(status: str) -> str:
+    if status == "unsorted":
+        return "Unsorted"
     return STATUS_DISPLAY_NAMES.get(status, "Loose")
 
 
@@ -226,6 +229,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_locations()
             elif self.path.startswith("/sets"):
                 self._serve_sets()
+            elif self.path.startswith("/my-sets"):
+                self._serve_all_sets()
             elif self.path.startswith("/part-counts"):
                 self._serve_part_counts()
             elif self.path.startswith("/part-color-counts"):
@@ -238,6 +243,47 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
+
+    def _serve_all_sets(self):
+        with db._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT set_num, name, year, image_url, rebrickable_url, status, added_at
+                FROM sets
+                ORDER BY added_at DESC
+                """
+            ).fetchall()
+            # Get total quantity of all inventory rows (all parts)
+            total_qty_row = conn.execute("SELECT SUM(quantity) AS total_qty FROM inventory").fetchone()
+            parts_count = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
+
+        body = ["<h1>All Owned Sets</h1>",
+                """<table id="sets_table">
+<thead>
+    <tr>
+        <th>Set Number</th>
+        <th>Name</th>
+        <th>Year</th>
+        <th>Status</th>
+        <th>Rebrickable Link</th>
+        <th>Image</th>
+    </tr>
+</thead>
+<tbody>"""]
+
+        for r in rows:
+            body.append("<tr>")
+            # Set Number, Name, Year, Status, Rebrickable Link, Image
+            body.append(f"<td>{html.escape(r['set_num'])}</td>")
+            body.append(f"<td>{html.escape(r['name'])}</td>")
+            body.append(f"<td>{r['year']}</td>")
+            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
+            body.append(f"<td><a href='{html.escape(r['rebrickable_url'])}' target='_blank'>View</a></td>")
+            body.append(f"<td><img src='{html.escape(r['image_url'])}' alt='Set image' style='height: 48px;'></td>")
+            body.append("</tr>")
+
+        body.append("</tbody></table>")
+        self._send_ok(_html_page("Sets", "".join(body), total_qty=parts_count))
     def _serve_location_counts(self):
         with db._connect() as conn:
             rows = conn.execute(
@@ -380,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
     def _serve_sets(self):
         total_qty = sum(r["qty"] for r in _query_master_rows())
         sets_map = _build_sets_map()
-        body = ["<h1>Sets</h1>"]
+        body = [f"<h1>Set Parts by Status and Set</h1>"]
         # Group by status first
         for status in sorted(sets_map.keys()):
             sets = sets_map[status]

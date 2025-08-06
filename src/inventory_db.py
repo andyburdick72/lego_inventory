@@ -98,6 +98,32 @@ def init_db() -> None:
                 set_number TEXT
             );
 
+            -- Added sets and set_parts tables and indexes
+            CREATE TABLE IF NOT EXISTS sets(
+                id               INTEGER PRIMARY KEY,
+                set_num          TEXT,     -- e.g. 40571-1
+                name             TEXT,
+                year             INTEGER,
+                theme            TEXT,
+                image_url        TEXT,
+                rebrickable_url  TEXT,
+                status           TEXT,
+                added_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS set_parts(
+                set_num   TEXT,
+                design_id TEXT,
+                color_id  INTEGER,
+                quantity  INTEGER,
+                PRIMARY KEY (set_num, design_id, color_id),
+                FOREIGN KEY (design_id) REFERENCES parts(design_id),
+                FOREIGN KEY (color_id)  REFERENCES colors(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sets_set_num     ON sets(set_num);
+            CREATE INDEX IF NOT EXISTS idx_set_parts_set    ON set_parts(set_num);
+            CREATE INDEX IF NOT EXISTS idx_set_parts_part   ON set_parts(design_id, color_id);
             CREATE INDEX IF NOT EXISTS idx_inv_status       ON inventory(status);
             CREATE INDEX IF NOT EXISTS idx_inv_part_color   ON inventory(design_id,color_id);
             CREATE INDEX IF NOT EXISTS idx_color_alias      ON color_aliases(alias_id);

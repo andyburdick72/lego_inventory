@@ -10,8 +10,6 @@ import os
 import sys
 import sqlite3
 from pathlib import Path
-from typing import Dict
-
 from utils.common_functions import load_rebrickable_environment
 from utils.rebrickable_api import paginate
 
