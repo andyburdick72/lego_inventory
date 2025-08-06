@@ -13,22 +13,23 @@ Repository Structure
 
 lego_inventory/
 ├── data/
-│   ├── lego_inventory.db                # SQLite database (WAL + SHM)
-│   ├── instabrick_inventory.xml         # Sample Instabrick export
-│   └── *.csv                            # Mapping CSV files
+│   ├── lego_inventory.db                      # SQLite database (WAL + SHM)
+│   ├── instabrick_inventory.xml               # Sample Instabrick export
 ├── src/
-│   ├── inventory_db.py                  # Create and execute against DB
-│   ├── load_my_rebrickable_parts.py     # Load all the parts for my Rebrickable sets into DB
-│   ├── load_rebrickable_colors.py       # Load Rebrickable colors into DB
-│   ├── precheck_instabrick_inventory.py # Pre-check Instabrick inventory in XML file and add any missing Rebrickable part or color IDs
-│   ├── fix_alias_typos.py               # Fix typos made while running pre-check script
-│   ├── load_instabrick_inventory.py     # Load Instabrick inventory from XML file into DB and convert to Rebrickable IDs
-│   ├── server.py                        # Lightweight HTTP server for the UI
-│   ├── sample_data.py                   # Add sample data to DB
+│   ├── inventory_db.py                        # Create and execute against DB
+│   ├── load_my_rebrickable_parts.py           # Load all the parts for my Rebrickable sets into DB
+│   ├── load_rebrickable_colors.py             # Load Rebrickable colors into DB
+│   ├── precheck_instabrick_inventory.py       # Pre-check Instabrick inventory in XML file and add any missing Rebrickable part or color IDs
+│   ├── fix_alias_typos.py                     # Fix typos made while running pre-check script
+│   ├── load_instabrick_inventory.py           # Load Instabrick inventory from XML file into DB and convert to Rebrickable IDs
+│   ├── server.py                              # Lightweight HTTP server for the UI
+│   ├── sample_data.py                         # Add sample data to DB
 │   └── utils/
-│       ├── rebrickable_api.py           # Rebrickable API client helpers
-│       └── common_functions.py          # .env loader for API keys
+│       ├── rebrickable_api.py                 # Rebrickable API client helpers
+│       ├── rebrickable_generate_user_token.py # Generate Rebrickable user token
+│       └── common_functions.py                # .env loader for API keys
 └── README.md
+└── requirements.txt
 
 Prerequisites
 
