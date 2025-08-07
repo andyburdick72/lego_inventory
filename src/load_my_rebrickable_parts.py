@@ -12,6 +12,7 @@ import sqlite3
 from pathlib import Path
 from utils.common_functions import load_rebrickable_environment
 from utils.rebrickable_api import paginate
+from inventory_db import insert_set_part
 
 API_PAGE_SIZE = 500  # adjust as needed
 DB_PATH = Path("data/lego_inventory.db")
@@ -37,7 +38,7 @@ def fetch_owned_sets(user_token: str) -> list[str]:
     print(f"→ Found {len(sets)} owned sets.")
     return sets
 
-def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection) -> None:
+def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection, insert_only_set_parts: bool = False) -> None:
     """
     Fetch all parts from owned sets and insert them into the parts and part_aliases tables.
     """
@@ -52,21 +53,26 @@ def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection) -> None:
             part = item.get("part", item)
             rb_id = part["part_num"]
             name = part["name"]
-            if rb_id not in seen_parts:
+            if not insert_only_set_parts and rb_id not in seen_parts:
                 try:
                     cursor.execute("INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)", (rb_id, name))
                     seen_parts.add(rb_id)
                 except sqlite3.IntegrityError as e:
                     print(f"Error inserting part {rb_id}: {e}")
 
-            for bl in part.get("external_ids", {}).get("BrickLink", []):
-                bl_str = str(bl)
-                if bl_str not in seen_aliases:
-                    try:
-                        cursor.execute("INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)", (bl_str, rb_id))
-                        seen_aliases.add(bl_str)
-                    except sqlite3.IntegrityError as e:
-                        print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
+            if not insert_only_set_parts:
+                for bl in part.get("external_ids", {}).get("BrickLink", []):
+                    bl_str = str(bl)
+                    if bl_str not in seen_aliases:
+                        try:
+                            cursor.execute("INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)", (bl_str, rb_id))
+                            seen_aliases.add(bl_str)
+                        except sqlite3.IntegrityError as e:
+                            print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
+
+            color_id = item["color"]["id"]
+            quantity = item["quantity"]
+            insert_set_part(set_num, rb_id, color_id, quantity)
     conn.commit()
     print(f"→ Inserted {len(seen_parts)} parts and {len(seen_aliases)} aliases.")
 
@@ -85,7 +91,8 @@ def main():
     try:
         # Fetch your sets and insert part mappings
         sets = fetch_owned_sets(user_token)
-        gather_and_insert_parts(sets, conn)
+        insert_only_set_parts = "--only-set-parts" in sys.argv
+        gather_and_insert_parts(sets, conn, insert_only_set_parts=insert_only_set_parts)
     finally:
         conn.close()
 

@@ -1,4 +1,3 @@
-
 """
 SQLite data‑access layer, **v2**.
 
@@ -223,6 +222,36 @@ def get_part(design_id: str) -> Optional[Dict]:
             (design_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+# --------------------------------------------------------------------------- set_parts
+def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO set_parts (set_num, design_id, color_id, quantity)
+            VALUES (?, ?, ?, ?)
+            """,
+            (set_num, design_id, color_id, quantity),
+        )
+        conn.commit()
+
+
+def get_set_parts(set_num: str) -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT sp.set_num, sp.design_id, p.name, sp.color_id, c.name AS color_name,
+                   sp.quantity
+            FROM set_parts sp
+            JOIN parts p ON sp.design_id = p.design_id
+            JOIN colors c ON sp.color_id = c.id
+            WHERE sp.set_num = ?
+            ORDER BY p.design_id, sp.color_id
+            """,
+            (set_num,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # --------------------------------------------------------------------------- inventory
