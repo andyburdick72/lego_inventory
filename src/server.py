@@ -93,7 +93,7 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
             var th = $(column.header());
             var title = th.text();
             th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');
-            if (title !== "Qty" && title !== "Total Quantity") {{
+            if (title !== "Qty" && title !== "Total Quantity" && title !== "Image" && title !== "Rebrickable Link") {{
               var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
                 .appendTo(th)
                 .on('keyup change clear', function () {{
