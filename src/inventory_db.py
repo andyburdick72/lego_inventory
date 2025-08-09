@@ -20,6 +20,8 @@ color_aliases
 parts
     design_id TEXT PRIMARY KEY      – Rebrickable design‑id
     name      TEXT
+    part_url  TEXT
+    part_img_url TEXT
 
 part_aliases
     alias TEXT PRIMARY KEY          – BrickLink/Instabrick id
@@ -48,8 +50,13 @@ DB_PATH = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
 
 # --------------------------------------------------------------------------- helpers
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    # Apply robust defaults on every connection
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 
@@ -78,7 +85,9 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS parts(
                 design_id TEXT PRIMARY KEY,
-                name      TEXT
+                name      TEXT,
+                part_url  TEXT,
+                part_img_url TEXT
             );
 
             CREATE TABLE IF NOT EXISTS part_aliases(
@@ -129,6 +138,14 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_part_alias       ON part_aliases(alias);
             """
         )
+        try:
+            conn.execute("ALTER TABLE parts ADD COLUMN part_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE parts ADD COLUMN part_img_url TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -225,8 +242,18 @@ def get_part(design_id: str) -> Optional[Dict]:
 
 
 # --------------------------------------------------------------------------- set_parts
-def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int) -> None:
-    with _connect() as conn:
+def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int, conn: Optional[sqlite3.Connection] = None) -> None:
+    if conn is None:
+        with _connect() as local_conn:
+            local_conn.execute(
+                """
+                INSERT OR REPLACE INTO set_parts (set_num, design_id, color_id, quantity)
+                VALUES (?, ?, ?, ?)
+                """,
+                (set_num, design_id, color_id, quantity),
+            )
+            local_conn.commit()
+    else:
         conn.execute(
             """
             INSERT OR REPLACE INTO set_parts (set_num, design_id, color_id, quantity)
@@ -234,7 +261,6 @@ def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int) 
             """,
             (set_num, design_id, color_id, quantity),
         )
-        conn.commit()
 
 
 def get_set_parts(set_num: str) -> List[Dict]:
