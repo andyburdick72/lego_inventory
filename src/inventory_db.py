@@ -235,7 +235,7 @@ def get_part(design_id: str) -> Optional[Dict]:
     """
     with _connect() as conn:
         row = conn.execute(
-            "SELECT design_id, name FROM parts WHERE design_id = ?",
+            "SELECT design_id, name, part_url, part_img_url FROM parts WHERE design_id = ?",
             (design_id,),
         ).fetchone()
     return dict(row) if row else None
@@ -262,7 +262,6 @@ def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int, 
             (set_num, design_id, color_id, quantity),
         )
 
-
 def get_set_parts(set_num: str) -> List[Dict]:
     with _connect() as conn:
         rows = conn.execute(
@@ -278,6 +277,56 @@ def get_set_parts(set_num: str) -> List[Dict]:
             (set_num,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- sets helpers
+
+def get_set(set_num: str) -> Optional[Dict]:
+    """Return a single set row by set_num or None if not found."""
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT set_num, name, year, theme, image_url, rebrickable_url, status, added_at
+            FROM sets
+            WHERE set_num = ?
+            """,
+            (set_num,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_parts_for_set(set_num: str) -> List[Dict]:
+    """Return the list of parts for a set with color, qty, and Rebrickable URLs.
+    Falls back to canonical URL/placeholder image when metadata is missing.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT sp.design_id,
+                   p.name,
+                   sp.color_id,
+                   c.name AS color_name,
+                   sp.quantity,
+                   p.part_url,
+                   p.part_img_url
+            FROM set_parts sp
+            JOIN parts  p ON p.design_id = sp.design_id
+            JOIN colors c ON c.id        = sp.color_id
+            WHERE sp.set_num = ?
+            ORDER BY sp.design_id, sp.color_id
+            """,
+            (set_num,),
+        ).fetchall()
+
+    out: List[Dict] = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("part_url"):
+            d["part_url"] = f"https://rebrickable.com/parts/{d['design_id']}/"
+        if not d.get("part_img_url"):
+            d["part_img_url"] = "https://rebrickable.com/static/img/nil.png"
+        out.append(d)
+    return out
 
 
 # --------------------------------------------------------------------------- inventory

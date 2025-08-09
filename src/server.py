@@ -4,7 +4,8 @@ Light-weight HTTP UI for the Lego inventory database (inventory_db.py).
 * “/”              – master table (one row per part + color + status + location)
 * “/parts/<id>”    – detail page for a single part
 * “/locations”     – loose-parts hierarchy  (drawer ▸ container ▸ parts)
-* “/sets”          – set-parts  hierarchy   (set-number ▸ parts)
+* “/sets/<set_num>” – detail page for a single set and its parts
+* “/my-sets”        – list of all sets
 
 No external dependencies – just the std-lib.
 
@@ -17,6 +18,7 @@ import html
 import os
 import re
 import sys
+import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List
@@ -25,6 +27,7 @@ from typing import Dict, List
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can import inventory_db
 import inventory_db as db  # noqa: E402
+from inventory_db import get_set
 
 
 SET_STATUSES = {"built", "wip", "in_box", "teardown"}
@@ -68,11 +71,11 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 <nav>
   <a href="/">All Parts</a>
   <a href="/locations">Loose Parts by Location</a>
-  <a href="/sets">Parts by Set</a>
   <a href="/my-sets">Sets</a>
   <a href="/part-counts">Part Counts</a>
   <a href="/part-color-counts">Part + Color Counts</a>
   <a href="/location-counts">Storage Location Counts</a>
+  <a href="/sync">Sync</a>
 </nav>
 <hr>
 {body_html}
@@ -126,6 +129,8 @@ def _query_master_rows() -> List[Dict]:
             """
             SELECT  i.design_id,
                     p.name            AS part_name,
+                    p.part_url        AS part_url,
+                    p.part_img_url    AS part_img_url,
                     c.name            AS color_name,
                     c.hex             AS hex,
                     i.status,
@@ -151,6 +156,8 @@ def _query_master_rows() -> List[Dict]:
             dict(
                 design_id=r["design_id"],
                 part_name=r["part_name"],
+                part_url=r["part_url"],
+                part_img_url=r["part_img_url"],
                 color_name=r["color_name"],
                 hex=r["hex"],
                 status=r["status"],
@@ -227,8 +234,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_part(m.group(1)) if m else self._not_found()
             elif self.path.startswith("/locations"):
                 self._serve_locations()
-            elif self.path.startswith("/sets"):
-                self._serve_sets()
+            elif re.match(r"^/sets/([^/?#]+)", self.path):
+                m = re.match(r"^/sets/([^/?#]+)", self.path)
+                self._serve_set(m.group(1)) if m else self._not_found()
             elif self.path.startswith("/my-sets"):
                 self._serve_all_sets()
             elif self.path.startswith("/part-counts"):
@@ -237,12 +245,81 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_part_color_counts()
             elif self.path.startswith("/location-counts"):
                 self._serve_location_counts()
+            elif self.path == "/sync":
+                self._serve_sync()
+            elif self.path.startswith("/sync/start"):
+                self._serve_sync_start()
+            elif self.path.startswith("/sync/log"):
+                self._serve_sync_log()
             else:
                 self._not_found()
         except Exception as exc:  # pylint: disable=broad-except
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
+
+    def _serve_sync(self):
+        body = """
+<h1>Sync With Rebrickable</h1>
+<div style="margin:2em 0;">
+  <a href="/sync/start?type=full"><button style="font-size:1.2em;padding:1em 2em;">Full Sync</button></a>
+  <a href="/sync/start?type=mapping"><button style="font-size:1.2em;padding:1em 2em;">Parts Mapping Only</button></a>
+</div>
+<p>
+  <a href="/sync/log">View Sync Log</a>
+</p>
+"""
+        self._send_ok(_html_page("Sync", body))
+
+    def _serve_sync_start(self):
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        sync_type = (qs.get("type") or ["full"])[0]
+        if sync_type == "full":
+            cmd = ["python3", "src/load_my_rebrickable_parts.py"]
+        elif sync_type == "mapping":
+            cmd = ["python3", "src/load_my_rebrickable_parts.py", "--only-set-parts"]
+        else:
+            cmd = ["python3", "src/load_my_rebrickable_parts.py"]
+        # Ensure data dir exists
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        data_dir = os.path.abspath(data_dir)
+        os.makedirs(data_dir, exist_ok=True)
+        log_path = os.path.join(data_dir, "sync.log")
+        # Open log file in append mode
+        log_file = open(log_path, "a")
+        # Start process in background, redirect stdout/stderr to log
+        subprocess.Popen(cmd, stdout=log_file, stderr=log_file, cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        # Redirect to /sync/log
+        self.send_response(302)
+        self.send_header("Location", "/sync/log")
+        self.end_headers()
+
+    def _serve_sync_log(self):
+        # Ensure data dir exists
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        data_dir = os.path.abspath(data_dir)
+        os.makedirs(data_dir, exist_ok=True)
+        log_path = os.path.join(data_dir, "sync.log")
+        try:
+            with open(log_path, "r") as f:
+                log_content = f.read()
+        except FileNotFoundError:
+            log_content = "(No log yet)"
+        body = f"""
+<h1>Sync Log</h1>
+<pre style="background:#222; color:#eee; padding:1em; border-radius:8px; max-height:600px; overflow:auto; font-size:1em;">{html.escape(log_content)}</pre>
+<script>
+setTimeout(function() {{
+  window.location.reload();
+}}, 3000);
+</script>
+<p>
+  <a href="/sync">Back to Sync</a>
+</p>
+"""
+        self._send_ok(_html_page("Sync Log", body))
 
     def _serve_all_sets(self):
         with db._connect() as conn:
@@ -274,7 +351,8 @@ class Handler(BaseHTTPRequestHandler):
         for r in rows:
             body.append("<tr>")
             # Set Number, Name, Year, Status, Rebrickable Link, Image
-            body.append(f"<td>{html.escape(r['set_num'])}</td>")
+            # Make set number a link to /sets/<set_num>
+            body.append(f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a></td>")
             body.append(f"<td>{html.escape(r['name'])}</td>")
             body.append(f"<td>{r['year']}</td>")
             body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
@@ -284,6 +362,103 @@ class Handler(BaseHTTPRequestHandler):
 
         body.append("</tbody></table>")
         self._send_ok(_html_page("Sets", "".join(body), total_qty=parts_count))
+
+    def _serve_set(self, set_num: str):
+        # Get set metadata using get_set
+        set_info = get_set(set_num)
+        if not set_info:
+            self._not_found()
+            return
+
+        # Retrieve the list of parts for this set by calling the appropriate DB function.
+        # This function should join parts, colors, and set_parts to return the needed fields.
+        if hasattr(db, "get_parts_for_set"):
+            parts = db.get_parts_for_set(set_num)
+        else:
+            # fallback: do the query inline (legacy)
+            with db._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        p.design_id,
+                        p.name AS name,
+                        c.name AS color_name,
+                        sp.quantity AS quantity,
+                        p.part_url AS part_url,
+                        p.part_img_url AS part_img_url
+                    FROM set_parts sp
+                    JOIN parts p ON p.design_id = sp.design_id
+                    JOIN colors c ON c.id = sp.color_id
+                    WHERE sp.set_num = ?
+                    """,
+                    (set_num,)
+                ).fetchall()
+                # Convert to list of dicts
+                parts = []
+                for r in rows:
+                    parts.append({
+                        "design_id": r["design_id"],
+                        "name": r["name"],
+                        "color_name": r["color_name"],
+                        "quantity": r["quantity"],
+                        "part_url": r["part_url"],
+                        "part_img_url": r["part_img_url"],
+                    })
+
+        # Calculate total quantity
+        total_quantity = sum(p.get("quantity", 0) for p in parts)
+
+        # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity under header
+        set_img_url = set_info.get("image_url") or set_info.get("set_img_url") or ""
+        set_name = set_info.get("name", set_num)
+        set_url = set_info.get("rebrickable_url") or set_info.get("set_url") or ""
+        header_html = (
+            f"<div style='display: flex; align-items: center; gap: 1.5em; margin-bottom: 1em;'>"
+            f"<img src='{html.escape(set_img_url)}' alt='Set image' style='max-width: 150px; height: auto;'>"
+            f"<div>"
+            f"<h1 style='margin:0;'><a href='{html.escape(set_url)}' target='_blank'>{html.escape(set_num)} - {html.escape(set_name)}</a></h1>"
+            f"<div style='margin-top: 0.5em; font-size: 1.1em;'><strong>Total Quantity:</strong> {total_quantity:,}</div>"
+            f"</div>"
+            f"</div>"
+        )
+
+        # Table with columns: Part ID, Part Name, Color, Quantity, Rebrickable Link, Image
+        table_body = []
+        for part in parts:
+            table_body.append("<tr>")
+            table_body.append(f"<td>{html.escape(str(part.get('design_id', '')))}</td>")
+            table_body.append(f"<td>{html.escape(str(part.get('name', '')))}</td>")
+            table_body.append(f"<td>{html.escape(str(part.get('color_name', '')))}</td>")
+            table_body.append(f"<td>{part.get('quantity', 0)}</td>")
+            link = part.get('part_url') or (f"https://rebrickable.com/parts/{part.get('design_id','')}/")
+            img = part.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
+            table_body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
+            table_body.append(f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>")
+            table_body.append("</tr>")
+
+        if not table_body:
+            table_body.append("<tr><td colspan='6'>No matching parts found</td></tr>")
+
+        table_html = (
+            "<table><thead><tr>"
+            "<th>Part ID</th><th>Part Name</th><th>Color</th><th>Quantity</th><th>Rebrickable Link</th><th>Image</th>"
+            "</tr></thead><tbody>"
+            + "".join(table_body) +
+            "</tbody>"
+            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_quantity:,}</th><th colspan='2'></th></tr></tfoot>"
+            "</table>"
+        )
+
+        # Use _html_page for consistent look
+        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=None))
+
+    def _send_html(self, html_doc: str, status: int = 200):
+        html_bytes = html_doc.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html_bytes)))
+        self.end_headers()
+        self.wfile.write(html_bytes)
     def _serve_location_counts(self):
         with db._connect() as conn:
             rows = conn.execute(
@@ -336,8 +511,8 @@ class Handler(BaseHTTPRequestHandler):
         total_qty = sum(r["qty"] for r in rows)
         body = [f"<h1>All Parts by Status and Location</h1>",
                 "<table><thead><tr>",
-                "<th>ID</th><th>Name</th><th>Color</th><th>Status</th>",
-                "<th>Location</th><th>Qty</th></tr></thead><tbody>"]
+                "<th>ID</th><th>Name</th><th>Color</th><th>Status</th>"
+                "<th>Location</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(
@@ -348,23 +523,62 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
             body.append(f"<td>{html.escape(r['location'])}</td>")
             body.append(f"<td>{r['qty']}</td>")
+            # Rebrickable link and image
+            link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
+            body.append(f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>")
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='5'>Total</th><th>{total_qty:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>")
         body.append("</table>")
         self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=total_qty))
 
     def _serve_part(self, design_id: str):
+        # Get overall inventory total for header
         total_qty = sum(r["qty"] for r in _query_master_rows())
-        part = db.get_part(design_id)
-        if not part:
-            self._not_found()
-            return
-        rows = db.inventory_by_part(design_id)
-        body = [f"<h1>Part {html.escape(design_id)}</h1>",
-                f"<p>Name: {html.escape(part['name'])}</p>",
-                "<table><thead><tr><th>Color</th><th>Status</th>"
-                "<th>Location</th><th>Qty</th></tr></thead><tbody>"]
+        # Fetch part details including part_url and part_img_url
+        with db._connect() as conn:
+            part_row = conn.execute(
+                """
+                SELECT design_id, name, part_url, part_img_url
+                FROM parts WHERE design_id = ?
+                """,
+                (design_id,)
+            ).fetchone()
+            if not part_row:
+                self._not_found()
+                return
+            # Get total quantity of this part across all inventory
+            total_quantity_row = conn.execute(
+                "SELECT SUM(quantity) AS total_quantity FROM inventory WHERE design_id = ?",
+                (design_id,)
+            ).fetchone()
+            total_quantity = total_quantity_row["total_quantity"] if total_quantity_row and total_quantity_row["total_quantity"] is not None else 0
+            # Get inventory rows for this part
+            rows = conn.execute(
+                """
+                SELECT i.status, i.set_number, i.drawer, i.container, i.quantity,
+                       c.name AS color_name, c.hex AS hex
+                FROM inventory i
+                JOIN colors c ON c.id = i.color_id
+                WHERE i.design_id = ?
+                """,
+                (design_id,)
+            ).fetchall()
+
+        # Build header with image, (design_id - part_name) as link, and total quantity
+        part_url = part_row["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
+        part_img_url = part_row["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
+        part_name = part_row["name"]
+        body = [
+            f"<div style='display: flex; align-items: center; gap: 1em; margin-bottom: 1em;'>"
+            f"<img src='{html.escape(part_img_url)}' alt='{html.escape(part_name)}' style='height: 64px;'>"
+            f"<h1 style='margin:0;'><a href='{html.escape(part_url)}' target='_blank'>{html.escape(design_id)} - {html.escape(part_name)}</a></h1>"
+            f"<span style='font-size: 1.1em; margin-left: 1em;'>Total Quantity: {total_quantity:,}</span>"
+            f"</div>"
+        ]
+        body.append("<table><thead><tr><th>Color</th><th>Status</th><th>Location</th><th>Qty</th></tr></thead><tbody>")
         for r in rows:
             if r["status"] in SET_STATUSES:
                 loc = r["set_number"] or "(unknown set)"
@@ -407,8 +621,7 @@ class Handler(BaseHTTPRequestHandler):
                 body.append(
                     f"<details style='margin-left: 4em;'><summary>{html.escape(container)} (total: {container_total:,})</summary>"
                 )
-                body.append("<table><thead><tr><th>ID</th><th>Name</th>"
-                            "<th>Color</th><th>Qty</th></tr></thead><tbody>")
+                body.append("<table><thead><tr><th>ID</th><th>Name</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>")
                 for p in parts:
                     body.append("<tr>")
                     body.append(
@@ -416,65 +629,48 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     body.append(f"<td>{html.escape(p['name'])} ({html.escape(p['design_id'])})</td>")
                     body.append(_make_color_cell(p["color_name"], p["hex"]))
-                    body.append(f"<td>{p['qty']}</td></tr>")
+                    body.append(f"<td>{p['qty']}</td>")
+                    # Rebrickable link + image (fallbacks)
+                    _link = f"https://rebrickable.com/parts/{p['design_id']}/"
+                    _part = db.get_part(p['design_id']) or {}
+                    _img  = _part.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
+                    body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
+                    body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
+                    body.append("</tr>")
                 body.append("</tbody>")
-                body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{container_total:,}</th></tr></tfoot>")
+                body.append(f"<tfoot><tr><th colspan='3'>Total</th><th colspan='3'>{container_total:,}</th></tr></tfoot>")
                 body.append("</table></details>")
             body.append("</details>")
         self._send_ok(_html_page("Locations", "".join(body), total_qty=total_qty))
 
-    def _serve_sets(self):
-        total_qty = sum(r["qty"] for r in _query_master_rows())
-        sets_map = _build_sets_map()
-        body = [f"<h1>Set Parts by Status and Set</h1>"]
-        # Group by status first
-        for status in sorted(sets_map.keys()):
-            sets = sets_map[status]
-            status_total = sum(p["qty"] for parts in sets.values() for p in parts)
-            body.append(f"<details>")
-            body.append(f"<summary style='font-size: 1.5em; font-weight: bold; margin-top: 1em;'>Status: {html.escape(_display_status(status))} (total quantity: {status_total:,})</summary>")
-            for set_no in sorted(sets.keys(), key=str):
-                parts = sets[set_no]
-                set_total = sum(p["qty"] for p in parts)
-                body.append(f"<details style='margin-left: 4em;'><summary>{html.escape(set_no)} (total: {set_total:,})</summary>")
-                body.append("<table><thead><tr><th>ID</th><th>Name</th>"
-                            "<th>Color</th><th>Qty</th></tr></thead><tbody>")
-                for p in parts:
-                    body.append("<tr>")
-                    body.append(
-                        f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
-                    )
-                    body.append(f"<td>{html.escape(p['part_name'])}</td>")
-                    body.append(_make_color_cell(p["color_name"], p["hex"]))
-                    body.append(f"<td>{p['qty']}</td></tr>")
-                body.append("</tbody>")
-                body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{set_total:,}</th></tr></tfoot>")
-                body.append("</table></details>")
-            body.append("</details>")
-        self._send_ok(_html_page("Sets", "".join(body), total_qty=total_qty))
+    # The /sets route and _serve_sets method have been removed.
 
     def _serve_part_counts(self):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT i.design_id, p.name AS part_name, SUM(i.quantity) AS total_qty
+                SELECT i.design_id, p.name AS part_name, p.part_url AS part_url, p.part_img_url AS part_img_url, SUM(i.quantity) AS total_qty
                 FROM inventory i
                 JOIN parts p ON i.design_id = p.design_id
-                GROUP BY i.design_id, p.name
+                GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
         body = ["<h1>Part Counts</h1>",
-                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th></tr></thead><tbody>"]
+                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(f"<td>{r['total_qty']:,}</td>")
+            _link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            _img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
+            body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th colspan='2'></th></tr></tfoot>")
         body.append("</table>")
         self._send_ok(_html_page("Part Counts", "".join(body), total_qty=total_qty))
 
@@ -482,26 +678,30 @@ class Handler(BaseHTTPRequestHandler):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT i.design_id, p.name AS part_name, c.name AS color_name, c.hex AS hex, SUM(i.quantity) AS total_qty
+                SELECT i.design_id, p.name AS part_name, p.part_url AS part_url, p.part_img_url AS part_img_url, c.name AS color_name, c.hex AS hex, SUM(i.quantity) AS total_qty
                 FROM inventory i
                 JOIN parts p ON i.design_id = p.design_id
                 JOIN colors c ON i.color_id = c.id
-                GROUP BY i.design_id, p.name, c.name, c.hex
+                GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
         body = ["<h1>Part + Color Counts</h1>",
-                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th></tr></thead><tbody>"]
+                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(_make_color_cell(r["color_name"], r["hex"]))
             body.append(f"<td>{r['total_qty']:,}</td>")
+            _link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            _img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
+            body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='4'>Total</th><th colspan='2'></th></tr></tfoot>")
         body.append("</table>")
         self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=total_qty))
 
