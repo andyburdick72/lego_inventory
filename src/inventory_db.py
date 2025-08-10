@@ -278,6 +278,27 @@ def get_set_parts(set_num: str) -> List[Dict]:
         ).fetchall()
     return [dict(r) for r in rows]
 
+def sets_for_part(design_id: str) -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.set_num,
+                   s.name        AS set_name,
+                   s.year        AS year,
+                   c.id          AS color_id,
+                   c.name        AS color_name,
+                   c.hex         AS hex,
+                   sp.quantity   AS quantity
+            FROM set_parts sp
+            JOIN sets  s ON s.set_num = sp.set_num
+            JOIN colors c ON c.id     = sp.color_id
+            WHERE sp.design_id = ?
+            ORDER BY s.year, s.set_num, c.id
+            """,
+            (design_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 
 # --------------------------------------------------------------------------- sets helpers
 
@@ -341,6 +362,9 @@ def insert_inventory(
     container: Optional[str] = None,
     set_number: Optional[str] = None,
 ) -> None:
+    if status != 'loose':
+        # Inventory table is now for loose parts only; ignore non-loose inserts
+        return
     with _connect() as conn:
         conn.execute(
             """
@@ -355,10 +379,26 @@ def insert_inventory(
                 status,
                 drawer,
                 container,
-                set_number,
+                None,  # set_number not used for loose-only inventory
             ),
         )
         conn.commit()
+
+def loose_inventory_for_part(design_id: str) -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.name AS color_name, c.hex,
+                   i.color_id, i.quantity,
+                   i.drawer, i.container
+            FROM inventory i
+            JOIN colors c ON c.id = i.color_id
+            WHERE i.design_id = ? AND i.status = 'loose'
+            ORDER BY i.drawer, i.container, i.color_id
+            """,
+            (design_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # --------------------------------------------------------------------------- queries
@@ -434,6 +474,24 @@ def search_parts(query: str) -> List[Dict]:
             (pattern, pattern),
         ).fetchall()
         return [dict(r) for r in rows]
+
+def totals() -> Dict[str, int]:
+    """Return total counts: loose_total, set_total, overall_total."""
+    with _connect() as conn:
+        loose_row = conn.execute(
+            "SELECT COALESCE(SUM(quantity),0) AS q FROM inventory WHERE status='loose'"
+        ).fetchone()
+        set_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(sp.quantity), 0) AS q
+            FROM set_parts sp
+            JOIN sets s ON s.set_num = sp.set_num
+            WHERE s.status IN ('built','wip','in_box','teardown')
+            """
+        ).fetchone()
+    loose_total = loose_row["q"] if loose_row else 0
+    set_total = set_row["q"] if set_row else 0
+    return {"loose_total": loose_total, "set_total": set_total, "overall_total": loose_total + set_total}
 
 # --------------------------------------------------------------------------- main
 if __name__ == "__main__":

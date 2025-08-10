@@ -65,10 +65,10 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 <body>
 <header>
   <h1>Ervin-Burdick's Bricks</h1>
-  {f"<p><strong>Total Parts in Inventory:</strong> {total_qty:,}</p>" if total_qty is not None else ""}
+  {f"<p><strong>Total Parts in Inventory:</strong> {total_qty:,}</p>" if total_qty is not None else f"<p><strong>Total Parts in Inventory:</strong> {db.totals()['overall_total']:,}</p>"}
 </header>
 <nav>
-  <a href="/">All Parts</a>
+  <a href="/">Loose Parts</a>
   <a href="/locations">Loose Parts by Location</a>
   <a href="/my-sets">Sets</a>
   <a href="/part-counts">Part Counts</a>
@@ -146,6 +146,7 @@ def _query_master_rows() -> List[Dict]:
         ).fetchall()
     result = []
     for r in rows:
+        # Always include drawer and container in the dict for use in table columns
         if r["status"] in SET_STATUSES:
             location = r["set_number"] or "(unknown set)"
         else:
@@ -160,6 +161,8 @@ def _query_master_rows() -> List[Dict]:
                 hex=r["hex"],
                 status=r["status"],
                 location=location,
+                drawer=r["drawer"],
+                container=r["container"],
                 qty=r["qty"],
             )
         )
@@ -260,11 +263,10 @@ class Handler(BaseHTTPRequestHandler):
                 ORDER BY added_at DESC
                 """
             ).fetchall()
-            # Get total quantity of all inventory rows (all parts)
-            total_qty_row = conn.execute("SELECT SUM(quantity) AS total_qty FROM inventory").fetchone()
-            parts_count = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
 
-        body = ["<h1>All Owned Sets</h1>",
+        total_sets = len(rows)
+
+        body = [f"<h1>All Owned Sets ({total_sets})</h1>",
                 """<table id="sets_table">
 <thead>
     <tr>
@@ -291,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
             body.append("</tr>")
 
         body.append("</tbody></table>")
-        self._send_ok(_html_page("Sets", "".join(body), total_qty=parts_count))
+        self._send_ok(_html_page("All Owned Sets", "".join(body), total_qty=None))
 
     def _serve_set(self, set_num: str):
         # Get set metadata using get_set
@@ -339,11 +341,6 @@ class Handler(BaseHTTPRequestHandler):
         # Compute total quantity for the set
         total_qty = sum(p.get('quantity', 0) for p in parts)
         total_qty_str = f"{total_qty:,}"
-
-        # Overall inventory total for the site header
-        with db._connect() as conn:
-            total_qty_row = conn.execute("SELECT SUM(quantity) AS total_qty FROM inventory").fetchone()
-            overall_total_qty = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
 
         # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity in header
         set_img_url = set_info.get("image_url") or set_info.get("set_img_url") or ""
@@ -393,8 +390,8 @@ class Handler(BaseHTTPRequestHandler):
             "</table>"
         )
 
-        # Use _html_page for consistent look, pass overall inventory total for header
-        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=overall_total_qty))
+        # Use _html_page for consistent look, pass None for total_qty to use combined totals in the header
+        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=None))
 
     def _send_html(self, html_doc: str, status: int = 200):
         html_bytes = html_doc.encode()
@@ -416,11 +413,6 @@ class Handler(BaseHTTPRequestHandler):
                 GROUP BY i.drawer, i.container
                 """
             ).fetchall()
-            # Get total quantity of all inventory rows (not just filtered)
-            total_qty_row = conn.execute(
-                "SELECT SUM(quantity) AS total_qty FROM inventory"
-            ).fetchone()
-            total_qty = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
 
         locations = []
         for r in rows:
@@ -447,16 +439,16 @@ class Handler(BaseHTTPRequestHandler):
         body.append(f"<tfoot><tr><th>Total</th><th>{subtotal:,}</th></tr></tfoot>")
         body.append("</table>")
 
-        self._send_ok(_html_page("Storage Location Counts", "".join(body), total_qty=total_qty))
+        self._send_ok(_html_page("Storage Location Counts", "".join(body), total_qty=None))
 
     # ..................................................................... pages
     def _serve_master(self):
         rows = _query_master_rows()
         total_qty = sum(r["qty"] for r in rows)
-        body = [f"<h1>All Parts by Status and Location</h1>",
+        body = [f"<h1>All Loose Parts</h1>",
                 "<table><thead><tr>",
-                "<th>ID</th><th>Name</th><th>Color</th><th>Status</th>"
-                "<th>Location</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+                "<th>ID</th><th>Name</th><th>Color</th>"
+                "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(
@@ -464,8 +456,9 @@ class Handler(BaseHTTPRequestHandler):
             )
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(_make_color_cell(r["color_name"], r["hex"]))
-            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
-            body.append(f"<td>{html.escape(r['location'])}</td>")
+            # Insert drawer and container columns before quantity
+            body.append(f"<td>{html.escape(r['drawer'] or '')}</td>")
+            body.append(f"<td>{html.escape(r['container'] or '')}</td>")
             body.append(f"<td>{r['qty']}</td>")
             # Rebrickable link and image
             link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
@@ -476,69 +469,67 @@ class Handler(BaseHTTPRequestHandler):
         body.append("</tbody>")
         body.append(f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>")
         body.append("</table>")
-        self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=total_qty))
+        self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=None))
 
     def _serve_part(self, design_id: str):
-        # Get overall inventory total for header
-        total_qty = sum(r["qty"] for r in _query_master_rows())
-        # Fetch part details including part_url and part_img_url
-        with db._connect() as conn:
-            part_row = conn.execute(
-                """
-                SELECT design_id, name, part_url, part_img_url
-                FROM parts WHERE design_id = ?
-                """,
-                (design_id,)
-            ).fetchone()
-            if not part_row:
-                self._not_found()
-                return
-            # Get total quantity of this part across all inventory
-            total_quantity_row = conn.execute(
-                "SELECT SUM(quantity) AS total_quantity FROM inventory WHERE design_id = ?",
-                (design_id,)
-            ).fetchone()
-            total_quantity = total_quantity_row["total_quantity"] if total_quantity_row and total_quantity_row["total_quantity"] is not None else 0
-            # Get inventory rows for this part
-            rows = conn.execute(
-                """
-                SELECT i.status, i.set_number, i.drawer, i.container, i.quantity,
-                       c.name AS color_name, c.hex AS hex
-                FROM inventory i
-                JOIN colors c ON c.id = i.color_id
-                WHERE i.design_id = ?
-                """,
-                (design_id,)
-            ).fetchall()
+        # Resolve part meta
+        part = db.get_part(design_id) or {"design_id": design_id, "name": "Unknown part", "part_url": None, "part_img_url": None}
 
-        # Build header with image, (design_id - part_name) as link, and total quantity
-        part_url = part_row["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
-        part_img_url = part_row["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
-        part_name = part_row["name"]
-        body = [
+        # Data for the two sections
+        sets_rows = db.sets_for_part(design_id)
+        loose_rows = db.loose_inventory_for_part(design_id)
+
+        # Totals for this part
+        part_total = sum(r.get("quantity", 0) for r in sets_rows) + sum(r.get("quantity", 0) for r in loose_rows)
+
+        # Header
+        part_url = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+        part_img_url = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
+        part_name = part.get("name", "")
+        header_html = (
             f"<div style='display: flex; align-items: center; gap: 1em; margin-bottom: 1em;'>"
             f"<img src='{html.escape(part_img_url)}' alt='{html.escape(part_name)}' style='height: 64px;'>"
             f"<h1 style='margin:0;'><a href='{html.escape(part_url)}' target='_blank'>{html.escape(design_id)} - {html.escape(part_name)}</a></h1>"
-            f"<span style='font-size: 1.1em; margin-left: 1em;'>Total Quantity: {total_quantity:,}</span>"
+            f"<span style='font-size: 1.1em; margin-left: 1em;'>Total Quantity: {part_total:,}</span>"
             f"</div>"
-        ]
-        body.append("<table><thead><tr><th>Color</th><th>Status</th><th>Location</th><th>Qty</th></tr></thead><tbody>")
-        for r in rows:
-            if r["status"] in SET_STATUSES:
-                loc = r["set_number"] or "(unknown set)"
-            else:
-                loc = f"{r['drawer']}/{r['container']}".strip("/")
-            body.append("<tr>")
-            body.append(_make_color_cell(r["color_name"], r["hex"]))
-            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
-            body.append(f"<td>{html.escape(loc)}</td>")
-            body.append(f"<td>{r['quantity']}</td>")
-            body.append("</tr>")
-        body.append("</tbody>")
-        total_qty_part = sum(r["quantity"] for r in rows)
-        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty_part:,}</th></tr></tfoot>")
-        body.append("</table>")
-        self._send_ok(_html_page(f"Part {design_id}", "".join(body), total_qty=total_qty))
+        )
+
+        # In Sets table
+        sets_body = []
+        for r in sets_rows:
+            color_cell = _make_color_cell(r["color_name"], r.get("hex")) if r.get("hex") else f"<td>{html.escape(r['color_name'])}</td>"
+            sets_body.append("<tr>")
+            sets_body.append(f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a> – {html.escape(r['set_name'])}</td>")
+            sets_body.append(color_cell)
+            sets_body.append(f"<td>{r['quantity']}</td>")
+            sets_body.append("</tr>")
+        if not sets_body:
+            sets_body.append("<tr><td colspan='3'>This part is not currently in any sets.</td></tr>")
+        sets_table = (
+            "<h2>In Sets</h2>"
+            "<table><thead><tr><th>Set</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
+            + "".join(sets_body) + "</tbody></table>"
+        )
+
+        # Loose Parts table
+        loose_body = []
+        for r in loose_rows:
+            color_cell = _make_color_cell(r["color_name"], r.get("hex")) if r.get("hex") else f"<td>{html.escape(r['color_name'])}</td>"
+            loose_body.append("<tr>")
+            loose_body.append(f"<td>{html.escape(str(r.get('drawer','')))}</td>")
+            loose_body.append(f"<td>{html.escape(str(r.get('container','')))}</td>")
+            loose_body.append(color_cell)
+            loose_body.append(f"<td>{r['quantity']}</td>")
+            loose_body.append("</tr>")
+        if not loose_body:
+            loose_body.append("<tr><td colspan='4'>No loose parts on hand.</td></tr>")
+        loose_table = (
+            "<h2>Loose Parts</h2>"
+            "<table><thead><tr><th>Drawer</th><th>Container</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
+            + "".join(loose_body) + "</tbody></table>"
+        )
+
+        self._send_ok(_html_page(f"Part {design_id}", header_html + sets_table + loose_table, total_qty=None))
 
     def _serve_locations(self):
         total_qty = sum(r["qty"] for r in _query_master_rows())
@@ -585,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
                 body.append(f"<tfoot><tr><th colspan='3'>Total</th><th colspan='3'>{container_total:,}</th></tr></tfoot>")
                 body.append("</table></details>")
             body.append("</details>")
-        self._send_ok(_html_page("Locations", "".join(body), total_qty=total_qty))
+        self._send_ok(_html_page("Locations", "".join(body), total_qty=None))
 
     # The /sets route and _serve_sets method have been removed.
 
@@ -593,10 +584,34 @@ class Handler(BaseHTTPRequestHandler):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT i.design_id, p.name AS part_name, p.part_url AS part_url, p.part_img_url AS part_img_url, SUM(i.quantity) AS total_qty
-                FROM inventory i
-                JOIN parts p ON i.design_id = p.design_id
-                GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
+                SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
+                FROM (
+                    -- Loose parts
+                    SELECT i.design_id,
+                           p.name AS part_name,
+                           p.part_url AS part_url,
+                           p.part_img_url AS part_img_url,
+                           SUM(i.quantity) AS total_qty
+                    FROM inventory i
+                    JOIN parts p ON i.design_id = p.design_id
+                    WHERE i.status = 'loose'
+                    GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
+
+                    UNION ALL
+
+                    -- Parts in sets (exclude sets marked as loose)
+                    SELECT sp.design_id,
+                           p.name AS part_name,
+                           p.part_url AS part_url,
+                           p.part_img_url AS part_img_url,
+                           SUM(sp.quantity) AS total_qty
+                    FROM set_parts sp
+                    JOIN parts p ON sp.design_id = p.design_id
+                    JOIN sets s  ON s.set_num   = sp.set_num
+                    WHERE s.status IN ('built','wip','in_box','teardown')
+                    GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url
+                ) q
+                GROUP BY design_id, part_name, part_url, part_img_url
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
@@ -614,19 +629,48 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th colspan='2'></th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
         body.append("</table>")
-        self._send_ok(_html_page("Part Counts", "".join(body), total_qty=total_qty))
+        self._send_ok(_html_page("Part Counts", "".join(body), total_qty=None))
 
     def _serve_part_color_counts(self):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT i.design_id, p.name AS part_name, p.part_url AS part_url, p.part_img_url AS part_img_url, c.name AS color_name, c.hex AS hex, SUM(i.quantity) AS total_qty
-                FROM inventory i
-                JOIN parts p ON i.design_id = p.design_id
-                JOIN colors c ON i.color_id = c.id
-                GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+                SELECT design_id, part_name, part_url, part_img_url, color_name, hex, SUM(total_qty) AS total_qty
+                FROM (
+                    -- Loose parts
+                    SELECT i.design_id,
+                           p.name AS part_name,
+                           p.part_url AS part_url,
+                           p.part_img_url AS part_img_url,
+                           c.name AS color_name,
+                           c.hex  AS hex,
+                           SUM(i.quantity) AS total_qty
+                    FROM inventory i
+                    JOIN parts  p ON i.design_id = p.design_id
+                    JOIN colors c ON i.color_id  = c.id
+                    WHERE i.status = 'loose'
+                    GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+
+                    UNION ALL
+
+                    -- Parts in sets (exclude sets marked as loose)
+                    SELECT sp.design_id,
+                           p.name AS part_name,
+                           p.part_url AS part_url,
+                           p.part_img_url AS part_img_url,
+                           c.name AS color_name,
+                           c.hex  AS hex,
+                           SUM(sp.quantity) AS total_qty
+                    FROM set_parts sp
+                    JOIN parts  p ON sp.design_id = p.design_id
+                    JOIN colors c ON sp.color_id  = c.id
+                    JOIN sets  s  ON s.set_num    = sp.set_num
+                    WHERE s.status IN ('built','wip','in_box','teardown')
+                    GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+                ) q
+                GROUP BY design_id, part_name, part_url, part_img_url, color_name, hex
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
@@ -645,9 +689,9 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='4'>Total</th><th colspan='2'></th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
         body.append("</table>")
-        self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=total_qty))
+        self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=None))
 
     # ..................................................................... utilities
     def _not_found(self):
