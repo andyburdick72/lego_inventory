@@ -306,6 +306,7 @@ def get_parts_for_set(set_num: str) -> List[Dict]:
                    p.name,
                    sp.color_id,
                    c.name AS color_name,
+                   c.hex  AS hex,
                    sp.quantity,
                    p.part_url,
                    p.part_img_url
@@ -321,6 +322,7 @@ def get_parts_for_set(set_num: str) -> List[Dict]:
     out: List[Dict] = []
     for r in rows:
         d = dict(r)
+        d["hex"] = r["hex"]
         if not d.get("part_url"):
             d["part_url"] = f"https://rebrickable.com/parts/{d['design_id']}/"
         if not d.get("part_img_url"):

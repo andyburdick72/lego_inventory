@@ -4,6 +4,12 @@ load_my_rebrickable_parts.py
 
 Fetch all sets you own via the Rebrickable API and populate
 the parts and part_aliases tables in the local SQLite database.
+
+CLI flags:
+  --only-set-parts           Skip inserting new parts/aliases; update set_parts only.
+  --exclude-spares           OPT-OUT: do not include spare/extra parts (default is include).
+  --exclude-minifig-parts    OPT-OUT: do not include minifig component parts (default is include).
+  --skip-refresh             OPT-OUT: skip deleting existing set_parts for owned sets before reloading (default is refresh).
 """
 from __future__ import annotations
 import os
@@ -152,7 +158,13 @@ def fetch_owned_sets(user_token: str) -> list[str]:
     print(f"→ Found {len(sets)} owned sets.")
     return sets
 
-def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection, insert_only_set_parts: bool = False) -> None:
+def gather_and_insert_parts(
+    sets: list[str],
+    conn: sqlite3.Connection,
+    insert_only_set_parts: bool = False,
+    include_spares: bool = True,
+    include_minifig_parts: bool = True
+) -> None:
     """
     Fetch all parts from owned sets and insert them into the parts and part_aliases tables.
     """
@@ -168,10 +180,22 @@ def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection, insert_on
     total = len(sets)
     cursor = conn.cursor()
 
+    # Build per-request params based on defaults (include spares + minifig parts)
+    base_params = {"page_size": API_PAGE_SIZE}
+    if include_minifig_parts:
+        # Rebrickable supports including minifig components in set inventories
+        base_params["inc_minifig_parts"] = 1
+    if include_spares:
+        # Some deployments accept this hint; even if ignored, we will merge spares via is_spare below
+        base_params["include_spare_parts"] = 1
+
     for i, set_num in enumerate(sets, start=1):
         print(f"[{i}/{total}] Set {set_num}: fetching parts…")
         sets_processed += 1
-        for item in paginate(f"/sets/{set_num}/parts/", params={"page_size": API_PAGE_SIZE}):
+        # Aggregate quantities per (part, color), optionally including spare parts
+        params = dict(base_params)
+        agg: dict[tuple[str, int], int] = {}
+        for item in paginate(f"/sets/{set_num}/parts/", params=params):
             part = item.get("part", item)
             rb_id = part["part_num"]
             name = part["name"]
@@ -191,21 +215,28 @@ def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection, insert_on
                 """,
                 (name, part_url, part_img_url, rb_id),
             )
-            if not insert_only_set_parts and rb_id not in seen_parts:
-                try:
-                    cursor.execute("INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)", (rb_id, name))
-                    if cursor.rowcount == 1:
-                        new_parts += 1
-                        seen_parts.add(rb_id)
-                except sqlite3.IntegrityError as e:
-                    print(f"Error inserting part {rb_id}: {e}")
-
             if not insert_only_set_parts:
+                # Ensure the part exists
+                if rb_id not in seen_parts:
+                    try:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)",
+                            (rb_id, name),
+                        )
+                        if cursor.rowcount == 1:
+                            new_parts += 1
+                            seen_parts.add(rb_id)
+                    except sqlite3.IntegrityError as e:
+                        print(f"Error inserting part {rb_id}: {e}")
+                # Insert BrickLink aliases if present
                 for bl in part.get("external_ids", {}).get("BrickLink", []):
                     bl_str = str(bl)
                     if bl_str not in seen_aliases:
                         try:
-                            cursor.execute("INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)", (bl_str, rb_id))
+                            cursor.execute(
+                                "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                                (bl_str, rb_id),
+                            )
                             if cursor.rowcount == 1:
                                 new_aliases += 1
                                 seen_aliases.add(bl_str)
@@ -213,7 +244,16 @@ def gather_and_insert_parts(sets: list[str], conn: sqlite3.Connection, insert_on
                             print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
 
             color_id = item["color"]["id"]
-            quantity = item["quantity"]
+            qty = int(item["quantity"]) or 0
+            # Skip spares unless included
+            is_spare = bool(item.get("is_spare"))
+            if is_spare and not include_spares:
+                continue
+            key = (rb_id, color_id)
+            agg[key] = agg.get(key, 0) + qty
+
+        # Now write the aggregated quantities to set_parts
+        for (rb_id, color_id), quantity in agg.items():
             existing = cursor.execute(
                 "SELECT quantity FROM set_parts WHERE set_num = ? AND design_id = ? AND color_id = ?",
                 (set_num, rb_id, color_id),
@@ -269,8 +309,29 @@ def main():
     try:
         # Fetch your sets and insert part mappings
         sets = fetch_owned_sets(user_token)
+        # Always refresh set_parts for owned sets unless explicitly skipped
+        if "--skip-refresh" not in sys.argv:
+            with conn:
+                conn.executemany(
+                    "DELETE FROM set_parts WHERE set_num = ?",
+                    [(s,) for s in sets],
+                )
+            print(f"Cleared set_parts for {len(sets)} owned sets; rebuilding…")
+
         insert_only_set_parts = "--only-set-parts" in sys.argv
-        gather_and_insert_parts(sets, conn, insert_only_set_parts=insert_only_set_parts)
+        # Defaults: include both, unless explicitly excluded
+        exclude_spares = "--exclude-spares" in sys.argv
+        exclude_minifig_parts = "--exclude-minifig-parts" in sys.argv
+        include_spares = not exclude_spares
+        include_minifig_parts = not exclude_minifig_parts
+
+        gather_and_insert_parts(
+            sets,
+            conn,
+            insert_only_set_parts=insert_only_set_parts,
+            include_spares=include_spares,
+            include_minifig_parts=include_minifig_parts,
+        )
     finally:
         conn.close()
 

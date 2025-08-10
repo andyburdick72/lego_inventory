@@ -18,7 +18,6 @@ import html
 import os
 import re
 import sys
-import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List
@@ -75,7 +74,6 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
   <a href="/part-counts">Part Counts</a>
   <a href="/part-color-counts">Part + Color Counts</a>
   <a href="/location-counts">Storage Location Counts</a>
-  <a href="/sync">Sync</a>
 </nav>
 <hr>
 {body_html}
@@ -96,7 +94,7 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
             var th = $(column.header());
             var title = th.text();
             th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');
-            if (title !== "Qty" && title !== "Total Quantity" && title !== "Image" && title !== "Rebrickable Link") {{
+            if (title !== "Qty" && title !== "Total Quantity" && title !== "Quantity" && title !== "Image" && title !== "Rebrickable Link") {{
               var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
                 .appendTo(th)
                 .on('keyup change clear', function () {{
@@ -245,12 +243,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_part_color_counts()
             elif self.path.startswith("/location-counts"):
                 self._serve_location_counts()
-            elif self.path == "/sync":
-                self._serve_sync()
-            elif self.path.startswith("/sync/start"):
-                self._serve_sync_start()
-            elif self.path.startswith("/sync/log"):
-                self._serve_sync_log()
             else:
                 self._not_found()
         except Exception as exc:  # pylint: disable=broad-except
@@ -258,68 +250,6 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
 
-    def _serve_sync(self):
-        body = """
-<h1>Sync With Rebrickable</h1>
-<div style="margin:2em 0;">
-  <a href="/sync/start?type=full"><button style="font-size:1.2em;padding:1em 2em;">Full Sync</button></a>
-  <a href="/sync/start?type=mapping"><button style="font-size:1.2em;padding:1em 2em;">Parts Mapping Only</button></a>
-</div>
-<p>
-  <a href="/sync/log">View Sync Log</a>
-</p>
-"""
-        self._send_ok(_html_page("Sync", body))
-
-    def _serve_sync_start(self):
-        import urllib.parse
-        parsed = urllib.parse.urlparse(self.path)
-        qs = urllib.parse.parse_qs(parsed.query)
-        sync_type = (qs.get("type") or ["full"])[0]
-        if sync_type == "full":
-            cmd = ["python3", "src/load_my_rebrickable_parts.py"]
-        elif sync_type == "mapping":
-            cmd = ["python3", "src/load_my_rebrickable_parts.py", "--only-set-parts"]
-        else:
-            cmd = ["python3", "src/load_my_rebrickable_parts.py"]
-        # Ensure data dir exists
-        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-        data_dir = os.path.abspath(data_dir)
-        os.makedirs(data_dir, exist_ok=True)
-        log_path = os.path.join(data_dir, "sync.log")
-        # Open log file in append mode
-        log_file = open(log_path, "a")
-        # Start process in background, redirect stdout/stderr to log
-        subprocess.Popen(cmd, stdout=log_file, stderr=log_file, cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-        # Redirect to /sync/log
-        self.send_response(302)
-        self.send_header("Location", "/sync/log")
-        self.end_headers()
-
-    def _serve_sync_log(self):
-        # Ensure data dir exists
-        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-        data_dir = os.path.abspath(data_dir)
-        os.makedirs(data_dir, exist_ok=True)
-        log_path = os.path.join(data_dir, "sync.log")
-        try:
-            with open(log_path, "r") as f:
-                log_content = f.read()
-        except FileNotFoundError:
-            log_content = "(No log yet)"
-        body = f"""
-<h1>Sync Log</h1>
-<pre style="background:#222; color:#eee; padding:1em; border-radius:8px; max-height:600px; overflow:auto; font-size:1em;">{html.escape(log_content)}</pre>
-<script>
-setTimeout(function() {{
-  window.location.reload();
-}}, 3000);
-</script>
-<p>
-  <a href="/sync">Back to Sync</a>
-</p>
-"""
-        self._send_ok(_html_page("Sync Log", body))
 
     def _serve_all_sets(self):
         with db._connect() as conn:
@@ -371,7 +301,6 @@ setTimeout(function() {{
             return
 
         # Retrieve the list of parts for this set by calling the appropriate DB function.
-        # This function should join parts, colors, and set_parts to return the needed fields.
         if hasattr(db, "get_parts_for_set"):
             parts = db.get_parts_for_set(set_num)
         else:
@@ -383,6 +312,7 @@ setTimeout(function() {{
                         p.design_id,
                         p.name AS name,
                         c.name AS color_name,
+                        c.hex AS hex,
                         sp.quantity AS quantity,
                         p.part_url AS part_url,
                         p.part_img_url AS part_img_url
@@ -400,15 +330,22 @@ setTimeout(function() {{
                         "design_id": r["design_id"],
                         "name": r["name"],
                         "color_name": r["color_name"],
+                        "hex": r["hex"],
                         "quantity": r["quantity"],
                         "part_url": r["part_url"],
                         "part_img_url": r["part_img_url"],
                     })
 
-        # Calculate total quantity
-        total_quantity = sum(p.get("quantity", 0) for p in parts)
+        # Compute total quantity for the set
+        total_qty = sum(p.get('quantity', 0) for p in parts)
+        total_qty_str = f"{total_qty:,}"
 
-        # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity under header
+        # Overall inventory total for the site header
+        with db._connect() as conn:
+            total_qty_row = conn.execute("SELECT SUM(quantity) AS total_qty FROM inventory").fetchone()
+            overall_total_qty = total_qty_row["total_qty"] if total_qty_row and total_qty_row["total_qty"] is not None else 0
+
+        # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity in header
         set_img_url = set_info.get("image_url") or set_info.get("set_img_url") or ""
         set_name = set_info.get("name", set_num)
         set_url = set_info.get("rebrickable_url") or set_info.get("set_url") or ""
@@ -416,19 +353,26 @@ setTimeout(function() {{
             f"<div style='display: flex; align-items: center; gap: 1.5em; margin-bottom: 1em;'>"
             f"<img src='{html.escape(set_img_url)}' alt='Set image' style='max-width: 150px; height: auto;'>"
             f"<div>"
-            f"<h1 style='margin:0;'><a href='{html.escape(set_url)}' target='_blank'>{html.escape(set_num)} - {html.escape(set_name)}</a></h1>"
-            f"<div style='margin-top: 0.5em; font-size: 1.1em;'><strong>Total Quantity:</strong> {total_quantity:,}</div>"
+            f"<h1 style='margin:0;'><a href='{html.escape(set_url)}' target='_blank'>{html.escape(set_num)} - {html.escape(set_name)} (Total Qty: {total_qty_str})</a></h1>"
             f"</div>"
             f"</div>"
         )
 
-        # Table with columns: Part ID, Part Name, Color, Quantity, Rebrickable Link, Image
+        # Table with columns: Part ID, Part Name, Color, Qty, Rebrickable Link, Image
         table_body = []
         for part in parts:
             table_body.append("<tr>")
-            table_body.append(f"<td>{html.escape(str(part.get('design_id', '')))}</td>")
+            design_id = html.escape(str(part.get('design_id', '')))
+            # Part ID cell: hyperlink to part page
+            table_body.append(f'<td><a href="/parts/{design_id}">{design_id}</a></td>')
+            # Part Name cell: plain text
             table_body.append(f"<td>{html.escape(str(part.get('name', '')))}</td>")
-            table_body.append(f"<td>{html.escape(str(part.get('color_name', '')))}</td>")
+            color_name = str(part.get('color_name', ''))
+            hex_code = part.get('hex')
+            if hex_code:
+                table_body.append(_make_color_cell(color_name, hex_code))
+            else:
+                table_body.append(f"<td>{html.escape(color_name)}</td>")
             table_body.append(f"<td>{part.get('quantity', 0)}</td>")
             link = part.get('part_url') or (f"https://rebrickable.com/parts/{part.get('design_id','')}/")
             img = part.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
@@ -441,16 +385,16 @@ setTimeout(function() {{
 
         table_html = (
             "<table><thead><tr>"
-            "<th>Part ID</th><th>Part Name</th><th>Color</th><th>Quantity</th><th>Rebrickable Link</th><th>Image</th>"
+            "<th>Part ID</th><th>Part Name</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th>"
             "</tr></thead><tbody>"
             + "".join(table_body) +
             "</tbody>"
-            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_quantity:,}</th><th colspan='2'></th></tr></tfoot>"
+            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
             "</table>"
         )
 
-        # Use _html_page for consistent look
-        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=None))
+        # Use _html_page for consistent look, pass overall inventory total for header
+        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=overall_total_qty))
 
     def _send_html(self, html_doc: str, status: int = 200):
         html_bytes = html_doc.encode()
