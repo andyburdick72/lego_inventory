@@ -133,14 +133,16 @@ def _query_master_rows() -> List[Dict]:
                     c.hex             AS hex,
                     i.status,
                     COALESCE(i.set_number, '') AS set_number,
-                    COALESCE(i.drawer , '')    AS drawer,
-                    COALESCE(i.container,'')   AS container,
+                    COALESCE(d.name, i.drawer)    AS drawer,
+                    COALESCE(c2.name, i.container)   AS container,
                     SUM(i.quantity)   AS qty
             FROM inventory i
             JOIN parts  p ON p.design_id = i.design_id
             JOIN colors c ON c.id        = i.color_id
+            LEFT JOIN containers c2 ON i.container_id = c2.id
+            LEFT JOIN drawers d ON c2.drawer_id = d.id
             GROUP BY i.design_id, i.color_id, i.status,
-                     i.set_number, i.drawer, i.container
+                     i.set_number, COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container)
             ORDER BY p.design_id
             """
         ).fetchall()
@@ -407,32 +409,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html_bytes)))
         self.end_headers()
         self.wfile.write(html_bytes)
+    
     def _serve_location_counts(self):
         with db._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT
-                    COALESCE(i.drawer, '') AS drawer,
-                    COALESCE(i.container, '') AS container,
-                    SUM(i.quantity) AS total_qty
+                    COALESCE(d.name, i.drawer)    AS drawer,
+                    COALESCE(c2.name, i.container) AS container,
+                    SUM(i.quantity)               AS total_qty
                 FROM inventory i
+                LEFT JOIN containers c2 ON c2.id = i.container_id
+                LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
                 WHERE i.status NOT IN ('built', 'wip', 'in_box', 'teardown')
-                GROUP BY i.drawer, i.container
+                GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container)
                 """
             ).fetchall()
 
         locations = []
         for r in rows:
-            if r["drawer"] and r["container"]:
-                loc = f"{r['drawer']} / {r['container']}"
-            elif r["drawer"]:
-                loc = r["drawer"]
-            elif r["container"]:
-                loc = r["container"]
+            drawer = r["drawer"] or ""
+            container = r["container"] or ""
+            if drawer and container:
+                loc = f"{drawer} / {container}"
+            elif drawer:
+                loc = drawer
+            elif container:
+                loc = container
             else:
                 loc = "(unknown)"
             locations.append((loc, r["total_qty"]))
 
+        # Sort and render as before
         locations.sort(key=lambda x: x[1], reverse=True)
         subtotal = sum(qty for _, qty in locations)
 
@@ -484,7 +492,27 @@ class Handler(BaseHTTPRequestHandler):
 
         # Data for the two sections
         sets_rows = db.sets_for_part(design_id)
-        loose_rows = db.loose_inventory_for_part(design_id)
+        # Resolve loose inventory via relational join (containers/drawers), with legacy fallback
+        with db._connect() as conn:  # pylint: disable=protected-access
+            rows = conn.execute(
+                """
+                SELECT
+                    COALESCE(d.name, i.drawer)   AS drawer,
+                    COALESCE(c2.name, i.container) AS container,
+                    col.name AS color_name,
+                    col.hex  AS hex,
+                    SUM(i.quantity) AS quantity
+                FROM inventory i
+                JOIN colors col ON col.id = i.color_id
+                LEFT JOIN containers c2 ON c2.id = i.container_id
+                LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
+                WHERE i.status = 'loose' AND i.design_id = ?
+                GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
+                ORDER BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
+                """,
+                (design_id,)
+            ).fetchall()
+            loose_rows = [dict(r) for r in rows]
 
         # Totals for this part
         part_total = sum(r.get("quantity", 0) for r in sets_rows) + sum(r.get("quantity", 0) for r in loose_rows)
@@ -565,6 +593,14 @@ class Handler(BaseHTTPRequestHandler):
         if not d:
             self._not_found(); return
         containers = db.list_containers_for_drawer(drawer_id)
+        # Shortcut: if this drawer has exactly one container, redirect directly to its parts page
+        if len(containers) == 1:
+            single_id = containers[0].get("id")
+            if single_id is not None:
+                self.send_response(302)
+                self.send_header("Location", f"/containers/{single_id}")
+                self.end_headers()
+                return
         total_unique = sum(c.get("unique_parts", 0) for c in containers)
         total_pieces = sum(c.get("part_count", 0) for c in containers)
         header = f"<h1>Drawer: {html.escape(d['name'])}</h1>"
@@ -596,10 +632,20 @@ class Handler(BaseHTTPRequestHandler):
             self._not_found(); return
         parts = db.list_parts_in_container(container_id)
         total_qty = sum(p.get("qty", 0) for p in parts)
-        header = (
-            f"<h1>Container: {html.escape(c['name'])}</h1>"
-            f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
-        )
+        # If the parent drawer has only one container, breadcrumb should go to /drawers
+        is_single_container_drawer = len(db.list_containers_for_drawer(c['drawer_id'])) == 1
+        if is_single_container_drawer:
+            header = (
+                f"<h1>Drawer: {html.escape(c.get('drawer_name',''))}</h1>"
+                f"<p><a href='/drawers'>&larr; All drawers</a></p>"
+            )
+            page_title = f"Drawer {c.get('drawer_name','')}"
+        else:
+            header = (
+                f"<h1>Container: {html.escape(c['name'])}</h1>"
+                f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
+            )
+            page_title = f"Container {c['name']}"
         body = [header,
                 "<table id='container_parts'>",
                 "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
@@ -622,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
         body.append("</tbody>")
         body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
         body.append("</table>")
-        self._send_ok(_html_page(f"Container {c['name']}", "".join(body), total_qty=None))
+        self._send_ok(_html_page(page_title, "".join(body), total_qty=None))
 
     # The /sets route and _serve_sets method have been removed.
 

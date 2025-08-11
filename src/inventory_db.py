@@ -370,6 +370,7 @@ def list_drawers() -> List[Dict]:
             FROM drawers d
             LEFT JOIN containers c ON c.drawer_id = d.id
             LEFT JOIN inventory  i ON i.container_id = c.id AND i.status='loose'
+            WHERE d.kind IS NULL OR d.kind NOT IN ('rub_box_legacy','rub_box_nested_error')
             GROUP BY d.id
             ORDER BY d.sort_index, d.name
             """
@@ -836,7 +837,248 @@ def totals() -> Dict[str, int]:
 # --------------------------------------------------------------------------- main
 import sys
 
+# --------------------------------------------------------------------------- collapse Really Useful Boxes
+def collapse_really_useful_boxes(apply_changes=False):
+    """
+    For each 'Really Useful Box' drawer (kind != 'rub_box_legacy'), create a new drawer per container,
+    with a single container 'All' in each, and move all inventory to the new container if apply_changes.
+    """
+    with _connect() as conn:
+        # 1. Find all relevant drawers
+        drawers = conn.execute(
+            "SELECT id, name, kind FROM drawers WHERE name LIKE 'Really Useful Box %' AND kind IS NULL"
+        ).fetchall()
+        if not drawers:
+            print("No 'Really Useful Box' drawers found (excluding legacy).")
+            return
+        for drawer in drawers:
+            drawer_id = drawer["id"]
+            drawer_name = drawer["name"]
+            print(f"\nDrawer: {drawer_name} (id={drawer_id})")
+            containers = conn.execute(
+                "SELECT id, name FROM containers WHERE drawer_id = ? ORDER BY id",
+                (drawer_id,),
+            ).fetchall()
+            if not containers:
+                print("  No containers found.")
+                continue
+            for idx, container in enumerate(containers, 1):
+                container_id = container["id"]
+                container_name = container["name"]
+                new_drawer_name = f"{drawer_name} #{idx} - {container_name}"
+                # Create or get the new drawer
+                new_drawer_row = conn.execute(
+                    "SELECT id FROM drawers WHERE name = ?",
+                    (new_drawer_name,),
+                ).fetchone()
+                if new_drawer_row:
+                    new_drawer_id = new_drawer_row["id"]
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO drawers(name, kind) VALUES (?, ?)",
+                        (new_drawer_name, "rub_box_split"),
+                    )
+                    new_drawer_id = cur.lastrowid
+                # Create or get the "All" container in new drawer
+                all_container_row = conn.execute(
+                    "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
+                    (new_drawer_id, "All"),
+                ).fetchone()
+                if all_container_row:
+                    all_container_id = all_container_row["id"]
+                else:
+                    cur2 = conn.execute(
+                        "INSERT INTO containers(drawer_id, name) VALUES (?, ?)",
+                        (new_drawer_id, "All"),
+                    )
+                    all_container_id = cur2.lastrowid
+                # Count inventory for this container
+                inv_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM inventory WHERE container_id = ?",
+                    (container_id,),
+                ).fetchone()["c"]
+                plan_msg = f"  Container '{container_name}' (id={container_id}): {inv_count} items → '{new_drawer_name}' / 'All'"
+                if apply_changes:
+                    # Update inventory to new container
+                    conn.execute(
+                        "UPDATE inventory SET container_id = ? WHERE container_id = ?",
+                        (all_container_id, container_id),
+                    )
+                    print(plan_msg + " [UPDATED]")
+                else:
+                    print(plan_msg)
+            if apply_changes:
+                # Mark original drawer as legacy
+                conn.execute(
+                    "UPDATE drawers SET kind = 'rub_box_legacy' WHERE id = ?",
+                    (drawer_id,),
+                )
+        if apply_changes:
+            conn.commit()
+            print("\nAll changes applied.")
+        else:
+            print("\nDry run complete. Re-run with 'apply' to make changes.")
+
+def repair_really_useful_boxes():
+    """
+    Repair accidental nested split drawers created by re-running the collapse.
+    Looks for drawers with kind='rub_box_split' whose name ends with " #<n> - All".
+    Moves all their inventory into the corresponding first-level split drawer's
+    'All' container and marks the nested drawer as kind='rub_box_nested_error'.
+    Safe to run multiple times.
+    """
+    import re
+    pattern = re.compile(r"^(.*) #\d+ - All$")
+    with _connect() as conn:
+        nested = conn.execute(
+            "SELECT id, name FROM drawers WHERE kind = 'rub_box_split' AND name LIKE '% #%' || ' - All'"
+        ).fetchall()
+        if not nested:
+            print("No nested RUB split drawers found.")
+            return
+        for row in nested:
+            nid, nname = row["id"], row["name"]
+            m = pattern.match(nname)
+            if not m:
+                print(f"Skipping unmatched name: {nname}")
+                continue
+            base_name = m.group(1)
+            base = conn.execute(
+                "SELECT id FROM drawers WHERE name = ? AND kind = 'rub_box_split'",
+                (base_name,),
+            ).fetchone()
+            if not base:
+                print(f"Base split drawer not found for nested '{nname}' → '{base_name}'")
+                continue
+            base_id = base["id"]
+            all_row = conn.execute(
+                "SELECT id FROM containers WHERE drawer_id = ? AND name = 'All'",
+                (base_id,),
+            ).fetchone()
+            if all_row:
+                all_id = all_row["id"]
+            else:
+                cur = conn.execute(
+                    "INSERT INTO containers(drawer_id, name) VALUES (?, 'All')",
+                    (base_id,),
+                )
+                all_id = cur.lastrowid
+            cont_ids = [r["id"] for r in conn.execute(
+                "SELECT id FROM containers WHERE drawer_id = ?",
+                (nid,),
+            ).fetchall()]
+            if cont_ids:
+                placeholders = ",".join(["?"] * len(cont_ids))
+                conn.execute(
+                    f"UPDATE inventory SET container_id = ? WHERE container_id IN ({placeholders})",
+                    (all_id, *cont_ids),
+                )
+            conn.execute(
+                "UPDATE drawers SET kind = 'rub_box_nested_error' WHERE id = ?",
+                (nid,),
+            )
+        conn.commit()
+        print("Repair complete.")            
+
+
+# --------------------------------------------------------------------------- normalize RUB box names
+def normalize_rub_box_names(apply_changes=False):
+    """
+    Normalize names of rub_box_split drawers that ended with ' #<n> - All'.
+    - If the normalized target name is free: rename the drawer.
+    - If the target name already exists: MERGE by moving inventory to the target
+      drawer's 'All' container and mark the source as 'rub_box_nested_error'.
+    """
+    import re
+    pattern = re.compile(r"^(.*) #\d+ - All$")
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, name FROM drawers WHERE kind = 'rub_box_split' AND name LIKE '% #%' || ' - All'"
+        ).fetchall()
+        if not rows:
+            print("No RUB box names needing normalization found.")
+            return
+
+        for row in rows:
+            src_drawer_id, src_name = row["id"], row["name"]
+            m = pattern.match(src_name)
+            if not m:
+                # shouldn't happen, but be safe
+                continue
+            target_name = m.group(1)
+
+            # Is there already a drawer with the target name?
+            existing = conn.execute(
+                "SELECT id FROM drawers WHERE name = ?",
+                (target_name,),
+            ).fetchone()
+
+            if existing:
+                # MERGE path
+                target_drawer_id = existing["id"]
+                if apply_changes:
+                    # Ensure 'All' exists in target
+                    all_row = conn.execute(
+                        "SELECT id FROM containers WHERE drawer_id = ? AND name = 'All'",
+                        (target_drawer_id,),
+                    ).fetchone()
+                    if all_row:
+                        all_id = all_row["id"]
+                    else:
+                        cur = conn.execute(
+                            "INSERT INTO containers(drawer_id, name) VALUES (?, 'All')",
+                            (target_drawer_id,),
+                        )
+                        all_id = cur.lastrowid
+
+                    # Move all inventory from ALL containers in the source drawer to target 'All'
+                    cont_ids = [r["id"] for r in conn.execute(
+                        "SELECT id FROM containers WHERE drawer_id = ?",
+                        (src_drawer_id,),
+                    ).fetchall()]
+                    if cont_ids:
+                        placeholders = ",".join(["?"] * len(cont_ids))
+                        conn.execute(
+                            f"UPDATE inventory SET container_id = ? WHERE container_id IN ({placeholders})",
+                            (all_id, *cont_ids),
+                        )
+
+                    # Mark the source drawer so it hides
+                    conn.execute(
+                        "UPDATE drawers SET kind = 'rub_box_nested_error' WHERE id = ?",
+                        (src_drawer_id,),
+                    )
+                    print(f"Merged: '{src_name}' → existing '{target_name}' (moved inventory, marked source hidden)")
+                else:
+                    print(f"Would merge: '{src_name}' → existing '{target_name}'")
+                continue
+
+            # RENAME path
+            if apply_changes:
+                conn.execute(
+                    "UPDATE drawers SET name = ? WHERE id = ?",
+                    (target_name, src_drawer_id)
+                )
+                print(f"Renamed: '{src_name}' → '{target_name}'")
+            else:
+                print(f"Would rename: '{src_name}' → '{target_name}'")
+
+        if apply_changes:
+            conn.commit()
+            print("Normalization complete.")
+
 if __name__ == "__main__":
+    if "--collapse-rub" in sys.argv:
+        apply = "apply" in sys.argv
+        collapse_really_useful_boxes(apply_changes=apply)
+        sys.exit(0)
+    if "--repair-rub" in sys.argv:
+        repair_really_useful_boxes()
+        sys.exit(0)
+    if "--normalize-rub-names" in sys.argv:
+        apply_flag = len(sys.argv) > 2 and sys.argv[2] == "apply"
+        normalize_rub_box_names(apply_changes=apply_flag)
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--backfill":
         init_db()
         migrate_locations_to_containers()
