@@ -69,7 +69,7 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 </header>
 <nav>
   <a href="/">Loose Parts</a>
-  <a href="/locations">Loose Parts by Location</a>
+  <a href="/drawers">Drawers</a>
   <a href="/my-sets">Sets</a>
   <a href="/part-counts">Part Counts</a>
   <a href="/part-color-counts">Part + Color Counts</a>
@@ -94,7 +94,7 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
             var th = $(column.header());
             var title = th.text();
             th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');
-            if (title !== "Qty" && title !== "Total Quantity" && title !== "Quantity" && title !== "Image" && title !== "Rebrickable Link") {{
+            if (title !== "Qty" && title !== "Total Quantity" && title !== "Quantity" && title !== "Image" && title !== "Rebrickable Link" && title !== "Unique Parts" && title !== "Total Pieces" && title !== "Containers") {{
               var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
                 .appendTo(th)
                 .on('keyup change clear', function () {{
@@ -233,8 +233,15 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith("/parts/"):
                 m = re.match(r"^/parts/([^/?#]+)", self.path)
                 self._serve_part(m.group(1)) if m else self._not_found()
-            elif self.path.startswith("/locations"):
-                self._serve_locations()
+            elif self.path == "/drawers" or re.match(r"^/drawers/\d+", self.path):
+                m = re.match(r"^/drawers/(\d+)", self.path)
+                if m:
+                    self._serve_drawer_detail(int(m.group(1)))
+                else:
+                    self._serve_drawers()
+            elif re.match(r"^/containers/\d+", self.path):
+                m = re.match(r"^/containers/(\d+)", self.path)
+                self._serve_container_detail(int(m.group(1))) if m else self._not_found()
             elif re.match(r"^/sets/([^/?#]+)", self.path):
                 m = re.match(r"^/sets/([^/?#]+)", self.path)
                 self._serve_set(m.group(1)) if m else self._not_found()
@@ -531,52 +538,91 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_ok(_html_page(f"Part {design_id}", header_html + sets_table + loose_table, total_qty=None))
 
-    def _serve_locations(self):
-        total_qty = sum(r["qty"] for r in _query_master_rows())
-        tree = db.locations_map()
-        body = ["<h1>Loose Parts by Location</h1>"]
-        # Organize parts by drawer and container
-        drawer_map: Dict[str, Dict[str, List[Dict]]] = {}
-        for (drawer, container), parts in tree.items():
-            drawer_map.setdefault(drawer, {}).setdefault(container, parts)
-        for drawer, containers in drawer_map.items():
-            # Compute drawer total up front
-            drawer_total = 0
-            container_totals = {}
-            for container, parts in containers.items():
-                container_total = sum(p["qty"] for p in parts)
-                container_totals[container] = container_total
-                drawer_total += container_total
-            # Drawer heading as <details>/<summary>
-            body.append(f"<details>")
-            body.append(f"<summary style='font-size: 1.5em; font-weight: bold; margin-top: 1em;'>{html.escape(drawer)} (total quantity: {drawer_total:,})</summary>")
-            for container, parts in containers.items():
-                container_total = container_totals[container]
-                # Container details with increased indent and total in summary
-                body.append(
-                    f"<details style='margin-left: 4em;'><summary>{html.escape(container)} (total: {container_total:,})</summary>"
-                )
-                body.append("<table><thead><tr><th>ID</th><th>Name</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>")
-                for p in parts:
-                    body.append("<tr>")
-                    body.append(
-                        f"<td><a href='/parts/{p['design_id']}'>{html.escape(p['design_id'])}</a></td>"
-                    )
-                    body.append(f"<td>{html.escape(p['name'])} ({html.escape(p['design_id'])})</td>")
-                    body.append(_make_color_cell(p["color_name"], p["hex"]))
-                    body.append(f"<td>{p['qty']}</td>")
-                    # Rebrickable link + image (fallbacks)
-                    _link = f"https://rebrickable.com/parts/{p['design_id']}/"
-                    _part = db.get_part(p['design_id']) or {}
-                    _img  = _part.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
-                    body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
-                    body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
-                    body.append("</tr>")
-                body.append("</tbody>")
-                body.append(f"<tfoot><tr><th colspan='3'>Total</th><th colspan='3'>{container_total:,}</th></tr></tfoot>")
-                body.append("</table></details>")
-            body.append("</details>")
-        self._send_ok(_html_page("Locations", "".join(body), total_qty=None))
+    # The _serve_locations method has been removed.
+
+    def _serve_drawers(self):
+        rows = db.list_drawers()
+        total_containers = sum(r.get("container_count", 0) for r in rows)
+        total_pieces = sum(r.get("part_count", 0) for r in rows)
+        body = ["<h1>Drawers</h1>",
+                "<table id='drawers_table'>",
+                "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th></tr></thead><tbody>"]
+        for r in rows:
+            name = html.escape(r.get("name", ""))
+            desc = html.escape(r.get("description") or "")
+            containers = r.get("container_count", 0)
+            pieces = r.get("part_count", 0)
+            body.append(
+                f"<tr><td><a href='/drawers/{r['id']}'>{name}</a></td><td>{desc}</td><td>{containers}</td><td>{pieces:,}</td></tr>"
+            )
+        body.append("</tbody>")
+        body.append(f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th></tr></tfoot>")
+        body.append("</table>")
+        self._send_ok(_html_page("Drawers", "".join(body), total_qty=None))
+
+    def _serve_drawer_detail(self, drawer_id: int):
+        d = db.get_drawer(drawer_id)
+        if not d:
+            self._not_found(); return
+        containers = db.list_containers_for_drawer(drawer_id)
+        total_unique = sum(c.get("unique_parts", 0) for c in containers)
+        total_pieces = sum(c.get("part_count", 0) for c in containers)
+        header = f"<h1>Drawer: {html.escape(d['name'])}</h1>"
+        if d.get("description"):
+            header += f"<p>{html.escape(d['description'])}</p>"
+        body = [header,
+                "<p><a href='/drawers'>&larr; All drawers</a></p>",
+                "<table id='containers_table'>",
+                "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th></tr></thead><tbody>"]
+        for c in containers:
+            pos = ""
+            if c.get("row_index") is not None and c.get("col_index") is not None:
+                pos = f"r{c['row_index']} c{c['col_index']}"
+            name = html.escape(c.get("name", ""))
+            desc = html.escape(c.get("description") or "")
+            uniq = c.get("unique_parts", 0)
+            pieces = c.get("part_count", 0)
+            body.append(
+                f"<tr><td>{pos}</td><td><a href='/containers/{c['id']}'>{name}</a></td><td>{desc}</td><td>{uniq}</td><td>{pieces:,}</td></tr>"
+            )
+        body.append("</tbody>")
+        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th></tr></tfoot>")
+        body.append("</table>")
+        self._send_ok(_html_page(f"Drawer {d['name']}", "".join(body), total_qty=None))
+
+    def _serve_container_detail(self, container_id: int):
+        c = db.get_container(container_id)
+        if not c:
+            self._not_found(); return
+        parts = db.list_parts_in_container(container_id)
+        total_qty = sum(p.get("qty", 0) for p in parts)
+        header = (
+            f"<h1>Container: {html.escape(c['name'])}</h1>"
+            f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
+        )
+        body = [header,
+                "<table id='container_parts'>",
+                "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+        for p in parts:
+            design_id = html.escape(str(p.get("design_id", "")))
+            part_name = html.escape(str(p.get("part_name", "")))
+            color_name = str(p.get("color_name", ""))
+            hex_code = p.get("hex")
+            color_td = _make_color_cell(color_name, hex_code) if hex_code else f"<td>{html.escape(color_name)}</td>"
+            qty = p.get("qty", 0)
+            link = f"https://rebrickable.com/parts/{p.get('design_id','')}/"
+            part_meta = db.get_part(p.get('design_id','')) or {}
+            img = part_meta.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
+            body.append(
+                f"<tr><td><a href='/parts/{design_id}'>{design_id}</a></td><td>{part_name}</td>{color_td}<td>{qty}</td>"
+                f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td><td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td></tr>"
+            )
+        if not parts:
+            body.append("<tr><td colspan='6'>(empty)</td></tr>")
+        body.append("</tbody>")
+        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
+        body.append("</table>")
+        self._send_ok(_html_page(f"Container {c['name']}", "".join(body), total_qty=None))
 
     # The /sets route and _serve_sets method have been removed.
 

@@ -129,6 +129,35 @@ def init_db() -> None:
                 FOREIGN KEY (color_id)  REFERENCES colors(id)
             );
 
+            -- New drawers/containers tables
+            CREATE TABLE IF NOT EXISTS drawers(
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL UNIQUE,
+                description TEXT,
+                kind        TEXT,
+                cols        INTEGER,
+                rows        INTEGER,
+                sort_index  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS containers(
+                id          INTEGER PRIMARY KEY,
+                drawer_id   INTEGER NOT NULL REFERENCES drawers(id) ON DELETE CASCADE,
+                name        TEXT NOT NULL,
+                description TEXT,
+                row_index   INTEGER,
+                col_index   INTEGER,
+                sort_index  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(drawer_id, row_index, col_index)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_containers_drawer ON containers(drawer_id);
+            CREATE INDEX IF NOT EXISTS idx_drawers_name      ON drawers(name);
+
             CREATE INDEX IF NOT EXISTS idx_sets_set_num     ON sets(set_num);
             CREATE INDEX IF NOT EXISTS idx_set_parts_set    ON set_parts(set_num);
             CREATE INDEX IF NOT EXISTS idx_set_parts_part   ON set_parts(design_id, color_id);
@@ -139,6 +168,14 @@ def init_db() -> None:
             """
         )
         try:
+            conn.execute("ALTER TABLE inventory ADD COLUMN container_id INTEGER REFERENCES containers(id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_container ON inventory(container_id)")
+        except sqlite3.OperationalError:
+            pass
+        try:
             conn.execute("ALTER TABLE parts ADD COLUMN part_url TEXT")
         except sqlite3.OperationalError:
             pass
@@ -148,6 +185,265 @@ def init_db() -> None:
             pass
         conn.commit()
 
+
+# --------------------------------------------------------------------------- migration helper (v3)
+
+def migrate_locations_to_containers() -> None:
+    """
+    One-time backfill to populate drawers/containers and set inventory.container_id
+    based on legacy text columns (inventory.drawer, inventory.container).
+
+    Safe to run multiple times.
+    """
+    with _connect() as conn:
+        c = conn.cursor()
+        c.execute("PRAGMA foreign_keys=ON;")
+        # 1) Seed drawers from distinct legacy drawer names (loose parts only)
+        c.execute(
+            """
+            INSERT OR IGNORE INTO drawers(name)
+            SELECT DISTINCT TRIM(drawer) FROM inventory
+            WHERE status='loose' AND drawer IS NOT NULL AND TRIM(drawer) <> ''
+            """
+        )
+        # 2) Seed containers under each drawer
+        c.execute(
+            """
+            INSERT OR IGNORE INTO containers(drawer_id, name)
+            SELECT d.id, i.container
+            FROM inventory i
+            JOIN drawers d ON d.name = i.drawer
+            WHERE i.status='loose'
+              AND i.container IS NOT NULL AND TRIM(i.container) <> ''
+            GROUP BY d.id, i.container
+            """
+        )
+        # 3) Point inventory rows at the new containers
+        c.execute(
+            """
+            UPDATE inventory
+            SET container_id = (
+              SELECT c.id
+              FROM containers c
+              JOIN drawers d ON d.id = c.drawer_id
+              WHERE d.name = inventory.drawer AND c.name = inventory.container
+            )
+            WHERE status='loose' AND (container_id IS NULL OR container_id = '')
+            """
+        )
+        conn.commit()
+
+
+# --------------------------------------------------------------------------- drawer/container helpers (CRUD-ish)
+
+def upsert_drawer(
+    name: str,
+    description: Optional[str] = None,
+    kind: Optional[str] = None,
+    cols: Optional[int] = None,
+    rows: Optional[int] = None,
+) -> int:
+    """Return the drawer id for `name`, inserting if needed.
+    Does not change existing fields on conflict (idempotent).
+    """
+    name = name.strip()
+    with _connect() as conn:
+        # Try find existing
+        row = conn.execute("SELECT id FROM drawers WHERE name = ?", (name,)).fetchone()
+        if row:
+            return row["id"]
+        # Insert new
+        cur = conn.execute(
+            """
+            INSERT INTO drawers(name, description, kind, cols, rows)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (name, description, kind, cols, rows),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def upsert_container(
+    drawer_id: int,
+    name: str,
+    description: Optional[str] = None,
+    row_index: Optional[int] = None,
+    col_index: Optional[int] = None,
+) -> int:
+    """Return the container id for (drawer_id, name), inserting if needed.
+    Uses name for identity within a drawer (no schema uniqueness required).
+    """
+    name = name.strip()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
+            (drawer_id, name),
+        ).fetchone()
+        if row:
+            return row["id"]
+        cur = conn.execute(
+            """
+            INSERT INTO containers(drawer_id, name, description, row_index, col_index)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (drawer_id, name, description, row_index, col_index),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def move_container(container_id: int, new_drawer_id: int) -> None:
+    """Move an existing container to a different drawer.
+    Keeps name/description/indices; only updates drawer_id.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE containers SET drawer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_drawer_id, container_id),
+        )
+        conn.commit()
+
+
+def assign_inventory_to_container(inventory_id: int, container_id: int) -> None:
+    """Point an inventory row at a container (sets status to 'loose' if not already)."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE inventory
+            SET container_id = ?, status = 'loose', drawer = NULL, container = NULL
+            WHERE id = ?
+            """,
+            (container_id, inventory_id),
+        )
+        conn.commit()
+
+
+def add_loose_inventory_with_container(
+    design_id: str,
+    color_id: int,
+    quantity: int,
+    container_id: int,
+) -> int:
+    """Insert a loose inventory row tied to a specific container_id. Returns new inventory.id."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO inventory(design_id, color_id, quantity, status, container_id)
+            VALUES (?, ?, ?, 'loose', ?)
+            """,
+            (design_id, color_id, quantity, container_id),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_or_create_container_by_names(
+    drawer_name: str,
+    container_name: str,
+    *,
+    drawer_description: Optional[str] = None,
+    container_description: Optional[str] = None,
+) -> int:
+    """Convenience: upsert a drawer by name, then upsert a container by name; return container_id."""
+    d_id = upsert_drawer(drawer_name, drawer_description)
+    c_id = upsert_container(d_id, container_name, container_description)
+    return c_id
+
+
+# --------------------------------------------------------------------------- drawer/container listing helpers (read-only UI)
+
+def list_drawers() -> List[Dict]:
+    """Return all drawers with container and piece counts."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.id,
+                   d.name,
+                   d.description,
+                   d.kind,
+                   d.cols,
+                   d.rows,
+                   d.sort_index,
+                   COUNT(DISTINCT c.id) AS container_count,
+                   COALESCE(SUM(i.quantity), 0) AS part_count
+            FROM drawers d
+            LEFT JOIN containers c ON c.drawer_id = d.id
+            LEFT JOIN inventory  i ON i.container_id = c.id AND i.status='loose'
+            GROUP BY d.id
+            ORDER BY d.sort_index, d.name
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_drawer(drawer_id: int) -> Optional[Dict]:
+    """Return a single drawer row by id, or None."""
+    with _connect() as conn:
+        r = conn.execute("SELECT * FROM drawers WHERE id = ?", (drawer_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_containers_for_drawer(drawer_id: int) -> List[Dict]:
+    """Return containers for a drawer with counts and optional positions."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id,
+                   c.name,
+                   c.description,
+                   c.row_index,
+                   c.col_index,
+                   c.sort_index,
+                   COALESCE(SUM(i.quantity), 0) AS part_count,
+                   COUNT(DISTINCT i.design_id || ':' || i.color_id) AS unique_parts
+            FROM containers c
+            LEFT JOIN inventory i ON i.container_id = c.id AND i.status='loose'
+            WHERE c.drawer_id = ?
+            GROUP BY c.id
+            ORDER BY c.row_index, c.col_index, c.sort_index, c.name
+            """,
+            (drawer_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_container(container_id: int) -> Optional[Dict]:
+    """Return a single container row with its drawer name, or None."""
+    with _connect() as conn:
+        r = conn.execute(
+            """
+            SELECT c.*, d.name AS drawer_name
+            FROM containers c
+            JOIN drawers d ON d.id = c.drawer_id
+            WHERE c.id = ?
+            """,
+            (container_id,),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def list_parts_in_container(container_id: int) -> List[Dict]:
+    """List aggregated parts (by design_id + color) within a container."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.design_id,
+                   p.name AS part_name,
+                   col.id   AS color_id,
+                   col.name AS color_name,
+                   col.hex,
+                   SUM(i.quantity) AS qty
+            FROM inventory i
+            JOIN parts  p   ON p.design_id = i.design_id
+            JOIN colors col ON col.id      = i.color_id
+            WHERE i.container_id = ? AND i.status='loose'
+            GROUP BY p.design_id, col.id
+            ORDER BY p.design_id, col.id
+            """,
+            (container_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 # --------------------------------------------------------------------------- color helpers
 def insert_color(color_id: int, name: str, hex_code: str) -> None:
@@ -366,11 +662,36 @@ def insert_inventory(
         # Inventory table is now for loose parts only; ignore non-loose inserts
         return
     with _connect() as conn:
+        # Prefer relational container_id when we have both drawer/container text present
+        # This keeps legacy callers working while transitioning to the new model.
+        container_id: Optional[int] = None
+        if drawer and container:
+            # resolve or create
+            row = conn.execute("SELECT id FROM drawers WHERE name = ?", (drawer.strip(),)).fetchone()
+            if row:
+                d_id = row["id"]
+            else:
+                d_id = conn.execute(
+                    "INSERT INTO drawers(name) VALUES (?)",
+                    (drawer.strip(),),
+                ).lastrowid
+            row = conn.execute(
+                "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
+                (d_id, container.strip()),
+            ).fetchone()
+            if row:
+                container_id = row["id"]
+            else:
+                container_id = conn.execute(
+                    "INSERT INTO containers(drawer_id, name) VALUES (?, ?)",
+                    (d_id, container.strip()),
+                ).lastrowid
+
         conn.execute(
             """
             INSERT INTO inventory
-            (design_id,color_id,quantity,status,drawer,container,set_number)
-            VALUES (?,?,?,?,?,?,?)
+            (design_id,color_id,quantity,status,drawer,container,set_number,container_id)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             (
                 design_id,
@@ -380,6 +701,7 @@ def insert_inventory(
                 drawer,
                 container,
                 None,  # set_number not used for loose-only inventory
+                container_id,
             ),
         )
         conn.commit()
@@ -435,25 +757,43 @@ def inventory_by_part(design_id: str) -> List[Dict]:
 
 
 def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
-    """Return hierarchical mapping for loose parts (drawer → container)."""
     with _connect() as conn:
-        rows = conn.execute(
+        # New-path rows: inventory linked to containers/drawers
+        new_rows = conn.execute(
             """
-            SELECT i.drawer, i.container,
+            SELECT d.name AS drawer, c.name AS container,
                    p.design_id, p.name,
-                   c.name AS color_name, c.hex,
+                   col.name AS color_name, col.hex,
                    SUM(i.quantity) AS qty
             FROM inventory i
-            JOIN parts p  ON p.design_id = i.design_id
-            JOIN colors c ON c.id = i.color_id
-            WHERE i.status = 'loose'
-            GROUP BY i.drawer, i.container, p.design_id, i.color_id
-            ORDER BY i.drawer, i.container
+            JOIN containers c ON c.id = i.container_id
+            JOIN drawers    d ON d.id = c.drawer_id
+            JOIN parts      p ON p.design_id = i.design_id
+            JOIN colors     col ON col.id = i.color_id
+            WHERE i.status = 'loose' AND i.container_id IS NOT NULL
+            GROUP BY d.name, c.name, p.design_id, i.color_id
             """
         ).fetchall()
+
+        # Legacy-path rows: no container_id yet, use text columns
+        legacy_rows = conn.execute(
+            """
+            SELECT i.drawer AS drawer, i.container AS container,
+                   p.design_id, p.name,
+                   col.name AS color_name, col.hex,
+                   SUM(i.quantity) AS qty
+            FROM inventory i
+            JOIN parts  p  ON p.design_id = i.design_id
+            JOIN colors col ON col.id     = i.color_id
+            WHERE i.status = 'loose' AND i.container_id IS NULL
+            GROUP BY i.drawer, i.container, p.design_id, i.color_id
+            """
+        ).fetchall()
+
+    rows = list(new_rows) + list(legacy_rows)
     tree: Dict[Tuple[str, str], List[Dict]] = {}
     for r in rows:
-        key = (r["drawer"], r["container"])
+        key = (r["drawer"], r["container"])  # type: ignore[index]
         tree.setdefault(key, []).append(dict(r))
     return tree
 
@@ -494,6 +834,13 @@ def totals() -> Dict[str, int]:
     return {"loose_total": loose_total, "set_total": set_total, "overall_total": loose_total + set_total}
 
 # --------------------------------------------------------------------------- main
+import sys
+
 if __name__ == "__main__":
-    init_db()
-    print("Database schema created.")
+    if len(sys.argv) > 1 and sys.argv[1] == "--backfill":
+        init_db()
+        migrate_locations_to_containers()
+        print("Database schema created and backfill complete.")
+    else:
+        init_db()
+        print("Database schema created.")
