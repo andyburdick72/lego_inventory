@@ -14,13 +14,19 @@ Usage:
 """
 from __future__ import annotations
 
+import csv
 import html
+import io
+import json
 import os
 import re
 import sys
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List
+from urllib.parse import urlparse, parse_qs
+
 
 # --------------------------------------------------------------------------- local import
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -80,7 +86,8 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 <script>
   $(document).ready(function () {{
     $("table").each(function () {{
-      var table = $(this).DataTable({{
+      var $table = $(this);
+      var table = $table.DataTable({{
         pageLength: 50,
         order: [],
         paging: true,
@@ -89,13 +96,14 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
           zeroRecords: "No matching parts found"
         }},
         initComplete: function () {{
-          this.api().columns().every(function (index) {{
+          var api = this.api();
+          api.columns().every(function (index) {{
             var column = this;
             var th = $(column.header());
             var title = th.text();
             th.empty().append('<div style="margin-bottom: 6px;">' + title + '</div>');
             if (title !== "Qty" && title !== "Total Quantity" && title !== "Quantity" && title !== "Image" && title !== "Rebrickable Link" && title !== "Unique Parts" && title !== "Total Pieces" && title !== "Containers") {{
-              var input = $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
+              $('<input type="text" placeholder="Search…" style="width:100%; margin-top: 6px;" />')
                 .appendTo(th)
                 .on('keyup change clear', function () {{
                   if (column.search() !== this.value) {{
@@ -103,6 +111,42 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
                   }}
                 }});
             }}
+          }});
+
+          // Add Export CSV button next to the search box
+          var btn = $('<button type="button" class="export-csv" style="margin: 8px 8px 8px 0;">Export CSV</button>');
+          var wrapper = $table.closest('.dataTables_wrapper');
+          var filter = wrapper.find('.dataTables_filter');
+          if (filter.length) {{
+            filter.prepend(btn);
+          }} else {{
+            $table.before(btn);
+          }}
+
+          btn.on('click', function () {{
+            var dt = $table.DataTable();
+            // Build DataTables state payload
+            var columns = dt.settings()[0].aoColumns.map(function (col) {{
+              var idx = col.idx;
+              return {{
+                data: col.mData || col.sName || col.sTitle || idx,
+                name: col.sName || null,
+                search: {{ value: dt.column(idx).search() || "" }}
+              }};
+            }});
+            var order = (dt.order() || []).map(function (pair) {{
+              return {{ column: pair[0], dir: pair[1] }};
+            }});
+            var state = {{ columns: columns, search: {{ value: dt.search() || "" }}, order: order }};
+
+            var tableKey = $table.attr("data-tablekey") || "";
+            var contextJson = $table.attr("data-context") || "{{}}";
+
+            var url = new URL('/export', window.location.origin);
+            url.searchParams.set('table', tableKey);
+            url.searchParams.set('dt', JSON.stringify(state));
+            url.searchParams.set('ctx', contextJson);
+            window.location.href = url.toString();
           }});
         }}
       }});
@@ -255,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_part_color_counts()
             elif self.path.startswith("/location-counts"):
                 self._serve_location_counts()
+            elif self.path.startswith("/export"):
+                self._serve_export()
             else:
                 self._not_found()
         except Exception as exc:  # pylint: disable=broad-except
@@ -276,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
         total_sets = len(rows)
 
         body = [f"<h1>All Owned Sets ({total_sets})</h1>",
-                """<table id="sets_table">
+                """<table id="sets_table" data-tablekey="sets" data-context="{}">
 <thead>
     <tr>
         <th>Set Number</th>
@@ -461,7 +507,7 @@ class Handler(BaseHTTPRequestHandler):
         rows = _query_master_rows()
         total_qty = sum(r["qty"] for r in rows)
         body = [f"<h1>All Loose Parts</h1>",
-                "<table><thead><tr>",
+                "<table id='master_table' data-tablekey='inventory_master' data-context='{}'><thead><tr>",
                 "<th>ID</th><th>Name</th><th>Color</th>"
                 "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
@@ -573,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
         total_containers = sum(r.get("container_count", 0) for r in rows)
         total_pieces = sum(r.get("part_count", 0) for r in rows)
         body = ["<h1>Drawers</h1>",
-                "<table id='drawers_table'>",
+                "<table id='drawers_table' data-tablekey='drawers' data-context='{}'>",
                 "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th></tr></thead><tbody>"]
         for r in rows:
             name = html.escape(r.get("name", ""))
@@ -647,7 +693,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             page_title = f"Container {c['name']}"
         body = [header,
-                "<table id='container_parts'>",
+                f"<table id='container_parts' data-tablekey='container_parts' data-context='{{\"container_id\": {container_id}}}'>",
                 "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for p in parts:
             design_id = html.escape(str(p.get("design_id", "")))
@@ -709,7 +755,7 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
         body = ["<h1>Part Counts</h1>",
-                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+                "<table id='part_counts_table' data-tablekey='part_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
@@ -768,7 +814,7 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
         body = ["<h1>Part + Color Counts</h1>",
-                "<table><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+                "<table id='part_color_counts_table' data-tablekey='part_color_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
         for r in rows:
             body.append("<tr>")
             body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
@@ -785,7 +831,252 @@ class Handler(BaseHTTPRequestHandler):
         body.append("</table>")
         self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=None))
 
-    # ..................................................................... utilities
+    # ------------------------------ export + utilities (inside Handler)
+    def _parse_query(self):
+        parsed = urlparse(self.path)
+        return parse_qs(parsed.query)
+
+    def _serve_export(self):
+        try:
+            qs = self._parse_query()
+            table_key = (qs.get("table") or [""])[0]
+            dt_json = (qs.get("dt") or ["{}"])[0]
+            ctx_json = (qs.get("ctx") or ["{}"])[0]
+            dt_state = json.loads(dt_json)
+            ctx = json.loads(ctx_json)
+        except Exception as e:
+            self.send_response(400); self.end_headers(); self.wfile.write(f"Bad request: {e}".encode()); return
+
+        try:
+            rows, columns = self._get_rows_for_table(table_key, ctx)
+        except Exception as e:
+            self.send_response(400); self.end_headers(); self.wfile.write(f"Unknown table or data error: {e}".encode()); return
+
+        rows = self._filter_and_order_rows(rows, columns, dt_state)
+
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{table_key}_export_{stamp}.csv"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+
+        # UTF-8 BOM for Excel
+        self.wfile.write("\ufeff".encode("utf-8"))
+
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(columns)
+        self.wfile.write(out.getvalue().encode("utf-8"))
+        out.seek(0); out.truncate(0)
+
+        for r in rows:
+            writer.writerow([r.get(col, "") for col in columns])
+            self.wfile.write(out.getvalue().encode("utf-8"))
+            out.seek(0); out.truncate(0)
+
+    def _filter_and_order_rows(self, rows, columns, dt_state):
+        def cell_str(row, col):
+            v = row.get(col, "")
+            return "" if v is None else str(v)
+
+        # Global search
+        search_val = ((dt_state or {}).get("search") or {}).get("value", "")
+        if search_val:
+            sval = search_val.lower()
+            rows = [r for r in rows if any(sval in cell_str(r, c).lower() for c in columns)]
+
+        # Per-column search
+        cols_state = (dt_state or {}).get("columns") or []
+        for i, col_state in enumerate(cols_state):
+            if i >= len(columns): break
+            val = ((col_state or {}).get("search") or {}).get("value", "")
+            if val:
+                sval = val.lower()
+                colname = columns[i]
+                rows = [r for r in rows if sval in cell_str(r, colname).lower()]
+
+        # Ordering (stable, last key wins)
+        orders = (dt_state or {}).get("order") or []
+        for order in reversed(orders):
+            idx = order.get("column", 0)
+            dir_ = (order.get("dir") or "asc").lower() if isinstance(order.get("dir"), str) else "asc"
+            if 0 <= idx < len(columns):
+                colname = columns[idx]
+                rows.sort(key=lambda r: cell_str(r, colname))
+                if dir_ == "desc":
+                    rows.reverse()
+        return rows
+
+    def _get_rows_for_table(self, table_key: str, ctx: dict):
+        if table_key == "sets":
+            with db._connect() as conn:
+                rs = conn.execute(
+                    """
+                    SELECT set_num, name, year, status, rebrickable_url, image_url
+                    FROM sets
+                    ORDER BY added_at DESC
+                    """
+                ).fetchall()
+            rows = [
+                {
+                    "Set Number": r["set_num"],
+                    "Name": r["name"],
+                    "Year": r["year"],
+                    "Status": _display_status(r["status"]),
+                    "Rebrickable Link": r["rebrickable_url"],
+                    "Image": r["image_url"],
+                }
+                for r in rs
+            ]
+            columns = ["Set Number", "Name", "Year", "Status", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        if table_key == "drawers":
+            rows = []
+            for r in db.list_drawers():
+                rows.append({
+                    "Name": r.get("name",""),
+                    "Description": r.get("description") or "",
+                    "Containers": r.get("container_count", 0),
+                    "Total Pieces": r.get("part_count", 0),
+                })
+            columns = ["Name", "Description", "Containers", "Total Pieces"]
+            return rows, columns
+
+        if table_key == "container_parts":
+            container_id = int(ctx.get("container_id", 0))
+            parts = db.list_parts_in_container(container_id)
+            rows = []
+            for p in parts:
+                part_meta = db.get_part(p.get("design_id","")) or {}
+                rows.append({
+                    "Design ID": p.get("design_id",""),
+                    "Part": p.get("part_name",""),
+                    "Color": p.get("color_name",""),
+                    "Qty": p.get("qty",0),
+                    "Rebrickable Link": f"https://rebrickable.com/parts/{p.get('design_id','')}/",
+                    "Image": part_meta.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
+                })
+            columns = ["Design ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        if table_key == "inventory_master":
+            rows_raw = _query_master_rows()
+            rows = []
+            for r in rows_raw:
+                rows.append({
+                    "ID": r["design_id"],
+                    "Name": r["part_name"],
+                    "Color": r["color_name"],
+                    "Drawer": r.get("drawer") or "",
+                    "Container": r.get("container") or "",
+                    "Qty": r["qty"],
+                    "Rebrickable Link": r.get("part_url") or f"https://rebrickable.com/parts/{r['design_id']}/",
+                    "Image": r.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
+                })
+            columns = ["ID", "Name", "Color", "Drawer", "Container", "Qty", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        if table_key == "part_counts":
+            with db._connect() as conn:
+                rs = conn.execute(
+                    """
+                    SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
+                    FROM (
+                        -- Loose parts
+                        SELECT i.design_id,
+                               p.name AS part_name,
+                               p.part_url AS part_url,
+                               p.part_img_url AS part_img_url,
+                               SUM(i.quantity) AS total_qty
+                        FROM inventory i
+                        JOIN parts p ON i.design_id = p.design_id
+                        WHERE i.status = 'loose'
+                        GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
+
+                        UNION ALL
+
+                        -- Parts in sets
+                        SELECT sp.design_id,
+                               p.name AS part_name,
+                               p.part_url AS part_url,
+                               p.part_img_url AS part_img_url,
+                               SUM(sp.quantity) AS total_qty
+                        FROM set_parts sp
+                        JOIN parts p ON sp.design_id = p.design_id
+                        JOIN sets s  ON s.set_num   = sp.set_num
+                        WHERE s.status IN ('built','wip','in_box','teardown')
+                        GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url
+                    ) q
+                    GROUP BY design_id, part_name, part_url, part_img_url
+                    ORDER BY total_qty DESC
+                    """
+                ).fetchall()
+            rows = [{
+                "Part ID": r["design_id"],
+                "Name": r["part_name"],
+                "Total Quantity": r["total_qty"],
+                "Rebrickable Link": r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/",
+                "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
+            } for r in rs]
+            columns = ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        if table_key == "part_color_counts":
+            with db._connect() as conn:
+                rs = conn.execute(
+                    """
+                    SELECT design_id, part_name, part_url, part_img_url, color_name, hex, SUM(total_qty) AS total_qty
+                    FROM (
+                        -- Loose parts
+                        SELECT i.design_id,
+                               p.name AS part_name,
+                               p.part_url AS part_url,
+                               p.part_img_url AS part_img_url,
+                               c.name AS color_name,
+                               c.hex  AS hex,
+                               SUM(i.quantity) AS total_qty
+                        FROM inventory i
+                        JOIN parts  p ON i.design_id = p.design_id
+                        JOIN colors c ON i.color_id  = c.id
+                        WHERE i.status = 'loose'
+                        GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+
+                        UNION ALL
+
+                        -- Parts in sets
+                        SELECT sp.design_id,
+                               p.name AS part_name,
+                               p.part_url AS part_url,
+                               p.part_img_url AS part_img_url,
+                               c.name AS color_name,
+                               c.hex  AS hex,
+                               SUM(sp.quantity) AS total_qty
+                        FROM set_parts sp
+                        JOIN parts  p ON sp.design_id = p.design_id
+                        JOIN colors c ON sp.color_id  = c.id
+                        JOIN sets  s  ON s.set_num    = sp.set_num
+                        WHERE s.status IN ('built','wip','in_box','teardown')
+                        GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+                    ) q
+                    GROUP BY design_id, part_name, part_url, part_img_url, color_name, hex
+                    ORDER BY total_qty DESC
+                    """
+                ).fetchall()
+            rows = [{
+                "Part ID": r["design_id"],
+                "Name": r["part_name"],
+                "Color": r["color_name"],
+                "Total Quantity": r["total_qty"],
+                "Rebrickable Link": r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/",
+                "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
+            } for r in rs]
+            columns = ["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        raise ValueError(f"Unsupported table key: {table_key}")
+
     def _not_found(self):
         self.send_response(404)
         self.end_headers()
@@ -798,6 +1089,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html_bytes)))
         self.end_headers()
         self.wfile.write(html_bytes)
+
 
 
 # --------------------------------------------------------------------------- bootstrap
