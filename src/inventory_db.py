@@ -27,21 +27,55 @@ part_aliases
     alias TEXT PRIMARY KEY          – BrickLink/Instabrick id
     design_id TEXT REFERENCES parts(design_id)
 
+drawers
+    id INTEGER PRIMARY KEY
+    name TEXT NOT NULL UNIQUE
+    description TEXT
+    kind TEXT
+    cols, rows INTEGER
+    sort_index INTEGER
+    created_at, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    deleted_at TEXT                – soft delete
+
+containers
+    id INTEGER PRIMARY KEY
+    drawer_id INTEGER REFERENCES drawers(id) ON DELETE CASCADE
+    name TEXT NOT NULL            – “label” in UI
+    description TEXT
+    row_index, col_index INTEGER
+    sort_index INTEGER
+    created_at, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    deleted_at TEXT                – soft delete
+    UNIQUE(drawer_id, row_index, col_index)
+    -- Soft-delete-aware uniqueness for labels:
+    -- CREATE UNIQUE INDEX idx_containers_drawer_name_active
+    --   ON containers(drawer_id, name) WHERE deleted_at IS NULL;
+
 inventory
     id INTEGER PRIMARY KEY
     design_id TEXT  REFERENCES parts(design_id)
     color_id  INTEGER REFERENCES colors(id)
     quantity  INTEGER
     status    TEXT                  – loose / built / wip / in_box / teardown
-    drawer    TEXT                  – loose only
-    container TEXT                  – loose only
+    drawer    TEXT                  – loose only (legacy)
+    container TEXT                  – loose only (legacy)
     set_number TEXT                 – built/WIP/In‑Box
+    container_id INTEGER REFERENCES containers(id)   – canonical pointer
+
+audit_log
+    id INTEGER PRIMARY KEY
+    entity TEXT, entity_id INTEGER
+    action TEXT                    – create/update/soft_delete/restore/merge_move
+    before_state TEXT (JSON), after_state TEXT (JSON)
+    at TEXT DEFAULT CURRENT_TIMESTAMP
+    user TEXT
 
 Only stdlib; no external deps.
 """
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -58,6 +92,32 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=30000;")
     conn.execute("PRAGMA foreign_keys=ON;")
     return conn
+
+
+# --------------------------------------------------------------------------- internal audit helper + errors
+
+def _audit(conn: sqlite3.Connection, entity: str, entity_id: int, action: str,
+           before: Optional[dict] = None, after: Optional[dict] = None, user: Optional[str] = None) -> None:
+    conn.execute(
+        """
+        INSERT INTO audit_log(entity, entity_id, action, before_state, after_state, user)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            entity,
+            entity_id,
+            action,
+            json.dumps(before) if before is not None else None,
+            json.dumps(after)  if after  is not None else None,
+            user,
+        ),
+    )
+
+class InventoryConstraintError(Exception):
+    pass
+
+class DuplicateLabelError(Exception):
+    pass
 
 
 # --------------------------------------------------------------------------- schema
@@ -95,6 +155,33 @@ def init_db() -> None:
                 design_id TEXT REFERENCES parts(design_id)
             );
 
+            CREATE TABLE IF NOT EXISTS drawers(
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL UNIQUE,
+                description TEXT,
+                kind        TEXT,
+                cols        INTEGER,
+                rows        INTEGER,
+                sort_index  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                deleted_at  TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS containers(
+                id          INTEGER PRIMARY KEY,
+                drawer_id   INTEGER NOT NULL REFERENCES drawers(id) ON DELETE CASCADE,
+                name        TEXT NOT NULL,
+                description TEXT,
+                row_index   INTEGER,
+                col_index   INTEGER,
+                sort_index  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                deleted_at  TEXT,
+                UNIQUE(drawer_id, row_index, col_index)
+            );
+
             CREATE TABLE IF NOT EXISTS inventory(
                 id         INTEGER PRIMARY KEY,
                 design_id  TEXT    REFERENCES parts(design_id),
@@ -103,7 +190,8 @@ def init_db() -> None:
                 status     TEXT,
                 drawer     TEXT,
                 container  TEXT,
-                set_number TEXT
+                set_number TEXT,
+                container_id INTEGER REFERENCES containers(id)
             );
 
             -- Added sets and set_parts tables and indexes
@@ -129,34 +217,20 @@ def init_db() -> None:
                 FOREIGN KEY (color_id)  REFERENCES colors(id)
             );
 
-            -- New drawers/containers tables
-            CREATE TABLE IF NOT EXISTS drawers(
-                id          INTEGER PRIMARY KEY,
-                name        TEXT NOT NULL UNIQUE,
-                description TEXT,
-                kind        TEXT,
-                cols        INTEGER,
-                rows        INTEGER,
-                sort_index  INTEGER DEFAULT 0,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS containers(
-                id          INTEGER PRIMARY KEY,
-                drawer_id   INTEGER NOT NULL REFERENCES drawers(id) ON DELETE CASCADE,
-                name        TEXT NOT NULL,
-                description TEXT,
-                row_index   INTEGER,
-                col_index   INTEGER,
-                sort_index  INTEGER DEFAULT 0,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(drawer_id, row_index, col_index)
-            );
-
             CREATE INDEX IF NOT EXISTS idx_containers_drawer ON containers(drawer_id);
             CREATE INDEX IF NOT EXISTS idx_drawers_name      ON drawers(name);
+
+            -- Simple audit log for drawer/container changes
+            CREATE TABLE IF NOT EXISTS audit_log (
+              id           INTEGER PRIMARY KEY,
+              entity       TEXT NOT NULL,   -- 'drawer' | 'container'
+              entity_id    INTEGER NOT NULL,
+              action       TEXT NOT NULL,   -- 'create' | 'update' | 'soft_delete' | 'restore' | 'merge_move'
+              before_state TEXT,            -- JSON
+              after_state  TEXT,            -- JSON
+              at           TEXT DEFAULT CURRENT_TIMESTAMP,
+              user         TEXT
+            );
 
             CREATE INDEX IF NOT EXISTS idx_sets_set_num     ON sets(set_num);
             CREATE INDEX IF NOT EXISTS idx_set_parts_set    ON set_parts(set_num);
@@ -183,8 +257,162 @@ def init_db() -> None:
             conn.execute("ALTER TABLE parts ADD COLUMN part_img_url TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE drawers ADD COLUMN deleted_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE containers ADD COLUMN deleted_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        # Create soft-delete-aware index and active-only views once columns exist
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_containers_drawer_name_active
+              ON containers(drawer_id, name)
+              WHERE deleted_at IS NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIEW IF NOT EXISTS active_drawers AS
+              SELECT * FROM drawers WHERE deleted_at IS NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIEW IF NOT EXISTS active_containers AS
+              SELECT * FROM containers WHERE deleted_at IS NULL
+            """
+        )
         conn.commit()
 
+# === Drawer/Container CRUD helpers (DB-only layer) ===
+
+def create_drawer(conn, name, description=None, kind=None, cols=None, rows=None, sort_index=0):
+    cur = conn.execute(
+        """
+        INSERT INTO drawers (name, description, kind, cols, rows, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (name, description, kind, cols, rows, sort_index)
+    )
+    did = int(cur.lastrowid)
+    after = conn.execute("SELECT * FROM drawers WHERE id=?", (did,)).fetchone()
+    _audit(conn, "drawer", did, "create", None, dict(after))
+    conn.commit()
+    return did
+
+
+def update_drawer(conn, drawer_id, **fields):
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values())
+    values.append(drawer_id)
+    before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    conn.execute(f"UPDATE drawers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    _audit(conn, "drawer", drawer_id, "update", dict(before) if before else None, dict(after) if after else None)
+    conn.commit()
+
+
+def soft_delete_drawer(conn, drawer_id):
+    row = conn.execute("SELECT COUNT(*) AS c FROM containers WHERE drawer_id=? AND deleted_at IS NULL", (drawer_id,)).fetchone()
+    if row and row["c"] > 0:
+        raise InventoryConstraintError("Drawer has active containers; move or delete them first.")
+    before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    conn.execute(
+        "UPDATE drawers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+        (drawer_id,)
+    )
+    after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    _audit(conn, "drawer", drawer_id, "soft_delete", dict(before) if before else None, dict(after) if after else None)
+    conn.commit()
+
+
+def restore_drawer(conn, drawer_id):
+    before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    conn.execute(
+        "UPDATE drawers SET deleted_at = NULL WHERE id = ?",
+        (drawer_id,)
+    )
+    after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
+    _audit(conn, "drawer", drawer_id, "restore", dict(before) if before else None, dict(after) if after else None)
+    conn.commit()
+
+
+def _container_duplicate_exists(conn: sqlite3.Connection, drawer_id: int, name: str, exclude_id: Optional[int] = None) -> bool:
+    rows = conn.execute(
+        "SELECT id FROM containers WHERE drawer_id=? AND name=? AND deleted_at IS NULL",
+        (drawer_id, name.strip()),
+    ).fetchall()
+    return any(r["id"] != exclude_id for r in rows)
+
+def create_container(conn, drawer_id, name, description=None, row_index=None, col_index=None, sort_index=0):
+    name = name.strip()
+    if _container_duplicate_exists(conn, drawer_id, name):
+        raise DuplicateLabelError("Duplicate label in this drawer")
+    cur = conn.execute(
+        """
+        INSERT INTO containers (drawer_id, name, description, row_index, col_index, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (drawer_id, name, description, row_index, col_index, sort_index)
+    )
+    cid = int(cur.lastrowid)
+    after = conn.execute("SELECT * FROM containers WHERE id=?", (cid,)).fetchone()
+    _audit(conn, "container", cid, "create", None, dict(after))
+    conn.commit()
+    return cid
+
+
+def update_container(conn, container_id, **fields):
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values())
+    values.append(container_id)
+    before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    if before is None:
+        return
+    # Determine target drawer/name for uniqueness check
+    new_drawer = fields.get("drawer_id", before["drawer_id"]) if isinstance(before, sqlite3.Row) else fields.get("drawer_id")
+    new_name   = fields.get("name", before["name"])         if isinstance(before, sqlite3.Row) else fields.get("name")
+    if isinstance(new_name, str):
+        new_name = new_name.strip()
+    if new_drawer is not None and new_name is not None:
+        if _container_duplicate_exists(conn, int(new_drawer), str(new_name), exclude_id=container_id):
+            raise DuplicateLabelError("Duplicate label in this drawer")
+    conn.execute(f"UPDATE containers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    _audit(conn, "container", container_id, "update", dict(before), dict(after) if after else None)
+    conn.commit()
+
+
+def soft_delete_container(conn, container_id):
+    cnt = conn.execute("SELECT COUNT(*) AS c FROM inventory WHERE container_id=?", (container_id,)).fetchone()["c"]
+    if cnt and cnt > 0:
+        raise InventoryConstraintError("Container has inventory; merge/move required.")
+    before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    conn.execute(
+        "UPDATE containers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+        (container_id,)
+    )
+    after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    _audit(conn, "container", container_id, "soft_delete", dict(before) if before else None, dict(after) if after else None)
+    conn.commit()
+
+
+def restore_container(conn, container_id):
+    before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    conn.execute(
+        "UPDATE containers SET deleted_at = NULL WHERE id = ?",
+        (container_id,)
+    )
+    after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
+    _audit(conn, "container", container_id, "restore", dict(before) if before else None, dict(after) if after else None)
+    conn.commit()
 
 # --------------------------------------------------------------------------- migration helper (v3)
 
@@ -272,7 +500,7 @@ def upsert_container(
     col_index: Optional[int] = None,
 ) -> int:
     """Return the container id for (drawer_id, name), inserting if needed.
-    Uses name for identity within a drawer (no schema uniqueness required).
+    Uses name for identity within a drawer (soft-delete-aware unique index enforces this).
     """
     name = name.strip()
     with _connect() as conn:
@@ -368,9 +596,10 @@ def list_drawers() -> List[Dict]:
                    COUNT(DISTINCT c.id) AS container_count,
                    COALESCE(SUM(i.quantity), 0) AS part_count
             FROM drawers d
-            LEFT JOIN containers c ON c.drawer_id = d.id
+            LEFT JOIN containers c ON c.drawer_id = d.id AND c.deleted_at IS NULL
             LEFT JOIN inventory  i ON i.container_id = c.id AND i.status='loose'
-            WHERE d.kind IS NULL OR d.kind NOT IN ('rub_box_legacy','rub_box_nested_error')
+            WHERE (d.kind IS NULL OR d.kind NOT IN ('rub_box_legacy','rub_box_nested_error'))
+              AND d.deleted_at IS NULL
             GROUP BY d.id
             ORDER BY d.sort_index, d.name
             """
@@ -381,7 +610,7 @@ def list_drawers() -> List[Dict]:
 def get_drawer(drawer_id: int) -> Optional[Dict]:
     """Return a single drawer row by id, or None."""
     with _connect() as conn:
-        r = conn.execute("SELECT * FROM drawers WHERE id = ?", (drawer_id,)).fetchone()
+        r = conn.execute("SELECT * FROM drawers WHERE id = ? AND deleted_at IS NULL", (drawer_id,)).fetchone()
     return dict(r) if r else None
 
 
@@ -399,8 +628,9 @@ def list_containers_for_drawer(drawer_id: int) -> List[Dict]:
                    COALESCE(SUM(i.quantity), 0) AS part_count,
                    COUNT(DISTINCT i.design_id || ':' || i.color_id) AS unique_parts
             FROM containers c
+            JOIN drawers d ON d.id = c.drawer_id AND d.deleted_at IS NULL
             LEFT JOIN inventory i ON i.container_id = c.id AND i.status='loose'
-            WHERE c.drawer_id = ?
+            WHERE c.drawer_id = ? AND c.deleted_at IS NULL
             GROUP BY c.id
             ORDER BY c.row_index, c.col_index, c.sort_index, c.name
             """,
@@ -417,7 +647,7 @@ def get_container(container_id: int) -> Optional[Dict]:
             SELECT c.*, d.name AS drawer_name
             FROM containers c
             JOIN drawers d ON d.id = c.drawer_id
-            WHERE c.id = ?
+            WHERE c.id = ? AND c.deleted_at IS NULL AND d.deleted_at IS NULL
             """,
             (container_id,),
         ).fetchone()
@@ -439,6 +669,7 @@ def list_parts_in_container(container_id: int) -> List[Dict]:
             JOIN parts  p   ON p.design_id = i.design_id
             JOIN colors col ON col.id      = i.color_id
             WHERE i.container_id = ? AND i.status='loose'
+              AND EXISTS (SELECT 1 FROM containers c2 WHERE c2.id = i.container_id AND c2.deleted_at IS NULL)
             GROUP BY p.design_id, col.id
             ORDER BY p.design_id, col.id
             """,
@@ -771,7 +1002,8 @@ def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
             JOIN drawers    d ON d.id = c.drawer_id
             JOIN parts      p ON p.design_id = i.design_id
             JOIN colors     col ON col.id = i.color_id
-            WHERE i.status = 'loose' AND i.container_id IS NOT NULL
+            WHERE i.status = 'loose' AND i.container_id IS NOT NULLHow
+              AND c.deleted_at IS NULL AND d.deleted_at IS NULL
             GROUP BY d.name, c.name, p.design_id, i.color_id
             """
         ).fetchall()

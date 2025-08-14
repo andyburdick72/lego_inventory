@@ -21,11 +21,17 @@ import json
 import os
 import re
 import sys
+import sqlite3
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List
+
 from urllib.parse import urlparse, parse_qs
+
+# Safely embed Python strings inside inline JS (produces a quoted JSON string)
+def _js_str(s: str | None) -> str:
+    return json.dumps(s or "")
 
 
 # --------------------------------------------------------------------------- local import
@@ -49,7 +55,8 @@ STATUS_DISPLAY_NAMES = {
 # --------------------------------------------------------------------------- helpers
 def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
     """Very small HTML skeleton with improved header."""
-    return f"""<!doctype html>
+    # The main HTML skeleton. We'll inject JS helpers before </script> below.
+    html_str = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -66,6 +73,19 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
   th, td {{ border: 1px solid #ccc; padding: 2px 6px; }}
   th {{ background: #eee; text-align: left; }}
   tr:hover {{ background: #ffffe0; }}
+  /* Inline modal */
+  #lego-modal {{ display:none; position:fixed; inset:0; background: rgba(0,0,0,.4); align-items:center; justify-content:center; z-index: 9999; }}
+  #lego-modal .panel {{ background:#fff; padding:1rem; width:min(420px, 90vw); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.2); }}
+  #lego-modal .panel h3 {{ margin: 0 0 .75rem 0; }}
+  #lego-modal .panel .actions {{ margin-top: .75rem; display:flex; gap:.5rem; justify-content:flex-end; }}
+  #lego-modal .panel input {{ box-sizing: border-box; width: 100%; }}
+  #lego-modal .panel select {{ box-sizing: border-box; width: 100%; }}
+  #lego-modal .panel .msg {{ margin: .25rem 0 .5rem 0; color: #333; }}
+  #lego-modal .panel #lego-modal-form {{ margin: .25rem 0 .5rem 0; }}
+  #lego-modal .panel #lego-modal-form input {{ width: 100%; box-sizing: border-box; }}
+  #lego-modal .panel #lego-modal-form .row {{ display:flex; gap:.5rem; }}
+  #lego-modal .panel #lego-modal-form .row > div {{ flex:1; }}
+  .hidden {{ display: none; }}
 </style>
 </head>
 <body>
@@ -83,6 +103,19 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
 </nav>
 <hr>
 {body_html}
+<div id="lego-modal" role="dialog" aria-modal="true" aria-labelledby="lego-modal-title">
+  <div class="panel">
+    <h3 id="lego-modal-title">Rename</h3>
+    <div id="lego-modal-msg" class="msg hidden"></div>
+    <div id="lego-modal-form" class="hidden"></div>
+    <input id="lego-modal-input" type="text" style="width:100%; padding:.5rem;" />
+    <select id="lego-modal-select" class="hidden" style="width:100%; padding:.5rem;"></select>
+    <div class="actions">
+      <button type="button" id="lego-modal-cancel">Cancel</button>
+      <button type="button" id="lego-modal-ok">OK</button>
+    </div>
+  </div>
+</div>
 <script>
   $(document).ready(function () {{
     $("table").each(function () {{
@@ -152,8 +185,454 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
       }});
     }});
   }});
+  // ---- Diagnostics + delegated handlers
+  console.log("[lego] script loaded");
+
+  // jQuery delegation as a backup (coexists with vanilla)
+  $(document).on('click', 'button[data-action]', function (e) {{
+    const $btn = $(this);
+    const action = $btn.data('action');
+    const id = parseInt($btn.data('id') || 0, 10) || 0;
+    const name = $btn.data('name') || '';
+    const drawerId = parseInt($btn.data('drawer-id') || 0, 10) || 0;
+    console.log('[lego][jquery] click', {{ action, id, name, drawerId }});
+    switch (action) {{
+      case 'create-drawer': return createDrawer();
+      case 'rename-drawer': return renameDrawer(id, name, $btn.data('desc') || '', parseInt($btn.data('cols') || 0, 10) || '', parseInt($btn.data('rows') || 0, 10) || '');
+      case 'delete-drawer': return deleteDrawer(id);
+      case 'restore-drawer': return restoreDrawer(id);
+      case 'add-container': return addContainer(drawerId);
+      case 'rename-container': return renameContainer(id, name, $btn.data('desc') || '', parseInt($btn.data('row') || 0, 10) || '', parseInt($btn.data('col') || 0, 10) || '');
+      case 'move-container': return moveContainer(id);
+      case 'delete-container': return deleteContainer(id, drawerId);
+      case 'restore-container': return restoreContainer(id);
+    }}
+  }});
+
+  // Existing vanilla delegation (kept)
+  document.addEventListener('click', function (e) {{
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-action');
+    const id = parseInt(btn.getAttribute('data-id') || '0', 10) || 0;
+    const name = btn.getAttribute('data-name') || '';
+    const drawerId = parseInt(btn.getAttribute('data-drawer-id') || '0', 10) || 0;
+    console.log('[lego][vanilla] click', {{ action, id, name, drawerId }});
+    switch (action) {{
+      case 'create-drawer': return createDrawer();
+      case 'rename-drawer': return renameDrawer(id, name, btn.getAttribute('data-desc') || '', parseInt(btn.getAttribute('data-cols') || '0', 10) || '', parseInt(btn.getAttribute('data-rows') || '0', 10) || '');
+      case 'delete-drawer': return deleteDrawer(id);
+      case 'restore-drawer': return restoreDrawer(id);
+      case 'add-container': return addContainer(drawerId);
+      case 'rename-container': return renameContainer(id, name, btn.getAttribute('data-desc') || '', parseInt(btn.getAttribute('data-row') || '0', 10) || '', parseInt(btn.getAttribute('data-col') || '0', 10) || '');
+      case 'move-container': return moveContainer(id);
+      case 'delete-container': return deleteContainer(id, drawerId);
+      case 'restore-container': return restoreContainer(id);
+    }}
+  }});
+  // ---- API + UI helpers (CRUD for drawers/containers)
+  async function api(method, path, body) {{
+    const res = await fetch(path, {{
+      method,
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: body ? JSON.stringify(body) : undefined
+    }});
+    let json = null;
+    try {{ json = await res.json(); }} catch (_) {{}}
+    return {{ ok: res.ok, status: res.status, json }};
+  }}
+  function toast(msg) {{ alert(msg); }}
+
+  // Drawers
+    async function createDrawer() {{
+    const name = (document.getElementById('new-drawer-name')||{{}}).value?.trim();
+    const desc = (document.getElementById('new-drawer-desc')||{{}}).value?.trim() || '';
+    const cols = parseInt((document.getElementById('new-drawer-cols')||{{}}).value || '0', 10) || null;
+    const rows = parseInt((document.getElementById('new-drawer-rows')||{{}}).value || '0', 10) || null;
+    if (!name) {{ toast('Please enter a drawer name.'); return; }}
+    const r = await api('POST', '/api/drawers', {{ name, description: desc, cols, rows }});
+    if (r.ok) {{ location.reload(); }} else {{ toast(r.json?.error || 'Failed to create drawer'); }}
+  }}
+
+  async function renameDrawer(id, currentName, currentDesc, currentCols, currentRows) {{
+    openEditDrawerModal(id, {{ name: currentName, desc: currentDesc, cols: currentCols, rows: currentRows }});
+  }}
+
+  async function deleteDrawer(id) {{
+    openConfirmModal('Delete Drawer', 'Soft delete this drawer? (must be empty)', async () => {{
+      const r = await api('DELETE', `/api/drawers/${{id}}`);
+      if (r.ok) {{ location.href = '/drawers'; }}
+      else if (r.status === 409) {{ toast(r.json?.error || 'Drawer not empty'); }}
+      else {{ toast(r.json?.error || 'Failed to delete drawer'); }}
+    }});
+  }}
+  async function restoreDrawer(id) {{
+    const r = await api('POST', `/api/drawers/${{id}}/restore`);
+    if (r.ok) {{ location.reload(); }} else {{ toast(r.json?.error || 'Failed to restore drawer'); }}
+  }}
+
+  // Containers
+  async function addContainer(drawerId) {{
+    const name = (document.getElementById('new-container-name')||{{}}).value?.trim();
+    const row_index = (document.getElementById('new-container-row')||{{}}).value;
+    const col_index = (document.getElementById('new-container-col')||{{}}).value;
+    const description = (document.getElementById('new-container-desc')||{{}}).value;
+    if (!name) {{ toast('Please enter a container label.'); return; }}
+    const payload = {{ drawer_id: drawerId, name }};
+    if (row_index !== undefined && row_index !== '') payload.row_index = parseInt(row_index, 10);
+    if (col_index !== undefined && col_index !== '') payload.col_index = parseInt(col_index, 10);
+    if (description) payload.description = description;
+    const r = await api('POST', '/api/containers', payload);
+    if (r.ok) {{ location.reload(); }}
+    else if (r.status === 409) {{ toast('Duplicate label in this drawer'); }}
+    else {{ toast(r.json?.error || 'Failed to add container'); }}
+  }}
+
+  async function renameContainer(id, currentName, currentDesc, currentRow, currentCol) {{
+    openEditContainerModal(id, {{ name: currentName, desc: currentDesc, row: currentRow, col: currentCol }});
+  }}
+
+  // ---- Generic modals ----
+  function openTextModal(title, initial, onOk) {{
+    const modal = document.getElementById('lego-modal');
+    document.getElementById('lego-modal-title').textContent = title;
+    const input = document.getElementById('lego-modal-input');
+    const msgDiv = document.getElementById('lego-modal-msg');
+    input.value = initial || '';
+    if (msgDiv) {{ msgDiv.textContent = ''; msgDiv.classList.add('hidden'); }}
+    modal.style.display = 'flex';
+    setTimeout(() => input.focus(), 0);
+    function cleanup() {{
+      modal.style.display = 'none';
+      okBtn.removeEventListener('click', okHandler);
+      cancelBtn.removeEventListener('click', cancelHandler);
+      input.removeEventListener('keydown', keyHandler);
+      modal.removeEventListener('click', backdropHandler);
+    }}
+    const okBtn = document.getElementById('lego-modal-ok');
+    const cancelBtn = document.getElementById('lego-modal-cancel');
+    async function okHandler() {{
+      const value = (input.value || '').trim();
+      if (!value) {{
+        if (msgDiv) {{ msgDiv.textContent = 'Please enter a value'; msgDiv.classList.remove('hidden'); }}
+        input.focus();
+        return;
+      }}
+      cleanup();
+      await onOk(value);
+    }}
+    function cancelHandler() {{ cleanup(); }}
+    function keyHandler(e) {{
+      if (e.key === 'Escape') return cancelHandler();
+      if (e.key === 'Enter') {{
+        e.preventDefault();
+        okHandler();
+      }}
+    }}
+    function backdropHandler(e) {{
+      if (e.target === modal) cancelHandler();
+    }}
+    okBtn.addEventListener('click', okHandler);
+    cancelBtn.addEventListener('click', cancelHandler);
+    input.addEventListener('keydown', keyHandler);
+    modal.addEventListener('click', backdropHandler);
+  }}
+
+  function openConfirmModal(title, msg, onOk) {{
+    const modal = document.getElementById('lego-modal');
+    document.getElementById('lego-modal-title').textContent = title;
+    const input = document.getElementById('lego-modal-input');
+    const msgDiv = document.getElementById('lego-modal-msg');
+    input.style.display = 'none';
+    if (msgDiv) {{ msgDiv.textContent = msg; msgDiv.classList.remove('hidden'); }}
+    modal.style.display = 'flex';
+    function cleanup() {{
+      modal.style.display = 'none';
+      okBtn.removeEventListener('click', okHandler);
+      cancelBtn.removeEventListener('click', cancelHandler);
+      modal.removeEventListener('click', backdropHandler);
+      input.style.display = '';
+    }}
+    const okBtn = document.getElementById('lego-modal-ok');
+    const cancelBtn = document.getElementById('lego-modal-cancel');
+    async function okHandler() {{
+      cleanup();
+      await onOk();
+    }}
+    function cancelHandler() {{ cleanup(); }}
+    function backdropHandler(e) {{
+      if (e.target === modal) cancelHandler();
+    }}
+    okBtn.addEventListener('click', okHandler);
+    cancelBtn.addEventListener('click', cancelHandler);
+    modal.addEventListener('click', backdropHandler);
+  }}
+
+  function openFormModal(title, formHTML, onOk, collect) {{
+    const modal = document.getElementById('lego-modal');
+    document.getElementById('lego-modal-title').textContent = title;
+    const msgDiv = document.getElementById('lego-modal-msg');
+    const input = document.getElementById('lego-modal-input');
+    const selectEl = document.getElementById('lego-modal-select');
+    const formDiv = document.getElementById('lego-modal-form');
+    // Hide text/select; show form
+    input.classList.add('hidden');
+    selectEl.classList.add('hidden');
+    if (msgDiv) {{ msgDiv.textContent = ''; msgDiv.classList.add('hidden'); }}
+    formDiv.classList.remove('hidden');
+    formDiv.innerHTML = formHTML;
+    modal.style.display = 'flex';
+    setTimeout(() => {{ const f = formDiv.querySelector('input,select,textarea'); if (f) f.focus(); }}, 0);
+
+    function cleanup() {{
+      modal.style.display = 'none';
+      okBtn.removeEventListener('click', okHandler);
+      cancelBtn.removeEventListener('click', cancelHandler);
+      modal.removeEventListener('click', backdropHandler);
+      formDiv.classList.add('hidden');
+      input.classList.remove('hidden');
+    }}
+    const okBtn = document.getElementById('lego-modal-ok');
+    const cancelBtn = document.getElementById('lego-modal-cancel');
+    async function okHandler() {{
+      try {{
+        const values = typeof collect === 'function' ? collect(formDiv) : null;
+        cleanup();
+        await onOk(values);
+      }} catch (e) {{
+        cleanup();
+        toast('Invalid input');
+      }}
+    }}
+    function cancelHandler() {{ cleanup(); }}
+    function backdropHandler(e) {{ if (e.target === modal) cancelHandler(); }}
+    okBtn.addEventListener('click', okHandler);
+    cancelBtn.addEventListener('click', cancelHandler);
+    modal.addEventListener('click', backdropHandler);
+  }}
+
+  function openEditDrawerModal(id, current) {{
+    const form = `
+      <div class="row">
+        <div><label>Name<br><input id="f-name" value="${{current.name || ''}}" /></label></div>
+      </div>
+      <div><label>Description<br><input id="f-desc" value="${{current.desc || ''}}" /></label></div>
+      <div class="row">
+        <div><label>Cols<br><input id="f-cols" type="number" min="0" value="${{current.cols || ''}}" /></label></div>
+        <div><label>Rows<br><input id="f-rows" type="number" min="0" value="${{current.rows || ''}}" /></label></div>
+      </div>`;
+    openFormModal('Edit Drawer', form, async (vals) => {{
+      const payload = {{ name: vals.name.trim() }};
+      if (vals.desc !== undefined) payload.description = vals.desc.trim();
+      if (vals.cols !== undefined && vals.cols !== '') payload.cols = parseInt(vals.cols, 10);
+      if (vals.rows !== undefined && vals.rows !== '') payload.rows = parseInt(vals.rows, 10);
+      const r = await api('PUT', `/api/drawers/${{id}}`, payload);
+      if (r.ok) {{ location.reload(); }} else {{ toast(r.json?.error || 'Failed to update drawer'); }}
+    }}, function (formDiv) {{
+      return {{
+        name: formDiv.querySelector('#f-name').value,
+        desc: formDiv.querySelector('#f-desc').value,
+        cols: formDiv.querySelector('#f-cols').value,
+        rows: formDiv.querySelector('#f-rows').value,
+      }};
+    }});
+  }}
+
+  function openEditContainerModal(id, current) {{
+    const form = `
+      <div class="row">
+        <div><label>Label<br><input id="f-name" value="${{current.name || ''}}" /></label></div>
+      </div>
+      <div><label>Description<br><input id="f-desc" value="${{current.desc || ''}}" /></label></div>
+      <div class="row">
+        <div><label>Row<br><input id="f-row" type="number" value="${{current.row || ''}}" /></label></div>
+        <div><label>Col<br><input id="f-col" type="number" value="${{current.col || ''}}" /></label></div>
+      </div>`;
+    openFormModal('Edit Container', form, async (vals) => {{
+      const payload = {{ name: vals.name.trim() }};
+      if (vals.desc !== undefined) payload.description = vals.desc.trim();
+      if (vals.row !== undefined && vals.row !== '') payload.row_index = parseInt(vals.row, 10);
+      if (vals.col !== undefined && vals.col !== '') payload.col_index = parseInt(vals.col, 10);
+      const r = await api('PUT', `/api/containers/${{id}}`, payload);
+      if (r.ok) {{ location.reload(); }}
+      else if (r.status === 409) {{ toast('Duplicate label in this drawer'); }}
+      else {{ toast(r.json?.error || 'Failed to update container'); }}
+    }}, function (formDiv) {{
+      return {{
+        name: formDiv.querySelector('#f-name').value,
+        desc: formDiv.querySelector('#f-desc').value,
+        row: formDiv.querySelector('#f-row').value,
+        col: formDiv.querySelector('#f-col').value,
+      }};
+    }});
+  }}
+
+  function openSelectModal(title, options, onOk) {{
+    const modal = document.getElementById('lego-modal');
+    const titleEl = document.getElementById('lego-modal-title');
+    const input = document.getElementById('lego-modal-input');
+    const selectEl = document.getElementById('lego-modal-select');
+    const msgDiv = document.getElementById('lego-modal-msg');
+    titleEl.textContent = title;
+    // prepare UI
+    input.classList.add('hidden');
+    if (msgDiv) {{ msgDiv.textContent = ''; msgDiv.classList.add('hidden'); }}
+    selectEl.classList.remove('hidden');
+    // populate options
+    selectEl.innerHTML = '';
+    (options || []).forEach(function (opt) {{
+      const o = document.createElement('option');
+      o.value = String(opt.value);
+      o.textContent = opt.label;
+      selectEl.appendChild(o);
+    }});
+    modal.style.display = 'flex';
+    setTimeout(() => selectEl.focus(), 0);
+
+    function cleanup() {{
+      modal.style.display = 'none';
+      okBtn.removeEventListener('click', okHandler);
+      cancelBtn.removeEventListener('click', cancelHandler);
+      modal.removeEventListener('click', backdropHandler);
+      selectEl.classList.add('hidden');
+      input.classList.remove('hidden');
+    }}
+    const okBtn = document.getElementById('lego-modal-ok');
+    const cancelBtn = document.getElementById('lego-modal-cancel');
+    async function okHandler() {{
+      const val = parseInt(selectEl.value || '0', 10);
+      if (!val) {{ toast('Please choose an option'); return; }}
+      cleanup();
+      await onOk(val);
+    }}
+    function cancelHandler() {{ cleanup(); }}
+    function backdropHandler(e) {{ if (e.target === modal) cancelHandler(); }}
+
+    okBtn.addEventListener('click', okHandler);
+    cancelBtn.addEventListener('click', cancelHandler);
+    modal.addEventListener('click', backdropHandler);
+  }}
+
+  async function openSelectDrawerModal(onOk) {{
+    try {{
+      const r = await api('GET', '/api/drawers');
+      if (!r.ok) {{ return toast(r.json?.error || 'Failed to load drawers'); }}
+      const options = (r.json || []).map(function (d) {{
+        const name = (d.name || '').toString();
+        const containers = d.container_count || 0;
+        const label = containers ? `${{name}} (containers: ${{containers}})` : name;
+        return {{ value: d.id, label }};
+      }});
+      if (!options.length) {{ return toast('No drawers available'); }}
+      openSelectModal('Move Container – Choose Drawer', options, onOk);
+    }} catch (e) {{
+      toast('Failed to load drawers');
+    }}
+  }}
+
+  async function openSelectContainerInDrawer(drawerId, onOk) {{
+    try {{
+      const r = await api('GET', `/api/containers?drawer_id=${{drawerId}}`);
+      if (!r.ok) {{ return toast(r.json?.error || 'Failed to load containers'); }}
+      const options = (r.json || []).map(function (c) {{
+        const name = (c.name || '').toString();
+        const parts = c.part_count || 0;
+        const label = parts ? `${{name}} (id: ${{c.id}}, parts: ${{parts}})` : `${{name}} (id: ${{c.id}})`;
+        return {{ value: c.id, label }};
+      }});
+      if (!options.length) {{ return toast('No containers in that drawer'); }}
+      openSelectModal('Merge/Move Inventory – Choose Target Container', options, onOk);
+    }} catch (e) {{
+      toast('Failed to load containers');
+    }}
+  }}  
+
+  async function moveContainer(id) {{
+    openSelectDrawerModal(async (drawerId) => {{
+      const r = await api('PUT', `/api/containers/${{id}}`, {{ drawer_id: drawerId }});
+      if (r.ok) {{ location.reload(); }}
+      else if (r.status === 409) {{ toast('Duplicate label in the target drawer'); }}
+      else {{ toast(r.json?.error || 'Failed to move container'); }}
+    }});
+  }}
+
+  async function deleteContainer(id, drawerId) {{
+    // Pre-check: ask the server if merge/move is required without mutating
+    const pre = await api('DELETE', `/api/containers/${{id}}?check=1`);
+    if (pre.status === 409 && (pre.json?.needed === 'merge_move')) {{
+      // If we know the current drawer, go straight to container selection in that drawer; otherwise pick drawer first
+      if (drawerId) {{
+        openSelectContainerInDrawer(drawerId, async (target) => {{
+          const m = await api('POST', `/api/containers/${{id}}/merge_move`, {{ target_container_id: target }});
+          if (m.ok) {{ location.href = '/drawers'; }} else {{ toast(m.json?.error || 'Merge/move failed'); }}
+        }});
+      }} else {{
+        openSelectDrawerModal(async (did) => {{
+          openSelectContainerInDrawer(did, async (target) => {{
+            const m = await api('POST', `/api/containers/${{id}}/merge_move`, {{ target_container_id: target }});
+            if (m.ok) {{ location.href = '/drawers'; }} else {{ toast(m.json?.error || 'Merge/move failed'); }}
+          }});
+        }});
+      }}
+      return;
+    }}
+
+    if (pre.ok || pre.status === 204) {{
+      // No inventory: ask for confirmation, then perform the actual delete
+      openConfirmModal('Delete Container', 'Soft delete this container?', async () => {{
+        const r = await api('DELETE', `/api/containers/${{id}}`);
+        if (r.ok) {{ location.href = '/drawers'; }}
+        else if (r.status === 409 && (r.json?.needed === 'merge_move')) {{
+          // Race condition: inventory appeared; fall back to the picker flow
+          if (drawerId) {{
+            openSelectContainerInDrawer(drawerId, async (target) => {{
+              const m = await api('POST', `/api/containers/${{id}}/merge_move`, {{ target_container_id: target }});
+              if (m.ok) {{ location.href = '/drawers'; }} else {{ toast(m.json?.error || 'Merge/move failed'); }}
+            }});
+          }} else {{
+            openSelectDrawerModal(async (did) => {{
+              openSelectContainerInDrawer(did, async (target) => {{
+                const m = await api('POST', `/api/containers/${{id}}/merge_move`, {{ target_container_id: target }});
+                if (m.ok) {{ location.href = '/drawers'; }} else {{ toast(m.json?.error || 'Merge/move failed'); }}
+              }});
+            }});
+          }}
+        }} else {{
+          toast(r.json?.error || 'Failed to delete container');
+        }}
+      }});
+    }} else {{
+      toast(pre.json?.error || 'Failed to check delete');
+    }}
+  }}
+
+  async function restoreContainer(id) {{
+    const r = await api('POST', `/api/containers/${{id}}/restore`);
+    if (r.ok) {{ location.reload(); }} else {{ toast(r.json?.error || 'Failed to restore container'); }}
+  }}
+
+  // Expose helpers globally for inline onclick
+  window.api = api;
+  window.toast = toast;
+  window.createDrawer = createDrawer;
+  window.renameDrawer = renameDrawer;
+  window.deleteDrawer = deleteDrawer;
+  window.restoreDrawer = restoreDrawer;
+  window.addContainer = addContainer;
+  window.renameContainer = renameContainer;
+  window.moveContainer = moveContainer;
+  window.deleteContainer = deleteContainer;
+  window.restoreContainer = restoreContainer;
+  window.openTextModal = openTextModal;
+  window.openConfirmModal = openConfirmModal;
+  window.openSelectDrawerModal = openSelectDrawerModal;
+  window.openFormModal = openFormModal;
+  window.openEditDrawerModal = openEditDrawerModal;
+  window.openEditContainerModal = openEditContainerModal;
+  window.openSelectContainerInDrawer = openSelectContainerInDrawer;
 </script>
 </body></html>"""
+    return html_str
 
 
 def _make_color_cell(name: str, hex_code: str) -> str:
@@ -274,6 +753,11 @@ def _display_status(status: str) -> str:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         try:
+            # --- JSON API (GET) ---
+            if self.path.startswith("/api/"):
+                return self._handle_api_get()
+
+            # --- Existing HTML routes ---
             if self.path == "/" or self.path.startswith("/?"):
                 self._serve_master()
             elif self.path.startswith("/parts/"):
@@ -307,6 +791,222 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
+    # ------------------------------ JSON helpers
+    def _send_json(self, status: int, payload) -> None:
+        data = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _read_json(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except Exception:
+            length = 0
+        body = self.rfile.read(length) if length else b""
+        if not body:
+            return {}
+        return json.loads(body.decode("utf-8"))
+
+    # ------------------------------ API GET router
+    def _handle_api_get(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
+        include_deleted = (qs.get("include_deleted", ["0"])[0] == "1")
+
+        try:
+            if path == "/api/drawers":
+                # Active drawers via db.list_drawers(); include_deleted not yet supported here
+                rows = db.list_drawers()
+                return self._send_json(200, rows)
+
+            if path == "/api/containers":
+                drawer_id = qs.get("drawer_id", [None])[0]
+                if drawer_id is None:
+                    return self._send_json(400, {"error": "drawer_id is required"})
+                rows = db.list_containers_for_drawer(int(drawer_id))
+                return self._send_json(200, rows)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+        return self._send_json(404, {"error": "Not Found"})
+
+    # ------------------------------ API write methods
+    def do_POST(self):  # noqa: N802
+        if not self.path.startswith("/api/"):
+            return self._not_found()
+        parsed = urlparse(self.path)
+        path = parsed.path
+        data = self._read_json()
+        try:
+            # Create drawer
+            if path == "/api/drawers":
+                name = (data.get("name") or "").strip()
+                if not name:
+                    return self._send_json(400, {"error": "name is required"})
+                try:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        did = db.create_drawer(conn,
+                                               name=name,
+                                               description=data.get("description"),
+                                               kind=data.get("kind"),
+                                               cols=data.get("cols"),
+                                               rows=data.get("rows"))
+                    return self._send_json(201, {"id": did})
+                except sqlite3.IntegrityError:
+                    return self._send_json(409, {"error": "Duplicate drawer name"})
+
+            # Create container
+            if path == "/api/containers":
+                if "drawer_id" not in data or "name" not in data:
+                    return self._send_json(400, {"error": "drawer_id and name are required"})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        cid = db.create_container(conn,
+                                                  drawer_id=int(data["drawer_id"]),
+                                                  name=str(data["name"]).strip(),
+                                                  description=data.get("description"),
+                                                  row_index=data.get("row_index"),
+                                                  col_index=data.get("col_index"))
+                        return self._send_json(201, {"id": cid})
+                    except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
+                        return self._send_json(409, {"error": str(e) or "Duplicate label in this drawer"})
+
+            # Restore drawer
+            m = re.match(r"^/api/drawers/(\d+)/restore$", path)
+            if m:
+                did = int(m.group(1))
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    db.restore_drawer(conn, did)
+                return self._send_json(200, {"restored": did})
+
+            # Restore container
+            m = re.match(r"^/api/containers/(\d+)/restore$", path)
+            if m:
+                cid = int(m.group(1))
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    db.restore_container(conn, cid)
+                return self._send_json(200, {"restored": cid})
+
+            # Merge/move container inventory and soft-delete source
+            m = re.match(r"^/api/containers/(\d+)/merge_move$", path)
+            if m:
+                source_id = int(m.group(1))
+                target_id = int(data.get("target_container_id", 0))
+                if not target_id:
+                    return self._send_json(400, {"error": "target_container_id is required"})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    # Move rows
+                    cur = conn.execute("UPDATE inventory SET container_id=? WHERE container_id=?", (target_id, source_id))
+                    moved = cur.rowcount or 0
+                    # Soft delete source & audit
+                    before = conn.execute("SELECT * FROM containers WHERE id=?", (source_id,)).fetchone()
+                    conn.execute("UPDATE containers SET deleted_at=CURRENT_TIMESTAMP WHERE id=?", (source_id,))
+                    after = conn.execute("SELECT * FROM containers WHERE id=?", (source_id,)).fetchone()
+                    if hasattr(db, "_audit"):
+                        try:
+                            db._audit(conn, "container", source_id, "merge_move", dict(before) if before else None, dict(after) if after else None)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                    conn.commit()
+                return self._send_json(200, {"moved": moved, "source_deleted": True})
+
+            return self._send_json(404, {"error": "Not Found"})
+        except Exception as e:  # pylint: disable=broad-except
+            return self._send_json(500, {"error": str(e)})
+
+    def do_PUT(self):  # noqa: N802
+        if not self.path.startswith("/api/"):
+            return self._not_found()
+        parsed = urlparse(self.path)
+        path = parsed.path
+        data = self._read_json()
+        try:
+            # Update drawer
+            m = re.match(r"^/api/drawers/(\d+)$", path)
+            if m:
+                did = int(m.group(1))
+                try:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        db.update_drawer(conn, did, **data)
+                    return self._send_json(200, {"updated": did})
+                except sqlite3.IntegrityError:
+                    return self._send_json(409, {"error": "Duplicate drawer name"})
+
+            # Update container
+            m = re.match(r"^/api/containers/(\d+)$", path)
+            if m:
+                cid = int(m.group(1))
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        db.update_container(conn, cid, **data)
+                        return self._send_json(200, {"updated": cid})
+                    except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
+                        return self._send_json(409, {"error": str(e) or "Duplicate label in this drawer"})
+
+            return self._send_json(404, {"error": "Not Found"})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def do_DELETE(self):  # noqa: N802
+        if not self.path.startswith("/api/"):
+            return self._not_found()
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
+        check_only = (qs.get("check", ["0"])[0] == "1")
+        try:
+            # Delete drawer (soft)
+            m = re.match(r"^/api/drawers/(\d+)$", path)
+            if m:
+                did = int(m.group(1))
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        db.soft_delete_drawer(conn, did)
+                        return self._send_json(200, {"deleted": did})
+                    except db.InventoryConstraintError as e:  # type: ignore[attr-defined]
+                        return self._send_json(409, {"error": str(e)})
+
+            # Delete container (soft)
+            m = re.match(r"^/api/containers/(\d+)$", path)
+            if m:
+                cid = int(m.group(1))
+                # If this is a pre-check request, do not mutate; just report whether merge/move is required
+                if check_only:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        row = conn.execute("SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)).fetchone()
+                        has_inv = bool(row and (row["n"] or 0) > 0)
+                    if has_inv:
+                        return self._send_json(409, {"error": "Container has inventory; merge/move required", "needed": "merge_move"})
+                    # No inventory: tell the client it is safe to proceed
+                    return self._send_json(204, {})
+                
+
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    # Explicit pre-check: if any inventory rows reference this container, require merge/move
+                    try:
+                        row = conn.execute("SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)).fetchone()
+                        has_inv = bool(row and (row["n"] or 0) > 0)
+                    except Exception:
+                        has_inv = False
+                    if has_inv:
+                        # Signal that a merge/move is required (frontend opens merge/move modal on this)
+                        return self._send_json(409, {"error": "Container has inventory; merge/move required", "needed": "merge_move"})
+
+                    # Otherwise proceed with soft delete
+                    try:
+                        db.soft_delete_container(conn, cid)
+                        return self._send_json(200, {"deleted": cid})
+                    except db.InventoryConstraintError as e:  # type: ignore[attr-defined]
+                        # Fallback: if helper enforces the rule, surface the same signal
+                        return self._send_json(409, {"error": str(e), "needed": "merge_move"})
+
+            return self._send_json(404, {"error": "Not Found"})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
 
 
     def _serve_all_sets(self):
@@ -618,19 +1318,34 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.list_drawers()
         total_containers = sum(r.get("container_count", 0) for r in rows)
         total_pieces = sum(r.get("part_count", 0) for r in rows)
-        body = ["<h1>Drawers</h1>",
-                "<table id='drawers_table' data-tablekey='drawers' data-context='{}'>",
-                "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th></tr></thead><tbody>"]
+        body = [
+            "<h1>Drawers</h1>",
+            "<div id='drawer-controls' style='margin: 0 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end;'>",
+            "  <div><label>Name<br><input id='new-drawer-name' placeholder='e.g., Wall A' /></label></div>",
+            "  <div><label>Description<br><input id='new-drawer-desc' placeholder='optional' style='width:18em' /></label></div>",
+            "  <div><label>Cols<br><input id='new-drawer-cols' type='number' min='0' style='width:6em' /></label></div>",
+            "  <div><label>Rows<br><input id='new-drawer-rows' type='number' min='0' style='width:6em' /></label></div>",
+            "  <div><button type='button' data-action=\"create-drawer\">Add Drawer</button></div>",
+            "</div>",
+            "<table id='drawers_table' data-tablekey='drawers' data-context='{}'>",
+            "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>"
+        ]
         for r in rows:
-            name = html.escape(r.get("name", ""))
+            raw_name = r.get("name", "")
+            name = html.escape(raw_name)
+            name_js = _js_str(raw_name)
             desc = html.escape(r.get("description") or "")
             containers = r.get("container_count", 0)
             pieces = r.get("part_count", 0)
+            actions = (
+                f"<button type='button' data-action=\"rename-drawer\" data-id=\"{r['id']}\" data-name=\"{html.escape(raw_name)}\" data-desc=\"{html.escape(r.get('description') or '')}\" data-cols=\"{html.escape(str(r.get('cols') or ''))}\" data-rows=\"{html.escape(str(r.get('rows') or ''))}\">Rename</button> "
+                f"<button type='button' data-action=\"delete-drawer\" data-id=\"{r['id']}\">Delete</button>"
+            )
             body.append(
-                f"<tr><td><a href='/drawers/{r['id']}'>{name}</a></td><td>{desc}</td><td>{containers}</td><td>{pieces:,}</td></tr>"
+                f"<tr><td><a href='/drawers/{r['id']}'>{name}</a></td><td>{desc}</td><td>{containers}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
             )
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>")
         body.append("</table>")
         self._send_ok(_html_page("Drawers", "".join(body), total_qty=None))
 
@@ -639,36 +1354,51 @@ class Handler(BaseHTTPRequestHandler):
         if not d:
             self._not_found(); return
         containers = db.list_containers_for_drawer(drawer_id)
-        # Shortcut: if this drawer has exactly one container, redirect directly to its parts page
-        if len(containers) == 1:
-            single_id = containers[0].get("id")
-            if single_id is not None:
-                self.send_response(302)
-                self.send_header("Location", f"/containers/{single_id}")
-                self.end_headers()
-                return
         total_unique = sum(c.get("unique_parts", 0) for c in containers)
         total_pieces = sum(c.get("part_count", 0) for c in containers)
         header = f"<h1>Drawer: {html.escape(d['name'])}</h1>"
         if d.get("description"):
             header += f"<p>{html.escape(d['description'])}</p>"
-        body = [header,
-                "<p><a href='/drawers'>&larr; All drawers</a></p>",
-                "<table id='containers_table'>",
-                "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th></tr></thead><tbody>"]
+        controls = (
+            "<div id='container-controls' style='margin: .5rem 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end;'>"
+            "  <div><label>Label<br><input id='new-container-name' placeholder='e.g., A1' /></label></div>"
+            "  <div><label>Row<br><input id='new-container-row' type='number' style='width:6em' /></label></div>"
+            "  <div><label>Col<br><input id='new-container-col' type='number' style='width:6em' /></label></div>"
+            "  <div><label>Description<br><input id='new-container-desc' style='width:18em' /></label></div>"
+            f"  <div><button type='button' data-action=\"add-container\" data-drawer-id=\"{drawer_id}\">Add Container</button></div>"
+            f"  <div style='margin-left:auto'><button type='button' data-action=\"rename-drawer\" data-id=\"{drawer_id}\" data-name=\"{html.escape(d.get('name') or '')}\" data-desc=\"{html.escape(d.get('description') or '')}\" data-cols=\"{html.escape(str(d.get('cols') or ''))}\" data-rows=\"{html.escape(str(d.get('rows') or ''))}\">Rename Drawer</button>"
+            f"<button type='button' data-action=\"delete-drawer\" data-id=\"{drawer_id}\">Delete Drawer</button></div>"
+            "</div>"
+        )
+        body = [
+            header,
+            "<p><a href='/drawers'>&larr; All drawers</a></p>",
+            controls,
+            "<table id='containers_table'>",
+            "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>"
+        ]
         for c in containers:
             pos = ""
             if c.get("row_index") is not None and c.get("col_index") is not None:
                 pos = f"r{c['row_index']} c{c['col_index']}"
-            name = html.escape(c.get("name", ""))
+            raw_cname = c.get("name", "")
+            name = html.escape(raw_cname)
             desc = html.escape(c.get("description") or "")
             uniq = c.get("unique_parts", 0)
             pieces = c.get("part_count", 0)
-            body.append(
-                f"<tr><td>{pos}</td><td><a href='/containers/{c['id']}'>{name}</a></td><td>{desc}</td><td>{uniq}</td><td>{pieces:,}</td></tr>"
+            actions = (
+                f"<button type='button' data-action=\"rename-container\" data-id=\"{c['id']}\" "
+                f"data-name=\"{html.escape(raw_cname)}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
+                f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
+                f"data-drawer-id=\"{drawer_id}\">Rename</button> "
+                f"<button type='button' data-action=\"move-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Move</button> "
+                f"<button type='button' data-action=\"delete-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Delete</button>"
+)
+        body.append(
+                f"<tr><td>{pos}</td><td><a href='/containers/{c['id']}'>{name}</a></td><td>{desc}</td><td>{uniq}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
             )
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th></tr></tfoot>")
+        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>")
         body.append("</table>")
         self._send_ok(_html_page(f"Drawer {d['name']}", "".join(body), total_qty=None))
 
@@ -678,20 +1408,23 @@ class Handler(BaseHTTPRequestHandler):
             self._not_found(); return
         parts = db.list_parts_in_container(container_id)
         total_qty = sum(p.get("qty", 0) for p in parts)
-        # If the parent drawer has only one container, breadcrumb should go to /drawers
-        is_single_container_drawer = len(db.list_containers_for_drawer(c['drawer_id'])) == 1
-        if is_single_container_drawer:
-            header = (
-                f"<h1>Drawer: {html.escape(c.get('drawer_name',''))}</h1>"
-                f"<p><a href='/drawers'>&larr; All drawers</a></p>"
-            )
-            page_title = f"Drawer {c.get('drawer_name','')}"
-        else:
-            header = (
-                f"<h1>Container: {html.escape(c['name'])}</h1>"
-                f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
-            )
-            page_title = f"Container {c['name']}"
+
+        header = (
+            f"<h1>Container: {html.escape(c['name'])}</h1>"
+            f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
+        )
+        page_title = f"Container {c['name']}"
+        actions_html = (
+            f"<div style='margin:.5rem 0 1rem 0'>"
+            f"  <button type='button' data-action=\"rename-container\" data-id=\"{container_id}\" "
+            f"data-name=\"{html.escape(c.get('name') or '')}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
+            f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
+            f"data-drawer-id=\"{c['drawer_id']}\">Rename</button> "
+            f"  <button type='button' data-action=\"move-container\" data-id=\"{container_id}\" data-drawer-id=\"{c['drawer_id']}\">Move</button> "
+            f"  <button type='button' data-action=\"delete-container\" data-id=\"{container_id}\" data-drawer-id=\"{c['drawer_id']}\">Delete</button>"
+            f"</div>"
+        )
+        header = header + actions_html
         body = [header,
                 f"<table id='container_parts' data-tablekey='container_parts' data-context='{{\"container_id\": {container_id}}}'>",
                 "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
