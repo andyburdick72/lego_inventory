@@ -1,99 +1,160 @@
-Lego Inventory
+# LEGO Inventory Management System
 
-A simple SQLite-backed inventory management system for LEGO parts, using Rebrickable as the canonical source and importing inventory from Instabrick/BrickLink XML exports.
+A SQLite-backed inventory management system for LEGO parts and sets.  
+Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and supports importing inventory from Instabrick/BrickLink XML exports.
 
-Features
-* Data import from Instabrick XML
-* Alias reconciliation between BrickLink/Instabrick IDs and Rebrickable part IDs
-* Name filling via Rebrickable API and manual mappings
-* Web UI (no external dependencies) to browse parts, locations, and sets
-* CLI scripts for data migration, cleaning, and mapping generation
+---
 
-Repository Structure
+## **Features**
+- **Data import from Instabrick XML** with BrickLink → Rebrickable ID conversion  
+- **Alias reconciliation** between BrickLink/Instabrick IDs and Rebrickable part & color IDs  
+- **Full CRUD** for drawers, containers, and sets  
+- **Merge / move inventory** between locations  
+- **Set management**:
+  - Track multiple copies of a set
+  - Store Rebrickable metadata (image, theme, year, etc.)
+  - Set statuses: **Built**, **In Box**, **Work in Progress**, **Teardown**, **Loose Parts**
+- **Part-out** a set into loose inventory
+- **Move parts** between sets and loose inventory
+- **Hierarchical views** for loose parts and parts by set (collapsible, sortable, searchable)  
+- **CSV export** for any table, preserving current filters and sorting  
+- **Sanity checks** for inventory consistency (loose vs in-sets counts)  
+- **Web UI** (no external dependencies) to browse parts, locations, and sets  
 
+---
+
+## **Repository Structure**
+```
 lego_inventory/
 ├── data/
-│   ├── lego_inventory.db                      # SQLite database (WAL + SHM)
-│   ├── instabrick_inventory.xml               # Sample Instabrick export
+│   ├── lego_inventory.db               # SQLite database
+│   ├── instabrick_inventory.xml         # Sample Instabrick export
 ├── src/
-│   ├── inventory_db.py                        # Create and execute against DB
-│   ├── load_my_rebrickable_parts.py           # Load all the parts for my Rebrickable sets into DB
-│   ├── load_rebrickable_colors.py             # Load Rebrickable colors into DB
-│   ├── precheck_instabrick_inventory.py       # Pre-check Instabrick inventory in XML file and add any missing Rebrickable part or color IDs
-│   ├── fix_alias_typos.py                     # Fix typos made while running pre-check script
-│   ├── load_instabrick_inventory.py           # Load Instabrick inventory from XML file into DB and convert to Rebrickable IDs
-│   ├── server.py                              # Lightweight HTTP server for the UI
-│   ├── sample_data.py                         # Add sample data to DB
+│   ├── inventory_db.py                  # DB creation & execution helpers
+│   ├── load_my_rebrickable_parts.py     # Load parts for all owned sets
+│   ├── load_rebrickable_colors.py       # Load Rebrickable colors
+│   ├── precheck_instabrick_inventory.py # Pre-check Instabrick XML for missing aliases
+│   ├── fix_alias_typos.py               # Fix typos from precheck step
+│   ├── load_instabrick_inventory.py     # Import Instabrick XML into DB
+│   ├── inventory_sanity_checks.py       # Validate loose vs set inventories
+│   ├── server.py                        # Lightweight HTTP server for UI
 │   └── utils/
-│       ├── rebrickable_api.py                 # Rebrickable API client helpers
-│       ├── rebrickable_generate_user_token.py # Generate Rebrickable user token
-│       └── common_functions.py                # .env loader for API keys
-└── README.md
+│       ├── rebrickable_api.py           # API client helpers
+│       ├── rebrickable_generate_user_token.py
+│       └── common_functions.py          # .env loader for API keys
 └── requirements.txt
+```
 
-Prerequisites
+---
 
-* Python 3.9+
-* Dependencies (in src/utils/rebrickable_api.py): requests
-* A Rebrickable API key and user token (and username and password, if you need to generate a user token) in a .env file
-
+## **Prerequisites**
+- **Python 3.9+**
+- Dependencies: `requests`  
+- Rebrickable API credentials in `.env`:
+```env
 REBRICKABLE_API_KEY=<your_api_key>
 REBRICKABLE_USER_TOKEN=<your_user_token>
 REBRICKABLE_USERNAME=<your_username>
 REBRICKABLE_PASSWORD=<your_password>
+```
 
-Setup
+---
 
-1.	Clone the repo
+## **Setup**
 
+### 1. Clone the repo
+```bash
 git clone https://github.com/andyburdick72/lego_inventory.git
 cd lego_inventory
+```
 
-2.	Install dependencies
-
+### 2. Install dependencies
+```bash
 pip install requests
+```
 
-3.	Initialize database schema (if needed):
+### 3. Initialize database schema
+```bash
+python3 src/inventory_db.py
+```
 
-python3 src/inventory_db.py 
-# or scripts call init_db()
+---
 
-Common Workflows
+## **Workflows**
 
-1. Create DB schema
+### **Initial Setup**
+1. **Create DB schema**
+   ```bash
+   python3 src/inventory_db.py
+   ```
+2. **Load Rebrickable parts & colors**
+   ```bash
+   python3 src/load_my_rebrickable_parts.py
+   python3 src/load_rebrickable_colors.py
+   ```
+3. **Pre-check Instabrick XML** for missing aliases (optional but recommended)
+   ```bash
+   python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml
+   python3 src/fix_alias_typos.py  # if needed
+   ```
+4. **Load Instabrick XML**
+   ```bash
+   python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
+   ```
 
-python3 src/create_inventory_db.py
+### **Ongoing Maintenance**
+- Add/edit drawers, containers, and sets via the web UI  
+- Import updated Instabrick XML after inventory changes  
+- Run sanity checks:
+  ```bash
+  python3 src/inventory_sanity_checks.py
+  ```
+- Part-out sets or move inventory  
+- Export any table to CSV for reporting  
 
-2. Load Rebrickable parts and colors
+---
 
-python3 src/load_my_rebrickable_parts.py
-python3 src/load_rebrickable_colors.py
-python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml (optional)
-python3 src/fix_alias_typos.py (optional, if there were typos during the pre-check script)
-
-3. Load Instabrick XML
-
-python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
-
-4. Run the web UI
-
+## **Web UI**
+Run:
+```bash
 python3 src/server.py
+```
+Visit:  
+```
+http://localhost:8000
+```
 
-5. Visit http://localhost:8000 in your browser
+**UI Highlights:**
+- **Loose Parts by Location** and **Parts by Set**: collapsible hierarchical views  
+- Column sorting & searching (per table)  
+- CSV export button for every table view  
 
-Database Schema
+---
 
-* colors: Rebrickable color data
-* color_aliases: BrickLink → Rebrickable color mapping
-* parts: Canonical Rebrickable part IDs and names
-* part_aliases: BrickLink/Instabrick → Rebrickable part mapping
-* inventory: Quantities by part, color, status, and location (drawer, container, or set)
+## **Database Schema Overview**
+- **colors** — Rebrickable colors  
+- **color_aliases** — BrickLink → Rebrickable color mapping  
+- **parts** — Canonical Rebrickable part IDs and names  
+- **part_aliases** — BrickLink/Instabrick → Rebrickable part mapping  
+- **sets** — One row per owned set copy, with status & metadata  
+- **set_parts** — Mapping of parts to sets  
+- **inventory** — Quantities by part, color, status, and location (drawer, container, or set)  
 
-Roadmap / Ideas
+---
 
-* Column sorting & searching in the UI
-* Export inventory to CSV
-* Editable drawer / container & part locations
-* Part-out a set
-* Generate pick lists
-* Bulk edit locations
+## **Command Reference**
+| Script | Purpose |
+|--------|---------|
+| `inventory_db.py` | Create/initialize DB schema |
+| `load_my_rebrickable_parts.py` | Load parts for all owned sets |
+| `load_rebrickable_colors.py` | Load Rebrickable color data |
+| `precheck_instabrick_inventory.py` | Detect/fix missing aliases before import |
+| `fix_alias_typos.py` | Correct typos from precheck step |
+| `load_instabrick_inventory.py` | Import Instabrick XML into DB |
+| `inventory_sanity_checks.py` | Compare loose vs set inventories |
+| `server.py` | Run the web UI |
+
+---
+
+## **License**
+MIT License — See `LICENSE` file.
