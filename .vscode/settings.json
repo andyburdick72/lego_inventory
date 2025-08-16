@@ -1,8 +1,8 @@
 {
     // --- Optional Copilot Chat toggles (safe to leave commented out) ---
-    // Some builds expose these; if VS Code underlines them, keep them commented.
-    // "chat.agent.enabled": true,
-    // "github.copilot.chat.edits.enabled": true,
+    "chat.provider": "github.copilot-chat",
+    "github.copilot.chat.edits.enabled": true,
+    "chat.agent.enabled": true,
     // --- Editor hygiene for the refactor ---
     "editor.formatOnSave": true,
     "[python]": {
