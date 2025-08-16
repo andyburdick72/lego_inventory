@@ -1,0 +1,30 @@
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E,F: pycodestyle/pyflakes; I: import order; UP: pyupgrade; B: bugbear
+select = ["E", "F", "I", "UP", "B"]
+# Black controls line length; silence Ruff’s E501
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+# Adjust to your package name once the refactor creates it
+known-first-party = ["lego_inventory"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+# Loosen until you have types everywhere
+ignore_missing_imports = true

@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "env": {
+            "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+    },
+    "tasks": [
+        {
+            "label": "ruff",
+            "type": "shell",
+            "command": "ruff check --fix .",
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "black",
+            "type": "shell",
+            "command": "black .",
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "mypy",
+            "type": "shell",
+            "command": "mypy src || true",
+            "presentation": {
+                "reveal": "never"
+            }
+        },
+        {
+            "label": "pytest",
+            "type": "shell",
+            "command": "pytest -q || true",
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "check-all",
+            "type": "shell",
+            "command": "echo Running ruff → black → mypy → pytest",
+            "dependsOn": [
+                "ruff",
+                "black",
+                "mypy",
+                "pytest"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
