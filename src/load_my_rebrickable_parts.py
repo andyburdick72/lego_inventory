@@ -12,19 +12,23 @@ CLI flags:
   --skip-refresh             OPT-OUT: skip deleting existing set_parts for owned sets before reloading (default is refresh).
 """
 from __future__ import annotations
-import os
-import sys
-import sqlite3
-import time
-import requests
+
 import csv
+import os
+import sqlite3
+import sys
+import time
 from pathlib import Path
+
+import requests
+
+from inventory_db import insert_set_part
 from utils.common_functions import load_rebrickable_environment
 from utils.rebrickable_api import paginate
-from inventory_db import insert_set_part
 
 API_PAGE_SIZE = 500  # adjust as needed
 DB_PATH = Path("data/lego_inventory.db")
+
 
 def get_user_token() -> str:
     token = os.getenv("REBRICKABLE_USER_TOKEN")
@@ -33,6 +37,7 @@ def get_user_token() -> str:
         sys.exit(1)
     return token
 
+
 def get_api_key() -> str:
     api_key = os.getenv("REBRICKABLE_API_KEY")
     if not api_key:
@@ -40,14 +45,17 @@ def get_api_key() -> str:
         sys.exit(1)
     return api_key
 
-def fetch_part_detail(design_id: str, api_key: str, *, retries: int = 5) -> tuple[dict | None, int | None, str | None]:
+
+def fetch_part_detail(
+    design_id: str, api_key: str, *, retries: int = 5
+) -> tuple[dict | None, int | None, str | None]:
     """Fetch a single part detail from Rebrickable.
     Returns (json_dict_or_none, http_status_or_none, reason_or_none).
     """
     url = f"https://rebrickable.com/api/v3/lego/parts/{design_id}/"
     headers = {"Authorization": f"key {api_key}"}
     backoff = 1.0
-    for attempt in range(retries):
+    for _attempt in range(retries):
         try:
             resp = requests.get(url, headers=headers, timeout=20)
             status = resp.status_code
@@ -61,11 +69,12 @@ def fetch_part_detail(design_id: str, api_key: str, *, retries: int = 5) -> tupl
                 continue
             # Other non-success
             return None, status, f"http_{status}"
-        except requests.RequestException as e:
+        except requests.RequestException:
             # Network error; retry with backoff
             time.sleep(backoff)
             backoff = min(backoff * 2, 16.0)
     return None, None, "network_or_retries_exhausted"
+
 
 def backfill_all_parts(conn: sqlite3.Connection) -> None:
     """Backfill part_url and part_img_url for any parts missing them."""
@@ -144,11 +153,15 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
     print(f"Skipped: {skipped}")
     print(f"Errors: {errors}")
 
+
 def fetch_owned_sets(user_token: str) -> list[str]:
     """Return a list of all set numbers owned by this user token."""
     print(f"Fetching owned sets for user token '{user_token}'…")
     sets: list[str] = []
-    for page in paginate(f"https://rebrickable.com/api/v3/users/{user_token}/sets/", params={"page_size": API_PAGE_SIZE}):
+    for page in paginate(
+        f"https://rebrickable.com/api/v3/users/{user_token}/sets/",
+        params={"page_size": API_PAGE_SIZE},
+    ):
         set_data = page.get("set", page)
         set_num = set_data.get("set_num")
         if not set_num:
@@ -158,12 +171,13 @@ def fetch_owned_sets(user_token: str) -> list[str]:
     print(f"→ Found {len(sets)} owned sets.")
     return sets
 
+
 def gather_and_insert_parts(
     sets: list[str],
     conn: sqlite3.Connection,
     insert_only_set_parts: bool = False,
     include_spares: bool = True,
-    include_minifig_parts: bool = True
+    include_minifig_parts: bool = True,
 ) -> None:
     """
     Fetch all parts from owned sets and insert them into the parts and part_aliases tables.
@@ -283,6 +297,7 @@ def gather_and_insert_parts(
     )
     print(f"Duration: {elapsed:.2f}s")
 
+
 def main():
     # Load .env (gets REBRICKABLE_API_KEY, REBRICKABLE_USER_TOKEN)
     load_rebrickable_environment()
@@ -334,6 +349,7 @@ def main():
         )
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     main()

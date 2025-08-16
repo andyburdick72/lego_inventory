@@ -12,27 +12,30 @@ Currently includes:
 If none are found or required vars are missing the function prints a
 friendly error and ``sys.exit(1)``.
 """
+
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
-from typing import Tuple
 
 try:
     from dotenv import load_dotenv
 except ImportError:
+
     def load_dotenv(path: str | os.PathLike) -> None:  # type: ignore
         """Very small fallback if python-dotenv isn't installed."""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 if line.strip() and not line.startswith("#") and "=" in line:
                     key, val = line.strip().split("=", 1)
                     os.environ.setdefault(key, val)
 
+
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _candidate_paths() -> list[Path]:
     """Return possible .env locations in priority order."""
@@ -47,7 +50,7 @@ def _candidate_paths() -> list[Path]:
     return paths
 
 
-def load_rebrickable_environment() -> Tuple[str, str, str, str]:
+def load_rebrickable_environment() -> tuple[str, str, str, str]:
     """Load credentials; exits program if unavailable."""
     dotenv_path: Path | None = None
     for p in _candidate_paths():
@@ -68,10 +71,13 @@ def load_rebrickable_environment() -> Tuple[str, str, str, str]:
 
     if not all([api_key, user_token, username, password]):
         print("Error: Missing one or more required variables in .env:")
-        print("  REBRICKABLE_API_KEY, REBRICKABLE_USER_TOKEN, REBRICKABLE_USERNAME, REBRICKABLE_PASSWORD")
+        print(
+            "  REBRICKABLE_API_KEY, REBRICKABLE_USER_TOKEN, REBRICKABLE_USERNAME, REBRICKABLE_PASSWORD"
+        )
         sys.exit(1)
 
     return api_key, user_token, username, password
+
 
 if __name__ == "__main__":
     print(load_rebrickable_environment())

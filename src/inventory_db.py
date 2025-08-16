@@ -72,12 +72,22 @@ audit_log
 
 Only stdlib; no external deps.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import json
+import sqlite3
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+
+
+# Helper to safely get lastrowid with static type checkers
+def _lastrowid(cur: sqlite3.Cursor) -> int:
+    """Return a non-None lastrowid or raise at runtime; helps static type checkers."""
+    rid = cur.lastrowid
+    if rid is None:
+        raise RuntimeError("Expected lastrowid after INSERT.")
+    return int(rid)
+
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
 
@@ -96,8 +106,16 @@ def _connect() -> sqlite3.Connection:
 
 # --------------------------------------------------------------------------- internal audit helper + errors
 
-def _audit(conn: sqlite3.Connection, entity: str, entity_id: int, action: str,
-           before: Optional[dict] = None, after: Optional[dict] = None, user: Optional[str] = None) -> None:
+
+def _audit(
+    conn: sqlite3.Connection,
+    entity: str,
+    entity_id: int,
+    action: str,
+    before: dict | None = None,
+    after: dict | None = None,
+    user: str | None = None,
+) -> None:
     conn.execute(
         """
         INSERT INTO audit_log(entity, entity_id, action, before_state, after_state, user)
@@ -108,13 +126,15 @@ def _audit(conn: sqlite3.Connection, entity: str, entity_id: int, action: str,
             entity_id,
             action,
             json.dumps(before) if before is not None else None,
-            json.dumps(after)  if after  is not None else None,
+            json.dumps(after) if after is not None else None,
             user,
         ),
     )
 
+
 class InventoryConstraintError(Exception):
     pass
+
 
 class DuplicateLabelError(Exception):
     pass
@@ -242,7 +262,9 @@ def init_db() -> None:
             """
         )
         try:
-            conn.execute("ALTER TABLE inventory ADD COLUMN container_id INTEGER REFERENCES containers(id)")
+            conn.execute(
+                "ALTER TABLE inventory ADD COLUMN container_id INTEGER REFERENCES containers(id)"
+            )
         except sqlite3.OperationalError:
             pass
         try:
@@ -287,7 +309,9 @@ def init_db() -> None:
         )
         conn.commit()
 
+
 # === Drawer/Container CRUD helpers (DB-only layer) ===
+
 
 def create_drawer(conn, name, description=None, kind=None, cols=None, rows=None, sort_index=0):
     cur = conn.execute(
@@ -295,9 +319,9 @@ def create_drawer(conn, name, description=None, kind=None, cols=None, rows=None,
         INSERT INTO drawers (name, description, kind, cols, rows, sort_index)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (name, description, kind, cols, rows, sort_index)
+        (name, description, kind, cols, rows, sort_index),
     )
-    did = int(cur.lastrowid)
+    did = _lastrowid(cur)
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (did,)).fetchone()
     _audit(conn, "drawer", did, "create", None, dict(after))
     conn.commit()
@@ -311,45 +335,73 @@ def update_drawer(conn, drawer_id, **fields):
     values = list(fields.values())
     values.append(drawer_id)
     before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    conn.execute(f"UPDATE drawers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    conn.execute(
+        f"UPDATE drawers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values
+    )
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    _audit(conn, "drawer", drawer_id, "update", dict(before) if before else None, dict(after) if after else None)
+    _audit(
+        conn,
+        "drawer",
+        drawer_id,
+        "update",
+        dict(before) if before else None,
+        dict(after) if after else None,
+    )
     conn.commit()
 
 
 def soft_delete_drawer(conn, drawer_id):
-    row = conn.execute("SELECT COUNT(*) AS c FROM containers WHERE drawer_id=? AND deleted_at IS NULL", (drawer_id,)).fetchone()
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM containers WHERE drawer_id=? AND deleted_at IS NULL",
+        (drawer_id,),
+    ).fetchone()
     if row and row["c"] > 0:
         raise InventoryConstraintError("Drawer has active containers; move or delete them first.")
     before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
     conn.execute(
         "UPDATE drawers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-        (drawer_id,)
+        (drawer_id,),
     )
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    _audit(conn, "drawer", drawer_id, "soft_delete", dict(before) if before else None, dict(after) if after else None)
+    _audit(
+        conn,
+        "drawer",
+        drawer_id,
+        "soft_delete",
+        dict(before) if before else None,
+        dict(after) if after else None,
+    )
     conn.commit()
 
 
 def restore_drawer(conn, drawer_id):
     before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    conn.execute(
-        "UPDATE drawers SET deleted_at = NULL WHERE id = ?",
-        (drawer_id,)
-    )
+    conn.execute("UPDATE drawers SET deleted_at = NULL WHERE id = ?", (drawer_id,))
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    _audit(conn, "drawer", drawer_id, "restore", dict(before) if before else None, dict(after) if after else None)
+    _audit(
+        conn,
+        "drawer",
+        drawer_id,
+        "restore",
+        dict(before) if before else None,
+        dict(after) if after else None,
+    )
     conn.commit()
 
 
-def _container_duplicate_exists(conn: sqlite3.Connection, drawer_id: int, name: str, exclude_id: Optional[int] = None) -> bool:
+def _container_duplicate_exists(
+    conn: sqlite3.Connection, drawer_id: int, name: str, exclude_id: int | None = None
+) -> bool:
     rows = conn.execute(
         "SELECT id FROM containers WHERE drawer_id=? AND name=? AND deleted_at IS NULL",
         (drawer_id, name.strip()),
     ).fetchall()
     return any(r["id"] != exclude_id for r in rows)
 
-def create_container(conn, drawer_id, name, description=None, row_index=None, col_index=None, sort_index=0):
+
+def create_container(
+    conn, drawer_id, name, description=None, row_index=None, col_index=None, sort_index=0
+):
     name = name.strip()
     if _container_duplicate_exists(conn, drawer_id, name):
         raise DuplicateLabelError("Duplicate label in this drawer")
@@ -358,9 +410,9 @@ def create_container(conn, drawer_id, name, description=None, row_index=None, co
         INSERT INTO containers (drawer_id, name, description, row_index, col_index, sort_index)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (drawer_id, name, description, row_index, col_index, sort_index)
+        (drawer_id, name, description, row_index, col_index, sort_index),
     )
-    cid = int(cur.lastrowid)
+    cid = _lastrowid(cur)
     after = conn.execute("SELECT * FROM containers WHERE id=?", (cid,)).fetchone()
     _audit(conn, "container", cid, "create", None, dict(after))
     conn.commit()
@@ -377,44 +429,71 @@ def update_container(conn, container_id, **fields):
     if before is None:
         return
     # Determine target drawer/name for uniqueness check
-    new_drawer = fields.get("drawer_id", before["drawer_id"]) if isinstance(before, sqlite3.Row) else fields.get("drawer_id")
-    new_name   = fields.get("name", before["name"])         if isinstance(before, sqlite3.Row) else fields.get("name")
+    new_drawer = (
+        fields.get("drawer_id", before["drawer_id"])
+        if isinstance(before, sqlite3.Row)
+        else fields.get("drawer_id")
+    )
+    new_name = (
+        fields.get("name", before["name"])
+        if isinstance(before, sqlite3.Row)
+        else fields.get("name")
+    )
     if isinstance(new_name, str):
         new_name = new_name.strip()
     if new_drawer is not None and new_name is not None:
-        if _container_duplicate_exists(conn, int(new_drawer), str(new_name), exclude_id=container_id):
+        if _container_duplicate_exists(
+            conn, int(new_drawer), str(new_name), exclude_id=container_id
+        ):
             raise DuplicateLabelError("Duplicate label in this drawer")
-    conn.execute(f"UPDATE containers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    conn.execute(
+        f"UPDATE containers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values
+    )
     after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
     _audit(conn, "container", container_id, "update", dict(before), dict(after) if after else None)
     conn.commit()
 
 
 def soft_delete_container(conn, container_id):
-    cnt = conn.execute("SELECT COUNT(*) AS c FROM inventory WHERE container_id=?", (container_id,)).fetchone()["c"]
+    cnt = conn.execute(
+        "SELECT COUNT(*) AS c FROM inventory WHERE container_id=?", (container_id,)
+    ).fetchone()["c"]
     if cnt and cnt > 0:
         raise InventoryConstraintError("Container has inventory; merge/move required.")
     before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
     conn.execute(
         "UPDATE containers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-        (container_id,)
+        (container_id,),
     )
     after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
-    _audit(conn, "container", container_id, "soft_delete", dict(before) if before else None, dict(after) if after else None)
+    _audit(
+        conn,
+        "container",
+        container_id,
+        "soft_delete",
+        dict(before) if before else None,
+        dict(after) if after else None,
+    )
     conn.commit()
 
 
 def restore_container(conn, container_id):
     before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
-    conn.execute(
-        "UPDATE containers SET deleted_at = NULL WHERE id = ?",
-        (container_id,)
-    )
+    conn.execute("UPDATE containers SET deleted_at = NULL WHERE id = ?", (container_id,))
     after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
-    _audit(conn, "container", container_id, "restore", dict(before) if before else None, dict(after) if after else None)
+    _audit(
+        conn,
+        "container",
+        container_id,
+        "restore",
+        dict(before) if before else None,
+        dict(after) if after else None,
+    )
     conn.commit()
 
+
 # --------------------------------------------------------------------------- migration helper (v3)
+
 
 def migrate_locations_to_containers() -> None:
     """
@@ -464,12 +543,13 @@ def migrate_locations_to_containers() -> None:
 
 # --------------------------------------------------------------------------- drawer/container helpers (CRUD-ish)
 
+
 def upsert_drawer(
     name: str,
-    description: Optional[str] = None,
-    kind: Optional[str] = None,
-    cols: Optional[int] = None,
-    rows: Optional[int] = None,
+    description: str | None = None,
+    kind: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> int:
     """Return the drawer id for `name`, inserting if needed.
     Does not change existing fields on conflict (idempotent).
@@ -489,15 +569,15 @@ def upsert_drawer(
             (name, description, kind, cols, rows),
         )
         conn.commit()
-        return int(cur.lastrowid)
+        return _lastrowid(cur)
 
 
 def upsert_container(
     drawer_id: int,
     name: str,
-    description: Optional[str] = None,
-    row_index: Optional[int] = None,
-    col_index: Optional[int] = None,
+    description: str | None = None,
+    row_index: int | None = None,
+    col_index: int | None = None,
 ) -> int:
     """Return the container id for (drawer_id, name), inserting if needed.
     Uses name for identity within a drawer (soft-delete-aware unique index enforces this).
@@ -518,7 +598,7 @@ def upsert_container(
             (drawer_id, name, description, row_index, col_index),
         )
         conn.commit()
-        return int(cur.lastrowid)
+        return _lastrowid(cur)
 
 
 def move_container(container_id: int, new_drawer_id: int) -> None:
@@ -563,15 +643,15 @@ def add_loose_inventory_with_container(
             (design_id, color_id, quantity, container_id),
         )
         conn.commit()
-        return int(cur.lastrowid)
+        return _lastrowid(cur)
 
 
 def get_or_create_container_by_names(
     drawer_name: str,
     container_name: str,
     *,
-    drawer_description: Optional[str] = None,
-    container_description: Optional[str] = None,
+    drawer_description: str | None = None,
+    container_description: str | None = None,
 ) -> int:
     """Convenience: upsert a drawer by name, then upsert a container by name; return container_id."""
     d_id = upsert_drawer(drawer_name, drawer_description)
@@ -581,7 +661,8 @@ def get_or_create_container_by_names(
 
 # --------------------------------------------------------------------------- drawer/container listing helpers (read-only UI)
 
-def list_drawers() -> List[Dict]:
+
+def list_drawers() -> list[dict]:
     """Return all drawers with container and piece counts."""
     with _connect() as conn:
         rows = conn.execute(
@@ -607,14 +688,16 @@ def list_drawers() -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-def get_drawer(drawer_id: int) -> Optional[Dict]:
+def get_drawer(drawer_id: int) -> dict | None:
     """Return a single drawer row by id, or None."""
     with _connect() as conn:
-        r = conn.execute("SELECT * FROM drawers WHERE id = ? AND deleted_at IS NULL", (drawer_id,)).fetchone()
+        r = conn.execute(
+            "SELECT * FROM drawers WHERE id = ? AND deleted_at IS NULL", (drawer_id,)
+        ).fetchone()
     return dict(r) if r else None
 
 
-def list_containers_for_drawer(drawer_id: int) -> List[Dict]:
+def list_containers_for_drawer(drawer_id: int) -> list[dict]:
     """Return containers for a drawer with counts and optional positions."""
     with _connect() as conn:
         rows = conn.execute(
@@ -639,7 +722,7 @@ def list_containers_for_drawer(drawer_id: int) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-def get_container(container_id: int) -> Optional[Dict]:
+def get_container(container_id: int) -> dict | None:
     """Return a single container row with its drawer name, or None."""
     with _connect() as conn:
         r = conn.execute(
@@ -654,7 +737,7 @@ def get_container(container_id: int) -> Optional[Dict]:
     return dict(r) if r else None
 
 
-def list_parts_in_container(container_id: int) -> List[Dict]:
+def list_parts_in_container(container_id: int) -> list[dict]:
     """List aggregated parts (by design_id + color) within a container."""
     with _connect() as conn:
         rows = conn.execute(
@@ -677,6 +760,7 @@ def list_parts_in_container(container_id: int) -> List[Dict]:
         ).fetchall()
     return [dict(r) for r in rows]
 
+
 # --------------------------------------------------------------------------- color helpers
 def insert_color(color_id: int, name: str, hex_code: str) -> None:
     r, g, b = tuple(int(hex_code[i : i + 2], 16) for i in (0, 2, 4))
@@ -697,7 +781,7 @@ def add_color_alias(bl_id: int, color_id: int) -> None:
         conn.commit()
 
 
-def resolve_color(bl_id: int) -> Optional[int]:
+def resolve_color(bl_id: int) -> int | None:
     with _connect() as conn:
         row = conn.execute(
             "SELECT color_id FROM color_aliases WHERE alias_id=?", (bl_id,)
@@ -729,12 +813,10 @@ def insert_part(design_id: str, name: str) -> None:
 
 
 # List all design_ids whose name is still the placeholder
-def unknown_parts() -> List[str]:
+def unknown_parts() -> list[str]:
     """Return a list of design_ids whose name is still the placeholder."""
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT design_id FROM parts WHERE name = 'Unknown part'"
-        ).fetchall()
+        rows = conn.execute("SELECT design_id FROM parts WHERE name = 'Unknown part'").fetchall()
     return [r["design_id"] for r in rows]
 
 
@@ -747,16 +829,14 @@ def add_part_alias(alias: str, design_id: str) -> None:
         conn.commit()
 
 
-def resolve_part(alias: str) -> Optional[str]:
+def resolve_part(alias: str) -> str | None:
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT design_id FROM part_aliases WHERE alias=?", (alias,)
-        ).fetchone()
+        row = conn.execute("SELECT design_id FROM part_aliases WHERE alias=?", (alias,)).fetchone()
         return row["design_id"] if row else None
 
 
 # --------------------------------------------------------------------------- new helper: get_part
-def get_part(design_id: str) -> Optional[Dict]:
+def get_part(design_id: str) -> dict | None:
     """
     Retrieve a single part row (design_id, name) as a dict, or None
     if the part is not in the table.
@@ -770,7 +850,13 @@ def get_part(design_id: str) -> Optional[Dict]:
 
 
 # --------------------------------------------------------------------------- set_parts
-def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int, conn: Optional[sqlite3.Connection] = None) -> None:
+def insert_set_part(
+    set_num: str,
+    design_id: str,
+    color_id: int,
+    quantity: int,
+    conn: sqlite3.Connection | None = None,
+) -> None:
     if conn is None:
         with _connect() as local_conn:
             local_conn.execute(
@@ -790,7 +876,8 @@ def insert_set_part(set_num: str, design_id: str, color_id: int, quantity: int, 
             (set_num, design_id, color_id, quantity),
         )
 
-def get_set_parts(set_num: str) -> List[Dict]:
+
+def get_set_parts(set_num: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -806,7 +893,8 @@ def get_set_parts(set_num: str) -> List[Dict]:
         ).fetchall()
     return [dict(r) for r in rows]
 
-def sets_for_part(design_id: str) -> List[Dict]:
+
+def sets_for_part(design_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -830,7 +918,8 @@ def sets_for_part(design_id: str) -> List[Dict]:
 
 # --------------------------------------------------------------------------- sets helpers
 
-def get_set(set_num: str) -> Optional[Dict]:
+
+def get_set(set_num: str) -> dict | None:
     """Return a single set row by set_num or None if not found."""
     with _connect() as conn:
         row = conn.execute(
@@ -844,7 +933,7 @@ def get_set(set_num: str) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def get_parts_for_set(set_num: str) -> List[Dict]:
+def get_parts_for_set(set_num: str) -> list[dict]:
     """Return the list of parts for a set with color, qty, and Rebrickable URLs.
     Falls back to canonical URL/placeholder image when metadata is missing.
     """
@@ -868,7 +957,7 @@ def get_parts_for_set(set_num: str) -> List[Dict]:
             (set_num,),
         ).fetchall()
 
-    out: List[Dict] = []
+    out: list[dict] = []
     for r in rows:
         d = dict(r)
         d["hex"] = r["hex"]
@@ -886,27 +975,30 @@ def insert_inventory(
     color_id: int,
     quantity: int,
     status: str,
-    drawer: Optional[str] = None,
-    container: Optional[str] = None,
-    set_number: Optional[str] = None,
+    drawer: str | None = None,
+    container: str | None = None,
+    set_number: str | None = None,
 ) -> None:
-    if status != 'loose':
+    if status != "loose":
         # Inventory table is now for loose parts only; ignore non-loose inserts
         return
     with _connect() as conn:
         # Prefer relational container_id when we have both drawer/container text present
         # This keeps legacy callers working while transitioning to the new model.
-        container_id: Optional[int] = None
+        container_id: int | None = None
         if drawer and container:
             # resolve or create
-            row = conn.execute("SELECT id FROM drawers WHERE name = ?", (drawer.strip(),)).fetchone()
+            row = conn.execute(
+                "SELECT id FROM drawers WHERE name = ?", (drawer.strip(),)
+            ).fetchone()
             if row:
                 d_id = row["id"]
             else:
-                d_id = conn.execute(
+                cur = conn.execute(
                     "INSERT INTO drawers(name) VALUES (?)",
                     (drawer.strip(),),
-                ).lastrowid
+                )
+                d_id = _lastrowid(cur)
             row = conn.execute(
                 "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
                 (d_id, container.strip()),
@@ -914,10 +1006,11 @@ def insert_inventory(
             if row:
                 container_id = row["id"]
             else:
-                container_id = conn.execute(
+                cur2 = conn.execute(
                     "INSERT INTO containers(drawer_id, name) VALUES (?, ?)",
                     (d_id, container.strip()),
-                ).lastrowid
+                )
+                container_id = _lastrowid(cur2)
 
         conn.execute(
             """
@@ -938,7 +1031,8 @@ def insert_inventory(
         )
         conn.commit()
 
-def loose_inventory_for_part(design_id: str) -> List[Dict]:
+
+def loose_inventory_for_part(design_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -956,7 +1050,7 @@ def loose_inventory_for_part(design_id: str) -> List[Dict]:
 
 
 # --------------------------------------------------------------------------- queries
-def parts_with_totals() -> List[Dict]:
+def parts_with_totals() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -971,7 +1065,7 @@ def parts_with_totals() -> List[Dict]:
         return [dict(r) for r in rows]
 
 
-def inventory_by_part(design_id: str) -> List[Dict]:
+def inventory_by_part(design_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -988,7 +1082,7 @@ def inventory_by_part(design_id: str) -> List[Dict]:
         return [dict(r) for r in rows]
 
 
-def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
+def locations_map() -> dict[tuple[str, str], list[dict]]:
     with _connect() as conn:
         # New-path rows: inventory linked to containers/drawers
         new_rows = conn.execute(
@@ -1002,7 +1096,7 @@ def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
             JOIN drawers    d ON d.id = c.drawer_id
             JOIN parts      p ON p.design_id = i.design_id
             JOIN colors     col ON col.id = i.color_id
-            WHERE i.status = 'loose' AND i.container_id IS NOT NULLHow
+            WHERE i.status = 'loose' AND i.container_id IS NOT NULL
               AND c.deleted_at IS NULL AND d.deleted_at IS NULL
             GROUP BY d.name, c.name, p.design_id, i.color_id
             """
@@ -1024,14 +1118,14 @@ def locations_map() -> Dict[Tuple[str, str], List[Dict]]:
         ).fetchall()
 
     rows = list(new_rows) + list(legacy_rows)
-    tree: Dict[Tuple[str, str], List[Dict]] = {}
+    tree: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
         key = (r["drawer"], r["container"])  # type: ignore[index]
         tree.setdefault(key, []).append(dict(r))
     return tree
 
 
-def search_parts(query: str) -> List[Dict]:
+def search_parts(query: str) -> list[dict]:
     pattern = f"%{query}%"
     with _connect() as conn:
         rows = conn.execute(
@@ -1048,7 +1142,8 @@ def search_parts(query: str) -> List[Dict]:
         ).fetchall()
         return [dict(r) for r in rows]
 
-def totals() -> Dict[str, int]:
+
+def totals() -> dict[str, int]:
     """Return total counts: loose_total, set_total, overall_total."""
     with _connect() as conn:
         loose_row = conn.execute(
@@ -1064,10 +1159,16 @@ def totals() -> Dict[str, int]:
         ).fetchone()
     loose_total = loose_row["q"] if loose_row else 0
     set_total = set_row["q"] if set_row else 0
-    return {"loose_total": loose_total, "set_total": set_total, "overall_total": loose_total + set_total}
+    return {
+        "loose_total": loose_total,
+        "set_total": set_total,
+        "overall_total": loose_total + set_total,
+    }
+
 
 # --------------------------------------------------------------------------- main
-import sys
+import sys  # noqa: E402
+
 
 # --------------------------------------------------------------------------- collapse Really Useful Boxes
 def collapse_really_useful_boxes(apply_changes=False):
@@ -1110,7 +1211,7 @@ def collapse_really_useful_boxes(apply_changes=False):
                         "INSERT INTO drawers(name, kind) VALUES (?, ?)",
                         (new_drawer_name, "rub_box_split"),
                     )
-                    new_drawer_id = cur.lastrowid
+                    new_drawer_id = _lastrowid(cur)
                 # Create or get the "All" container in new drawer
                 all_container_row = conn.execute(
                     "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
@@ -1123,7 +1224,7 @@ def collapse_really_useful_boxes(apply_changes=False):
                         "INSERT INTO containers(drawer_id, name) VALUES (?, ?)",
                         (new_drawer_id, "All"),
                     )
-                    all_container_id = cur2.lastrowid
+                    all_container_id = _lastrowid(cur2)
                 # Count inventory for this container
                 inv_count = conn.execute(
                     "SELECT COUNT(*) AS c FROM inventory WHERE container_id = ?",
@@ -1151,6 +1252,7 @@ def collapse_really_useful_boxes(apply_changes=False):
         else:
             print("\nDry run complete. Re-run with 'apply' to make changes.")
 
+
 def repair_really_useful_boxes():
     """
     Repair accidental nested split drawers created by re-running the collapse.
@@ -1160,6 +1262,7 @@ def repair_really_useful_boxes():
     Safe to run multiple times.
     """
     import re
+
     pattern = re.compile(r"^(.*) #\d+ - All$")
     with _connect() as conn:
         nested = conn.execute(
@@ -1194,11 +1297,14 @@ def repair_really_useful_boxes():
                     "INSERT INTO containers(drawer_id, name) VALUES (?, 'All')",
                     (base_id,),
                 )
-                all_id = cur.lastrowid
-            cont_ids = [r["id"] for r in conn.execute(
-                "SELECT id FROM containers WHERE drawer_id = ?",
-                (nid,),
-            ).fetchall()]
+                all_id = _lastrowid(cur)
+            cont_ids = [
+                r["id"]
+                for r in conn.execute(
+                    "SELECT id FROM containers WHERE drawer_id = ?",
+                    (nid,),
+                ).fetchall()
+            ]
             if cont_ids:
                 placeholders = ",".join(["?"] * len(cont_ids))
                 conn.execute(
@@ -1210,7 +1316,7 @@ def repair_really_useful_boxes():
                 (nid,),
             )
         conn.commit()
-        print("Repair complete.")            
+        print("Repair complete.")
 
 
 # --------------------------------------------------------------------------- normalize RUB box names
@@ -1222,6 +1328,7 @@ def normalize_rub_box_names(apply_changes=False):
       drawer's 'All' container and mark the source as 'rub_box_nested_error'.
     """
     import re
+
     pattern = re.compile(r"^(.*) #\d+ - All$")
     with _connect() as conn:
         rows = conn.execute(
@@ -1261,13 +1368,16 @@ def normalize_rub_box_names(apply_changes=False):
                             "INSERT INTO containers(drawer_id, name) VALUES (?, 'All')",
                             (target_drawer_id,),
                         )
-                        all_id = cur.lastrowid
+                        all_id = _lastrowid(cur)
 
                     # Move all inventory from ALL containers in the source drawer to target 'All'
-                    cont_ids = [r["id"] for r in conn.execute(
-                        "SELECT id FROM containers WHERE drawer_id = ?",
-                        (src_drawer_id,),
-                    ).fetchall()]
+                    cont_ids = [
+                        r["id"]
+                        for r in conn.execute(
+                            "SELECT id FROM containers WHERE drawer_id = ?",
+                            (src_drawer_id,),
+                        ).fetchall()
+                    ]
                     if cont_ids:
                         placeholders = ",".join(["?"] * len(cont_ids))
                         conn.execute(
@@ -1280,7 +1390,9 @@ def normalize_rub_box_names(apply_changes=False):
                         "UPDATE drawers SET kind = 'rub_box_nested_error' WHERE id = ?",
                         (src_drawer_id,),
                     )
-                    print(f"Merged: '{src_name}' → existing '{target_name}' (moved inventory, marked source hidden)")
+                    print(
+                        f"Merged: '{src_name}' → existing '{target_name}' (moved inventory, marked source hidden)"
+                    )
                 else:
                     print(f"Would merge: '{src_name}' → existing '{target_name}'")
                 continue
@@ -1288,8 +1400,7 @@ def normalize_rub_box_names(apply_changes=False):
             # RENAME path
             if apply_changes:
                 conn.execute(
-                    "UPDATE drawers SET name = ? WHERE id = ?",
-                    (target_name, src_drawer_id)
+                    "UPDATE drawers SET name = ? WHERE id = ?", (target_name, src_drawer_id)
                 )
                 print(f"Renamed: '{src_name}' → '{target_name}'")
             else:
@@ -1298,6 +1409,7 @@ def normalize_rub_box_names(apply_changes=False):
         if apply_changes:
             conn.commit()
             print("Normalization complete.")
+
 
 if __name__ == "__main__":
     if "--collapse-rub" in sys.argv:

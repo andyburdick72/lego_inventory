@@ -1,5 +1,12 @@
-from inventory_db import _connect, create_drawer, create_container, \
-    soft_delete_container, restore_container, DuplicateLabelError, InventoryConstraintError
+from inventory_db import (
+    DuplicateLabelError,
+    InventoryConstraintError,
+    _connect,
+    create_container,
+    create_drawer,
+    restore_container,
+    soft_delete_container,
+)
 
 with _connect() as conn:
     print("Creating drawer...")

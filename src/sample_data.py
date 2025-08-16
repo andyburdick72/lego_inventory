@@ -11,6 +11,7 @@ repopulating. To run:
 
 import inventory_db as db
 
+
 def main() -> None:
     db.init_db()
     # Insert parts

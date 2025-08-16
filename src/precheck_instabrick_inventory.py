@@ -10,9 +10,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import inventory_db as db
+from inventory_db import resolve_color, resolve_part
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 
-from inventory_db import resolve_part, resolve_color
 
 def precheck_xml(xml_path: Path) -> None:
     print(f"Prechecking XML from: {xml_path}")
@@ -41,7 +41,9 @@ def precheck_xml(xml_path: Path) -> None:
         try:
             part_data = get_json(f"/parts/{alias}/")
             name = part_data.get("name", "Unknown part")
-            confirm = input(f"❓ Use '{alias}' as Rebrickable ID? Found: {name} [y/n]: ").strip().lower()
+            confirm = (
+                input(f"❓ Use '{alias}' as Rebrickable ID? Found: {name} [y/n]: ").strip().lower()
+            )
             if confirm == "y":
                 db.insert_part(alias, name)
                 db.add_part_alias(alias, alias)
@@ -65,9 +67,13 @@ def precheck_xml(xml_path: Path) -> None:
             db.insert_part(design_id, name)
             db.add_part_alias(alias, design_id)
         else:
-            user_input = input(f"❓ Could not resolve {alias}. Enter Rebrickable design ID(s), comma- or semicolon-separated (or blank to skip): ").strip()
+            user_input = input(
+                f"❓ Could not resolve {alias}. Enter Rebrickable design ID(s), comma- or semicolon-separated (or blank to skip): "
+            ).strip()
             if user_input:
-                part_ids = [pid.strip() for pid in user_input.replace(";", ",").split(",") if pid.strip()]
+                part_ids = [
+                    pid.strip() for pid in user_input.replace(";", ",").split(",") if pid.strip()
+                ]
                 for pid in part_ids:
                     try:
                         part_data = get_json(f"/parts/{pid}/")
@@ -98,11 +104,15 @@ def precheck_xml(xml_path: Path) -> None:
                     db.add_color_alias(bl_color, rb_id)
                     print(f"✔️ Found and added color: BL {bl_color} → RB {rb_id} ({name})")
                 else:
-                    raise ValueError(f"Rebrickable returned invalid ID (-1) for BL color {bl_color}")
+                    raise ValueError(
+                        f"Rebrickable returned invalid ID (-1) for BL color {bl_color}"
+                    )
             else:
                 raise ValueError(f"No match found for BrickLink color {bl_color}")
         except Exception:
-            user_input = input(f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): ").strip()
+            user_input = input(
+                f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): "
+            ).strip()
             if user_input.isdigit():
                 try:
                     data = get_json(f"/colors/{user_input}/")
@@ -119,6 +129,7 @@ def precheck_xml(xml_path: Path) -> None:
 
     print("\n✅ Precheck complete. You may now safely run load_instabrick_inventory.py.")
 
+
 def main() -> None:
     path = (
         Path(sys.argv[1])
@@ -129,6 +140,7 @@ def main() -> None:
         print(f"File not found: {path}")
         sys.exit(1)
     precheck_xml(path)
+
 
 if __name__ == "__main__":
     main()

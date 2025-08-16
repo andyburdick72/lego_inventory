@@ -10,16 +10,16 @@ Usage:
 
     python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
 """
+
 from __future__ import annotations
 
 import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import inventory_db as db
-from inventory_db import resolve_part, resolve_color
+from inventory_db import resolve_color, resolve_part
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 
 # --------------------------------------------------------------------------- status map and parser
@@ -35,7 +35,7 @@ STATUS_MAP = {
 RE_REMARK = re.compile(r"^\[IB\](.*)\[IB\]$")
 
 
-def parse_remarks(raw: str) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+def parse_remarks(raw: str) -> tuple[str, str | None, str | None, str | None]:
     """Return (status, drawer, container, set_number) parsed from REMARKS."""
     if not raw:
         return "loose", None, None, None
@@ -57,6 +57,7 @@ def parse_remarks(raw: str) -> Tuple[str, Optional[str], Optional[str], Optional
 
 
 # --------------------------------------------------------------------------- main loader
+
 
 def load_xml(xml_path: Path) -> None:
     print(f"Loading XML from: {xml_path}")
@@ -89,9 +90,7 @@ def load_xml(xml_path: Path) -> None:
         status, drawer, container, set_no = parse_remarks(remarks)
 
         for design_id in design_ids:
-            prepared.append(
-                (design_id, color_id, qty, status, drawer, container, set_no)
-            )
+            prepared.append((design_id, color_id, qty, status, drawer, container, set_no))
 
     # Try to resolve missing part aliases via API or prompt user
     for alias in sorted(unknown_parts):
@@ -110,7 +109,9 @@ def load_xml(xml_path: Path) -> None:
             db.insert_part(design_id, name)
             db.add_part_alias(alias, design_id)
         else:
-            user_input = input(f"❓ Could not resolve {alias}. Enter one or more Rebrickable design IDs (comma- or semicolon-separated, or blank to skip): ").strip()
+            user_input = input(
+                f"❓ Could not resolve {alias}. Enter one or more Rebrickable design IDs (comma- or semicolon-separated, or blank to skip): "
+            ).strip()
             if user_input:
                 design_ids = [pid.strip() for pid in re.split(r"[;,]", user_input) if pid.strip()]
                 for pid in design_ids:
@@ -142,7 +143,9 @@ def load_xml(xml_path: Path) -> None:
             else:
                 raise ValueError("No match found")
         except Exception:
-            user_input = input(f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): ").strip()
+            user_input = input(
+                f"❓ Enter Rebrickable color ID for BrickLink color {bl_color} (or blank to skip): "
+            ).strip()
             if user_input.isdigit():
                 db.add_color_alias(bl_color, int(user_input))
             else:

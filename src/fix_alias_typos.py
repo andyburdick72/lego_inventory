@@ -1,4 +1,4 @@
-from inventory_db import insert_part, add_part_alias
+from inventory_db import add_part_alias, insert_part
 from utils.rebrickable_api import get_json
 
 # --- List of manual alias corrections ---
@@ -8,6 +8,7 @@ manual_alias_fixes = {
     "frnd474": ["69969pr0014", "92198pr0271"],
     "frnd547": ["92198pr0321", "92456c01pr0450", "24184"],
 }
+
 
 def safe_add_alias(bl_id: str, rb_id: str):
     try:
@@ -19,10 +20,12 @@ def safe_add_alias(bl_id: str, rb_id: str):
     except Exception as e:
         print(f"❌ Failed to map {bl_id} → {rb_id}: {e}")
 
+
 def main():
     for alias, rb_ids in manual_alias_fixes.items():
         for rb_id in rb_ids:
             safe_add_alias(alias, rb_id)
+
 
 if __name__ == "__main__":
     main()

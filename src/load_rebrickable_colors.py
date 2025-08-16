@@ -13,15 +13,15 @@ Usage:
 
 (Ensure your ``.env`` has ``REBRICKABLE_API_KEY``.)
 """
+
 from __future__ import annotations
 
-from typing import List, Tuple
 import inventory_db as db
 from utils.common_functions import load_rebrickable_environment
 from utils.rebrickable_api import paginate
 
 
-def _rgb_split(hex_code: str) -> Tuple[int, int, int]:
+def _rgb_split(hex_code: str) -> tuple[int, int, int]:
     hex_code = hex_code.lstrip("#")
     return tuple(int(hex_code[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore
 
@@ -32,8 +32,8 @@ def main() -> None:
 
     db.init_db()
 
-    colors_rows: List[Tuple[int, str, str, int, int, int]] = []
-    alias_rows: List[Tuple[int, int]] = []  # (bricklink_id, color_id)
+    colors_rows: list[tuple[int, str, str, int, int, int]] = []
+    alias_rows: list[tuple[int, int]] = []  # (bricklink_id, color_id)
 
     for c in paginate("/colors/", params={"page_size": 1000}):
         cid = int(c["id"])

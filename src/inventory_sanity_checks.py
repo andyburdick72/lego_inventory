@@ -23,26 +23,28 @@ Usage:
 import argparse
 import csv
 import sqlite3
-from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple
+from pathlib import Path
 
 # Defaults assume this file lives in <repo>/scripts/sanity_checks.py
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
 DEFAULT_REPORTS_DIR = Path(__file__).resolve().parents[1] / "data" / "reports"
 
-def _csv_to_list(s: str) -> List[str]:
+
+def _csv_to_list(s: str) -> list[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
-def _quote_list(items: List[str]) -> str:
+
+def _quote_list(items: list[str]) -> str:
     # naive quoting is fine for our limited status tokens
     return ",".join(f"'{i}'" for i in items)
 
-def build_queries(loose_statuses: List[str], counted_statuses: List[str]) -> Tuple[str, str, str]:
+
+def build_queries(loose_statuses: list[str], counted_statuses: list[str]) -> tuple[str, str, str]:
     ls = _quote_list(loose_statuses) or "'loose'"
     cs = _quote_list(counted_statuses) or "'built','wip','in_box'"
 
-    q_loose_parity = f'''
+    q_loose_parity = f"""
 WITH inv AS (
   SELECT design_id, color_id, SUM(quantity) AS qty
   FROM inventory
@@ -68,9 +70,9 @@ FROM loose_sets ls
 LEFT JOIN inv i ON i.design_id = ls.design_id AND i.color_id = ls.color_id
 WHERE i.design_id IS NULL
 ORDER BY 1, 2;
-'''.strip()
+""".strip()
 
-    q_local_vs_rb = f'''
+    q_local_vs_rb = f"""
 WITH local AS (
   SELECT design_id, color_id, SUM(quantity) AS qty
   FROM inventory
@@ -107,9 +109,9 @@ FROM rb_sum r
 LEFT JOIN local_sum l ON l.design_id = r.design_id AND l.color_id = r.color_id
 WHERE l.design_id IS NULL
 ORDER BY 1, 2;
-'''.strip()
+""".strip()
 
-    q_rollups = f'''
+    q_rollups = f"""
 SELECT 'loose_inv' AS which, COALESCE(SUM(quantity),0) AS qty
 FROM inventory WHERE status='loose'
 UNION ALL
@@ -120,13 +122,15 @@ SELECT 'sets_non_loose', COALESCE(SUM(sp.quantity),0)
 FROM set_parts sp JOIN sets s ON s.set_num=sp.set_num WHERE s.status IN ({cs})
 UNION ALL
 SELECT 'rebrickable_all_sets', COALESCE(SUM(quantity),0) FROM set_parts;
-'''.strip()
+""".strip()
 
     return q_loose_parity, q_local_vs_rb, q_rollups
+
 
 def run_query(conn: sqlite3.Connection, sql: str):
     conn.row_factory = sqlite3.Row
     return [dict(r) for r in conn.execute(sql).fetchall()]
+
 
 def write_csv(rows, path: Path):
     if not rows:
@@ -138,17 +142,32 @@ def write_csv(rows, path: Path):
         w.writeheader()
         w.writerows(rows)
 
+
 def fmt(n):
     return f"{n:,}"
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", type=Path, default=DEFAULT_DB, help="Path to sqlite DB (lego_inventory.db)")
-    ap.add_argument("--reports-dir", type=Path, default=DEFAULT_REPORTS_DIR, help="Directory to write CSV reports")
-    ap.add_argument("--loose-statuses", default="loose,teardown",
-                    help="Comma-separated set statuses to treat as 'loose' (default: loose,teardown)")
-    ap.add_argument("--counted-set-statuses", default="built,wip,in_box",
-                    help="Comma-separated set statuses to count toward in-sets (default: built,wip,in_box)")
+    ap.add_argument(
+        "--db", type=Path, default=DEFAULT_DB, help="Path to sqlite DB (lego_inventory.db)"
+    )
+    ap.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=DEFAULT_REPORTS_DIR,
+        help="Directory to write CSV reports",
+    )
+    ap.add_argument(
+        "--loose-statuses",
+        default="loose,teardown",
+        help="Comma-separated set statuses to treat as 'loose' (default: loose,teardown)",
+    )
+    ap.add_argument(
+        "--counted-set-statuses",
+        default="built,wip,in_box",
+        help="Comma-separated set statuses to count toward in-sets (default: built,wip,in_box)",
+    )
     args = ap.parse_args()
 
     db_path = args.db
@@ -197,6 +216,7 @@ def main():
             print("✅ All checks passed. No differences found.")
         else:
             print("⚠️  Differences detected. See CSVs for details.")
+
 
 if __name__ == "__main__":
     main()

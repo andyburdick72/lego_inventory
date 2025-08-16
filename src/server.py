@@ -12,6 +12,7 @@ No external dependencies – just the std-lib.
 Usage:
     python3 src/server.py
 """
+
 from __future__ import annotations
 
 import csv
@@ -20,14 +21,13 @@ import io
 import json
 import os
 import re
-import sys
 import sqlite3
+import sys
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, List
+from urllib.parse import parse_qs, urlparse
 
-from urllib.parse import urlparse, parse_qs
 
 # Safely embed Python strings inside inline JS (produces a quoted JSON string)
 def _js_str(s: str | None) -> str:
@@ -38,8 +38,7 @@ def _js_str(s: str | None) -> str:
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can import inventory_db
 import inventory_db as db  # noqa: E402
-from inventory_db import get_set
-
+from inventory_db import get_set  # noqa: E402
 
 SET_STATUSES = {"built", "wip", "in_box", "teardown"}
 
@@ -640,7 +639,7 @@ def _make_color_cell(name: str, hex_code: str) -> str:
     return f'<td style="background: #{hex_code}; color:{fg}">{html.escape(name)}</td>'
 
 
-def _query_master_rows() -> List[Dict]:
+def _query_master_rows() -> list[dict]:
     """
     Return aggregated rows:
     design_id, part_name, color_name, hex, status, location (drawer/container OR set_number), qty
@@ -694,7 +693,7 @@ def _query_master_rows() -> List[Dict]:
     return result
 
 
-def _build_sets_map() -> Dict[str, List[Dict]]:
+def _build_sets_map() -> dict[str, dict[str, list[dict]]]:
     """
     {status: {set_number: [{design_id, part_name, color_name, hex, qty}, …]}}
     Only parts whose status is in SET_STATUSES.
@@ -718,7 +717,7 @@ def _build_sets_map() -> Dict[str, List[Dict]]:
             """,
             tuple(SET_STATUSES),
         ).fetchall()
-    sets: Dict[str, Dict[str, List[Dict]]] = {}
+    sets: dict[str, dict[str, list[dict]]] = {}
     for r in rows:
         status = r["status"]
         set_number = r["set_number"] or "(unknown)"
@@ -734,12 +733,11 @@ def _build_sets_map() -> Dict[str, List[Dict]]:
     return sets
 
 
-
-def _numeric_set_sort_key(set_no: str) -> int:
+def _numeric_set_sort_key(set_no: str) -> float:
     try:
         return int(set_no)
     except ValueError:
-        return float('inf')
+        return float("inf")
 
 
 # Helper to get display-friendly status name
@@ -791,6 +789,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
+
     # ------------------------------ JSON helpers
     def _send_json(self, status: int, payload) -> None:
         data = json.dumps(payload).encode("utf-8")
@@ -815,7 +814,6 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
-        include_deleted = (qs.get("include_deleted", ["0"])[0] == "1")
 
         try:
             if path == "/api/drawers":
@@ -849,12 +847,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_json(400, {"error": "name is required"})
                 try:
                     with db._connect() as conn:  # pylint: disable=protected-access
-                        did = db.create_drawer(conn,
-                                               name=name,
-                                               description=data.get("description"),
-                                               kind=data.get("kind"),
-                                               cols=data.get("cols"),
-                                               rows=data.get("rows"))
+                        did = db.create_drawer(
+                            conn,
+                            name=name,
+                            description=data.get("description"),
+                            kind=data.get("kind"),
+                            cols=data.get("cols"),
+                            rows=data.get("rows"),
+                        )
                     return self._send_json(201, {"id": did})
                 except sqlite3.IntegrityError:
                     return self._send_json(409, {"error": "Duplicate drawer name"})
@@ -865,15 +865,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_json(400, {"error": "drawer_id and name are required"})
                 with db._connect() as conn:  # pylint: disable=protected-access
                     try:
-                        cid = db.create_container(conn,
-                                                  drawer_id=int(data["drawer_id"]),
-                                                  name=str(data["name"]).strip(),
-                                                  description=data.get("description"),
-                                                  row_index=data.get("row_index"),
-                                                  col_index=data.get("col_index"))
+                        cid = db.create_container(
+                            conn,
+                            drawer_id=int(data["drawer_id"]),
+                            name=str(data["name"]).strip(),
+                            description=data.get("description"),
+                            row_index=data.get("row_index"),
+                            col_index=data.get("col_index"),
+                        )
                         return self._send_json(201, {"id": cid})
                     except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
-                        return self._send_json(409, {"error": str(e) or "Duplicate label in this drawer"})
+                        return self._send_json(
+                            409, {"error": str(e) or "Duplicate label in this drawer"}
+                        )
 
             # Restore drawer
             m = re.match(r"^/api/drawers/(\d+)/restore$", path)
@@ -900,12 +904,22 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_json(400, {"error": "target_container_id is required"})
                 with db._connect() as conn:  # pylint: disable=protected-access
                     # Move rows
-                    cur = conn.execute("UPDATE inventory SET container_id=? WHERE container_id=?", (target_id, source_id))
+                    cur = conn.execute(
+                        "UPDATE inventory SET container_id=? WHERE container_id=?",
+                        (target_id, source_id),
+                    )
                     moved = cur.rowcount or 0
                     # Soft delete source & audit
-                    before = conn.execute("SELECT * FROM containers WHERE id=?", (source_id,)).fetchone()
-                    conn.execute("UPDATE containers SET deleted_at=CURRENT_TIMESTAMP WHERE id=?", (source_id,))
-                    after = conn.execute("SELECT * FROM containers WHERE id=?", (source_id,)).fetchone()
+                    before = conn.execute(
+                        "SELECT * FROM containers WHERE id=?", (source_id,)
+                    ).fetchone()
+                    conn.execute(
+                        "UPDATE containers SET deleted_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (source_id,),
+                    )
+                    after = conn.execute(
+                        "SELECT * FROM containers WHERE id=?", (source_id,)
+                    ).fetchone()
                     if hasattr(db, "_audit"):
                         try:
                             db._audit(conn, "container", source_id, "merge_move", dict(before) if before else None, dict(after) if after else None)  # type: ignore[attr-defined]
@@ -945,7 +959,9 @@ class Handler(BaseHTTPRequestHandler):
                         db.update_container(conn, cid, **data)
                         return self._send_json(200, {"updated": cid})
                     except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
-                        return self._send_json(409, {"error": str(e) or "Duplicate label in this drawer"})
+                        return self._send_json(
+                            409, {"error": str(e) or "Duplicate label in this drawer"}
+                        )
 
             return self._send_json(404, {"error": "Not Found"})
         except Exception as e:
@@ -957,7 +973,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
-        check_only = (qs.get("check", ["0"])[0] == "1")
+        check_only = qs.get("check", ["0"])[0] == "1"
         try:
             # Delete drawer (soft)
             m = re.match(r"^/api/drawers/(\d+)$", path)
@@ -977,24 +993,39 @@ class Handler(BaseHTTPRequestHandler):
                 # If this is a pre-check request, do not mutate; just report whether merge/move is required
                 if check_only:
                     with db._connect() as conn:  # pylint: disable=protected-access
-                        row = conn.execute("SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)).fetchone()
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)
+                        ).fetchone()
                         has_inv = bool(row and (row["n"] or 0) > 0)
                     if has_inv:
-                        return self._send_json(409, {"error": "Container has inventory; merge/move required", "needed": "merge_move"})
+                        return self._send_json(
+                            409,
+                            {
+                                "error": "Container has inventory; merge/move required",
+                                "needed": "merge_move",
+                            },
+                        )
                     # No inventory: tell the client it is safe to proceed
                     return self._send_json(204, {})
-                
 
                 with db._connect() as conn:  # pylint: disable=protected-access
                     # Explicit pre-check: if any inventory rows reference this container, require merge/move
                     try:
-                        row = conn.execute("SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)).fetchone()
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS n FROM inventory WHERE container_id=?", (cid,)
+                        ).fetchone()
                         has_inv = bool(row and (row["n"] or 0) > 0)
                     except Exception:
                         has_inv = False
                     if has_inv:
                         # Signal that a merge/move is required (frontend opens merge/move modal on this)
-                        return self._send_json(409, {"error": "Container has inventory; merge/move required", "needed": "merge_move"})
+                        return self._send_json(
+                            409,
+                            {
+                                "error": "Container has inventory; merge/move required",
+                                "needed": "merge_move",
+                            },
+                        )
 
                     # Otherwise proceed with soft delete
                     try:
@@ -1008,7 +1039,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
-
     def _serve_all_sets(self):
         with db._connect() as conn:
             rows = conn.execute(
@@ -1021,8 +1051,9 @@ class Handler(BaseHTTPRequestHandler):
 
         total_sets = len(rows)
 
-        body = [f"<h1>All Owned Sets ({total_sets})</h1>",
-                """<table id="sets_table" data-tablekey="sets" data-context="{}">
+        body = [
+            f"<h1>All Owned Sets ({total_sets})</h1>",
+            """<table id="sets_table" data-tablekey="sets" data-context="{}">
 <thead>
     <tr>
         <th>Set Number</th>
@@ -1033,18 +1064,25 @@ class Handler(BaseHTTPRequestHandler):
         <th>Image</th>
     </tr>
 </thead>
-<tbody>"""]
+<tbody>""",
+        ]
 
         for r in rows:
             body.append("<tr>")
             # Set Number, Name, Year, Status, Rebrickable Link, Image
             # Make set number a link to /sets/<set_num>
-            body.append(f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a></td>")
+            body.append(
+                f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a></td>"
+            )
             body.append(f"<td>{html.escape(r['name'])}</td>")
             body.append(f"<td>{r['year']}</td>")
             body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
-            body.append(f"<td><a href='{html.escape(r['rebrickable_url'])}' target='_blank'>View</a></td>")
-            body.append(f"<td><img src='{html.escape(r['image_url'])}' alt='Set image' style='height: 48px;'></td>")
+            body.append(
+                f"<td><a href='{html.escape(r['rebrickable_url'])}' target='_blank'>View</a></td>"
+            )
+            body.append(
+                f"<td><img src='{html.escape(r['image_url'])}' alt='Set image' style='height: 48px;'></td>"
+            )
             body.append("</tr>")
 
         body.append("</tbody></table>")
@@ -1078,23 +1116,25 @@ class Handler(BaseHTTPRequestHandler):
                     JOIN colors c ON c.id = sp.color_id
                     WHERE sp.set_num = ?
                     """,
-                    (set_num,)
+                    (set_num,),
                 ).fetchall()
                 # Convert to list of dicts
                 parts = []
                 for r in rows:
-                    parts.append({
-                        "design_id": r["design_id"],
-                        "name": r["name"],
-                        "color_name": r["color_name"],
-                        "hex": r["hex"],
-                        "quantity": r["quantity"],
-                        "part_url": r["part_url"],
-                        "part_img_url": r["part_img_url"],
-                    })
+                    parts.append(
+                        {
+                            "design_id": r["design_id"],
+                            "name": r["name"],
+                            "color_name": r["color_name"],
+                            "hex": r["hex"],
+                            "quantity": r["quantity"],
+                            "part_url": r["part_url"],
+                            "part_img_url": r["part_img_url"],
+                        }
+                    )
 
         # Compute total quantity for the set
-        total_qty = sum(p.get('quantity', 0) for p in parts)
+        total_qty = sum(p.get("quantity", 0) for p in parts)
         total_qty_str = f"{total_qty:,}"
 
         # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity in header
@@ -1114,22 +1154,26 @@ class Handler(BaseHTTPRequestHandler):
         table_body = []
         for part in parts:
             table_body.append("<tr>")
-            design_id = html.escape(str(part.get('design_id', '')))
+            design_id = html.escape(str(part.get("design_id", "")))
             # Part ID cell: hyperlink to part page
             table_body.append(f'<td><a href="/parts/{design_id}">{design_id}</a></td>')
             # Part Name cell: plain text
             table_body.append(f"<td>{html.escape(str(part.get('name', '')))}</td>")
-            color_name = str(part.get('color_name', ''))
-            hex_code = part.get('hex')
+            color_name = str(part.get("color_name", ""))
+            hex_code = part.get("hex")
             if hex_code:
                 table_body.append(_make_color_cell(color_name, hex_code))
             else:
                 table_body.append(f"<td>{html.escape(color_name)}</td>")
             table_body.append(f"<td>{part.get('quantity', 0)}</td>")
-            link = part.get('part_url') or (f"https://rebrickable.com/parts/{part.get('design_id','')}/")
-            img = part.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
+            link = part.get("part_url") or (
+                f"https://rebrickable.com/parts/{part.get('design_id','')}/"
+            )
+            img = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
             table_body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
-            table_body.append(f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>")
+            table_body.append(
+                f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>"
+            )
             table_body.append("</tr>")
 
         if not table_body:
@@ -1138,9 +1182,7 @@ class Handler(BaseHTTPRequestHandler):
         table_html = (
             "<table><thead><tr>"
             "<th>Part ID</th><th>Part Name</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th>"
-            "</tr></thead><tbody>"
-            + "".join(table_body) +
-            "</tbody>"
+            "</tr></thead><tbody>" + "".join(table_body) + "</tbody>"
             f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
             "</table>"
         )
@@ -1155,7 +1197,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html_bytes)))
         self.end_headers()
         self.wfile.write(html_bytes)
-    
+
     def _serve_location_counts(self):
         with db._connect() as conn:
             rows = conn.execute(
@@ -1190,8 +1232,10 @@ class Handler(BaseHTTPRequestHandler):
         locations.sort(key=lambda x: x[1], reverse=True)
         subtotal = sum(qty for _, qty in locations)
 
-        body = ["<h1>Storage Location Counts</h1>",
-                "<table><thead><tr><th>Location</th><th>Total Quantity</th></tr></thead><tbody>"]
+        body = [
+            "<h1>Storage Location Counts</h1>",
+            "<table><thead><tr><th>Location</th><th>Total Quantity</th></tr></thead><tbody>",
+        ]
 
         for loc, qty in locations:
             body.append(f"<tr><td>{html.escape(loc)}</td><td>{qty:,}</td></tr>")
@@ -1206,10 +1250,12 @@ class Handler(BaseHTTPRequestHandler):
     def _serve_master(self):
         rows = _query_master_rows()
         total_qty = sum(r["qty"] for r in rows)
-        body = [f"<h1>All Loose Parts</h1>",
-                "<table id='master_table' data-tablekey='inventory_master' data-context='{}'><thead><tr>",
-                "<th>ID</th><th>Name</th><th>Color</th>"
-                "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+        body = [
+            "<h1>All Loose Parts</h1>",
+            "<table id='master_table' data-tablekey='inventory_master' data-context='{}'><thead><tr>",
+            "<th>ID</th><th>Name</th><th>Color</th>"
+            "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
+        ]
         for r in rows:
             body.append("<tr>")
             body.append(
@@ -1222,19 +1268,28 @@ class Handler(BaseHTTPRequestHandler):
             body.append(f"<td>{html.escape(r['container'] or '')}</td>")
             body.append(f"<td>{r['qty']}</td>")
             # Rebrickable link and image
-            link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
             body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
-            body.append(f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>")
+            body.append(
+                f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>"
+            )
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=None))
 
     def _serve_part(self, design_id: str):
         # Resolve part meta
-        part = db.get_part(design_id) or {"design_id": design_id, "name": "Unknown part", "part_url": None, "part_img_url": None}
+        part = db.get_part(design_id) or {
+            "design_id": design_id,
+            "name": "Unknown part",
+            "part_url": None,
+            "part_img_url": None,
+        }
 
         # Data for the two sections
         sets_rows = db.sets_for_part(design_id)
@@ -1256,12 +1311,14 @@ class Handler(BaseHTTPRequestHandler):
                 GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
                 ORDER BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
                 """,
-                (design_id,)
+                (design_id,),
             ).fetchall()
             loose_rows = [dict(r) for r in rows]
 
         # Totals for this part
-        part_total = sum(r.get("quantity", 0) for r in sets_rows) + sum(r.get("quantity", 0) for r in loose_rows)
+        part_total = sum(r.get("quantity", 0) for r in sets_rows) + sum(
+            r.get("quantity", 0) for r in loose_rows
+        )
 
         # Header
         part_url = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
@@ -1278,24 +1335,37 @@ class Handler(BaseHTTPRequestHandler):
         # In Sets table
         sets_body = []
         for r in sets_rows:
-            color_cell = _make_color_cell(r["color_name"], r.get("hex")) if r.get("hex") else f"<td>{html.escape(r['color_name'])}</td>"
+            hex_val = r.get("hex")
+            if isinstance(hex_val, str) and hex_val:
+                color_cell = _make_color_cell(r["color_name"], hex_val)
+            else:
+                color_cell = f"<td>{html.escape(r['color_name'])}</td>"
             sets_body.append("<tr>")
-            sets_body.append(f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a> – {html.escape(r['set_name'])}</td>")
+            sets_body.append(
+                f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a> – {html.escape(r['set_name'])}</td>"
+            )
             sets_body.append(color_cell)
             sets_body.append(f"<td>{r['quantity']}</td>")
             sets_body.append("</tr>")
         if not sets_body:
-            sets_body.append("<tr><td colspan='3'>This part is not currently in any sets.</td></tr>")
+            sets_body.append(
+                "<tr><td colspan='3'>This part is not currently in any sets.</td></tr>"
+            )
         sets_table = (
             "<h2>In Sets</h2>"
             "<table><thead><tr><th>Set</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
-            + "".join(sets_body) + "</tbody></table>"
+            + "".join(sets_body)
+            + "</tbody></table>"
         )
 
         # Loose Parts table
         loose_body = []
         for r in loose_rows:
-            color_cell = _make_color_cell(r["color_name"], r.get("hex")) if r.get("hex") else f"<td>{html.escape(r['color_name'])}</td>"
+            hex_val = r.get("hex")
+            if isinstance(hex_val, str) and hex_val:
+                color_cell = _make_color_cell(r["color_name"], hex_val)
+            else:
+                color_cell = f"<td>{html.escape(r['color_name'])}</td>"
             loose_body.append("<tr>")
             loose_body.append(f"<td>{html.escape(str(r.get('drawer','')))}</td>")
             loose_body.append(f"<td>{html.escape(str(r.get('container','')))}</td>")
@@ -1307,10 +1377,13 @@ class Handler(BaseHTTPRequestHandler):
         loose_table = (
             "<h2>Loose Parts</h2>"
             "<table><thead><tr><th>Drawer</th><th>Container</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
-            + "".join(loose_body) + "</tbody></table>"
+            + "".join(loose_body)
+            + "</tbody></table>"
         )
 
-        self._send_ok(_html_page(f"Part {design_id}", header_html + sets_table + loose_table, total_qty=None))
+        self._send_ok(
+            _html_page(f"Part {design_id}", header_html + sets_table + loose_table, total_qty=None)
+        )
 
     # The _serve_locations method has been removed.
 
@@ -1328,12 +1401,11 @@ class Handler(BaseHTTPRequestHandler):
             "  <div><button type='button' data-action=\"create-drawer\">Add Drawer</button></div>",
             "</div>",
             "<table id='drawers_table' data-tablekey='drawers' data-context='{}'>",
-            "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>"
+            "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>",
         ]
         for r in rows:
             raw_name = r.get("name", "")
             name = html.escape(raw_name)
-            name_js = _js_str(raw_name)
             desc = html.escape(r.get("description") or "")
             containers = r.get("container_count", 0)
             pieces = r.get("part_count", 0)
@@ -1345,14 +1417,17 @@ class Handler(BaseHTTPRequestHandler):
                 f"<tr><td><a href='/drawers/{r['id']}'>{name}</a></td><td>{desc}</td><td>{containers}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
             )
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page("Drawers", "".join(body), total_qty=None))
 
     def _serve_drawer_detail(self, drawer_id: int):
         d = db.get_drawer(drawer_id)
         if not d:
-            self._not_found(); return
+            self._not_found()
+            return
         containers = db.list_containers_for_drawer(drawer_id)
         total_unique = sum(c.get("unique_parts", 0) for c in containers)
         total_pieces = sum(c.get("part_count", 0) for c in containers)
@@ -1365,9 +1440,9 @@ class Handler(BaseHTTPRequestHandler):
             "  <div><label>Row<br><input id='new-container-row' type='number' style='width:6em' /></label></div>"
             "  <div><label>Col<br><input id='new-container-col' type='number' style='width:6em' /></label></div>"
             "  <div><label>Description<br><input id='new-container-desc' style='width:18em' /></label></div>"
-            f"  <div><button type='button' data-action=\"add-container\" data-drawer-id=\"{drawer_id}\">Add Container</button></div>"
+            f'  <div><button type=\'button\' data-action="add-container" data-drawer-id="{drawer_id}">Add Container</button></div>'
             f"  <div style='margin-left:auto'><button type='button' data-action=\"rename-drawer\" data-id=\"{drawer_id}\" data-name=\"{html.escape(d.get('name') or '')}\" data-desc=\"{html.escape(d.get('description') or '')}\" data-cols=\"{html.escape(str(d.get('cols') or ''))}\" data-rows=\"{html.escape(str(d.get('rows') or ''))}\">Rename Drawer</button>"
-            f"<button type='button' data-action=\"delete-drawer\" data-id=\"{drawer_id}\">Delete Drawer</button></div>"
+            f'<button type=\'button\' data-action="delete-drawer" data-id="{drawer_id}">Delete Drawer</button></div>'
             "</div>"
         )
         body = [
@@ -1375,7 +1450,7 @@ class Handler(BaseHTTPRequestHandler):
             "<p><a href='/drawers'>&larr; All drawers</a></p>",
             controls,
             "<table id='containers_table'>",
-            "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>"
+            "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>",
         ]
         for c in containers:
             pos = ""
@@ -1390,22 +1465,25 @@ class Handler(BaseHTTPRequestHandler):
                 f"<button type='button' data-action=\"rename-container\" data-id=\"{c['id']}\" "
                 f"data-name=\"{html.escape(raw_cname)}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
                 f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
-                f"data-drawer-id=\"{drawer_id}\">Rename</button> "
+                f'data-drawer-id="{drawer_id}">Rename</button> '
                 f"<button type='button' data-action=\"move-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Move</button> "
                 f"<button type='button' data-action=\"delete-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Delete</button>"
-)
-        body.append(
+            )
+            body.append(
                 f"<tr><td>{pos}</td><td><a href='/containers/{c['id']}'>{name}</a></td><td>{desc}</td><td>{uniq}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
             )
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page(f"Drawer {d['name']}", "".join(body), total_qty=None))
 
     def _serve_container_detail(self, container_id: int):
         c = db.get_container(container_id)
         if not c:
-            self._not_found(); return
+            self._not_found()
+            return
         parts = db.list_parts_in_container(container_id)
         total_qty = sum(p.get("qty", 0) for p in parts)
 
@@ -1416,7 +1494,7 @@ class Handler(BaseHTTPRequestHandler):
         page_title = f"Container {c['name']}"
         actions_html = (
             f"<div style='margin:.5rem 0 1rem 0'>"
-            f"  <button type='button' data-action=\"rename-container\" data-id=\"{container_id}\" "
+            f'  <button type=\'button\' data-action="rename-container" data-id="{container_id}" '
             f"data-name=\"{html.escape(c.get('name') or '')}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
             f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
             f"data-drawer-id=\"{c['drawer_id']}\">Rename</button> "
@@ -1425,19 +1503,25 @@ class Handler(BaseHTTPRequestHandler):
             f"</div>"
         )
         header = header + actions_html
-        body = [header,
-                f"<table id='container_parts' data-tablekey='container_parts' data-context='{{\"container_id\": {container_id}}}'>",
-                "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+        body = [
+            header,
+            f"<table id='container_parts' data-tablekey='container_parts' data-context='{{\"container_id\": {container_id}}}'>",
+            "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
+        ]
         for p in parts:
             design_id = html.escape(str(p.get("design_id", "")))
             part_name = html.escape(str(p.get("part_name", "")))
             color_name = str(p.get("color_name", ""))
             hex_code = p.get("hex")
-            color_td = _make_color_cell(color_name, hex_code) if hex_code else f"<td>{html.escape(color_name)}</td>"
+            color_td = (
+                _make_color_cell(color_name, hex_code)
+                if hex_code
+                else f"<td>{html.escape(color_name)}</td>"
+            )
             qty = p.get("qty", 0)
             link = f"https://rebrickable.com/parts/{p.get('design_id','')}/"
-            part_meta = db.get_part(p.get('design_id','')) or {}
-            img = part_meta.get('part_img_url') or "https://rebrickable.com/static/img/nil.png"
+            part_meta = db.get_part(p.get("design_id", "")) or {}
+            img = part_meta.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
             body.append(
                 f"<tr><td><a href='/parts/{design_id}'>{design_id}</a></td><td>{part_name}</td>{color_td}<td>{qty}</td>"
                 f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td><td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td></tr>"
@@ -1445,7 +1529,9 @@ class Handler(BaseHTTPRequestHandler):
         if not parts:
             body.append("<tr><td colspan='6'>(empty)</td></tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page(page_title, "".join(body), total_qty=None))
 
@@ -1487,20 +1573,28 @@ class Handler(BaseHTTPRequestHandler):
                 """
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
-        body = ["<h1>Part Counts</h1>",
-                "<table id='part_counts_table' data-tablekey='part_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+        body = [
+            "<h1>Part Counts</h1>",
+            "<table id='part_counts_table' data-tablekey='part_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
+        ]
         for r in rows:
             body.append("<tr>")
-            body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
+            body.append(
+                f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>"
+            )
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(f"<td>{r['total_qty']:,}</td>")
-            _link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            _img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            _link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            _img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
             body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
-            body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
+            body.append(
+                f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>"
+            )
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page("Part Counts", "".join(body), total_qty=None))
 
@@ -1546,21 +1640,29 @@ class Handler(BaseHTTPRequestHandler):
                 """
             ).fetchall()
         total_qty = sum(r["total_qty"] for r in rows)
-        body = ["<h1>Part + Color Counts</h1>",
-                "<table id='part_color_counts_table' data-tablekey='part_color_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>"]
+        body = [
+            "<h1>Part + Color Counts</h1>",
+            "<table id='part_color_counts_table' data-tablekey='part_color_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
+        ]
         for r in rows:
             body.append("<tr>")
-            body.append(f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>")
+            body.append(
+                f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>"
+            )
             body.append(f"<td>{html.escape(r['part_name'])}</td>")
             body.append(_make_color_cell(r["color_name"], r["hex"]))
             body.append(f"<td>{r['total_qty']:,}</td>")
-            _link = r['part_url'] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            _img  = r['part_img_url'] or "https://rebrickable.com/static/img/nil.png"
+            _link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
+            _img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
             body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
-            body.append(f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>")
+            body.append(
+                f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>"
+            )
             body.append("</tr>")
         body.append("</tbody>")
-        body.append(f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>")
+        body.append(
+            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+        )
         body.append("</table>")
         self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=None))
 
@@ -1578,12 +1680,18 @@ class Handler(BaseHTTPRequestHandler):
             dt_state = json.loads(dt_json)
             ctx = json.loads(ctx_json)
         except Exception as e:
-            self.send_response(400); self.end_headers(); self.wfile.write(f"Bad request: {e}".encode()); return
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(f"Bad request: {e}".encode())
+            return
 
         try:
             rows, columns = self._get_rows_for_table(table_key, ctx)
         except Exception as e:
-            self.send_response(400); self.end_headers(); self.wfile.write(f"Unknown table or data error: {e}".encode()); return
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(f"Unknown table or data error: {e}".encode())
+            return
 
         rows = self._filter_and_order_rows(rows, columns, dt_state)
 
@@ -1595,18 +1703,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         # UTF-8 BOM for Excel
-        self.wfile.write("\ufeff".encode("utf-8"))
+        self.wfile.write("\ufeff".encode())
 
         out = io.StringIO()
         writer = csv.writer(out)
         writer.writerow(columns)
         self.wfile.write(out.getvalue().encode("utf-8"))
-        out.seek(0); out.truncate(0)
+        out.seek(0)
+        out.truncate(0)
 
         for r in rows:
             writer.writerow([r.get(col, "") for col in columns])
             self.wfile.write(out.getvalue().encode("utf-8"))
-            out.seek(0); out.truncate(0)
+            out.seek(0)
+            out.truncate(0)
 
     def _filter_and_order_rows(self, rows, columns, dt_state):
         def cell_str(row, col):
@@ -1622,7 +1732,8 @@ class Handler(BaseHTTPRequestHandler):
         # Per-column search
         cols_state = (dt_state or {}).get("columns") or []
         for i, col_state in enumerate(cols_state):
-            if i >= len(columns): break
+            if i >= len(columns):
+                break
             val = ((col_state or {}).get("search") or {}).get("value", "")
             if val:
                 sval = val.lower()
@@ -1633,7 +1744,9 @@ class Handler(BaseHTTPRequestHandler):
         orders = (dt_state or {}).get("order") or []
         for order in reversed(orders):
             idx = order.get("column", 0)
-            dir_ = (order.get("dir") or "asc").lower() if isinstance(order.get("dir"), str) else "asc"
+            dir_ = (
+                (order.get("dir") or "asc").lower() if isinstance(order.get("dir"), str) else "asc"
+            )
             if 0 <= idx < len(columns):
                 colname = columns[idx]
                 rows.sort(key=lambda r: cell_str(r, colname))
@@ -1668,12 +1781,14 @@ class Handler(BaseHTTPRequestHandler):
         if table_key == "drawers":
             rows = []
             for r in db.list_drawers():
-                rows.append({
-                    "Name": r.get("name",""),
-                    "Description": r.get("description") or "",
-                    "Containers": r.get("container_count", 0),
-                    "Total Pieces": r.get("part_count", 0),
-                })
+                rows.append(
+                    {
+                        "Name": r.get("name", ""),
+                        "Description": r.get("description") or "",
+                        "Containers": r.get("container_count", 0),
+                        "Total Pieces": r.get("part_count", 0),
+                    }
+                )
             columns = ["Name", "Description", "Containers", "Total Pieces"]
             return rows, columns
 
@@ -1682,15 +1797,18 @@ class Handler(BaseHTTPRequestHandler):
             parts = db.list_parts_in_container(container_id)
             rows = []
             for p in parts:
-                part_meta = db.get_part(p.get("design_id","")) or {}
-                rows.append({
-                    "Design ID": p.get("design_id",""),
-                    "Part": p.get("part_name",""),
-                    "Color": p.get("color_name",""),
-                    "Qty": p.get("qty",0),
-                    "Rebrickable Link": f"https://rebrickable.com/parts/{p.get('design_id','')}/",
-                    "Image": part_meta.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
-                })
+                part_meta = db.get_part(p.get("design_id", "")) or {}
+                rows.append(
+                    {
+                        "Design ID": p.get("design_id", ""),
+                        "Part": p.get("part_name", ""),
+                        "Color": p.get("color_name", ""),
+                        "Qty": p.get("qty", 0),
+                        "Rebrickable Link": f"https://rebrickable.com/parts/{p.get('design_id','')}/",
+                        "Image": part_meta.get("part_img_url")
+                        or "https://rebrickable.com/static/img/nil.png",
+                    }
+                )
             columns = ["Design ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
@@ -1698,17 +1816,30 @@ class Handler(BaseHTTPRequestHandler):
             rows_raw = _query_master_rows()
             rows = []
             for r in rows_raw:
-                rows.append({
-                    "ID": r["design_id"],
-                    "Name": r["part_name"],
-                    "Color": r["color_name"],
-                    "Drawer": r.get("drawer") or "",
-                    "Container": r.get("container") or "",
-                    "Qty": r["qty"],
-                    "Rebrickable Link": r.get("part_url") or f"https://rebrickable.com/parts/{r['design_id']}/",
-                    "Image": r.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
-                })
-            columns = ["ID", "Name", "Color", "Drawer", "Container", "Qty", "Rebrickable Link", "Image"]
+                rows.append(
+                    {
+                        "ID": r["design_id"],
+                        "Name": r["part_name"],
+                        "Color": r["color_name"],
+                        "Drawer": r.get("drawer") or "",
+                        "Container": r.get("container") or "",
+                        "Qty": r["qty"],
+                        "Rebrickable Link": r.get("part_url")
+                        or f"https://rebrickable.com/parts/{r['design_id']}/",
+                        "Image": r.get("part_img_url")
+                        or "https://rebrickable.com/static/img/nil.png",
+                    }
+                )
+            columns = [
+                "ID",
+                "Name",
+                "Color",
+                "Drawer",
+                "Container",
+                "Qty",
+                "Rebrickable Link",
+                "Image",
+            ]
             return rows, columns
 
         if table_key == "part_counts":
@@ -1746,13 +1877,17 @@ class Handler(BaseHTTPRequestHandler):
                     ORDER BY total_qty DESC
                     """
                 ).fetchall()
-            rows = [{
-                "Part ID": r["design_id"],
-                "Name": r["part_name"],
-                "Total Quantity": r["total_qty"],
-                "Rebrickable Link": r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/",
-                "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
-            } for r in rs]
+            rows = [
+                {
+                    "Part ID": r["design_id"],
+                    "Name": r["part_name"],
+                    "Total Quantity": r["total_qty"],
+                    "Rebrickable Link": r["part_url"]
+                    or f"https://rebrickable.com/parts/{r['design_id']}/",
+                    "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
+                }
+                for r in rs
+            ]
             columns = ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
             return rows, columns
 
@@ -1797,14 +1932,18 @@ class Handler(BaseHTTPRequestHandler):
                     ORDER BY total_qty DESC
                     """
                 ).fetchall()
-            rows = [{
-                "Part ID": r["design_id"],
-                "Name": r["part_name"],
-                "Color": r["color_name"],
-                "Total Quantity": r["total_qty"],
-                "Rebrickable Link": r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/",
-                "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
-            } for r in rs]
+            rows = [
+                {
+                    "Part ID": r["design_id"],
+                    "Name": r["part_name"],
+                    "Color": r["color_name"],
+                    "Total Quantity": r["total_qty"],
+                    "Rebrickable Link": r["part_url"]
+                    or f"https://rebrickable.com/parts/{r['design_id']}/",
+                    "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
+                }
+                for r in rs
+            ]
             columns = ["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"]
             return rows, columns
 
@@ -1824,12 +1963,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(html_bytes)
 
 
-
 # --------------------------------------------------------------------------- bootstrap
 def main():
     host, port = "0.0.0.0", int(os.environ.get("PORT", 8000))
     # Auto-detect and print the local IP address for user convenience
     import socket
+
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("10.255.255.255", 1))
