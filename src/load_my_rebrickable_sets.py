@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import datetime
+from typing import Final
 
 from dotenv import load_dotenv
 
@@ -12,9 +13,19 @@ from utils.rebrickable_api import get_json
 DB_PATH = "data/lego_inventory.db"
 
 # Load credentials from .env
-load_dotenv("data/.env")
-API_KEY = os.getenv("REBRICKABLE_API_KEY")
-USER_TOKEN = os.getenv("REBRICKABLE_USER_TOKEN")
+_ENV_PATH = "data/.env"
+load_dotenv(dotenv_path=_ENV_PATH, override=False)
+
+
+def _require_env(name: str) -> str:
+    val = os.getenv(name)
+    if not val:
+        raise RuntimeError(f"Missing {name} in {_ENV_PATH}")
+    return val
+
+
+API_KEY: Final[str] = _require_env("REBRICKABLE_API_KEY")
+USER_TOKEN: Final[str] = _require_env("REBRICKABLE_USER_TOKEN")
 
 
 def load_my_rebrickable_sets():

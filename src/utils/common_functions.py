@@ -18,18 +18,45 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import IO
 
 try:
     from dotenv import load_dotenv
 except ImportError:
 
-    def load_dotenv(path: str | os.PathLike) -> None:  # type: ignore
-        """Very small fallback if python-dotenv isn't installed."""
-        with open(path, encoding="utf-8") as f:
-            for line in f:
+    def load_dotenv(
+        dotenv_path: os.PathLike[str] | str | None = None,
+        stream: IO[str] | None = None,
+        verbose: bool = False,
+        override: bool = False,
+        interpolate: bool = True,
+        encoding: str | None = "utf-8",
+    ) -> bool:  # type: ignore[override]
+        """Minimal fallback compatible with python-dotenv's load_dotenv signature."""
+        fh: IO[str] | None = None
+        try:
+            if stream is not None:
+                fh = stream
+            elif dotenv_path is not None:
+                fh = open(dotenv_path, encoding=encoding or "utf-8")  # type: ignore[arg-type]
+            else:
+                return False
+            loaded = False
+            for line in fh:
                 if line.strip() and not line.startswith("#") and "=" in line:
                     key, val = line.strip().split("=", 1)
-                    os.environ.setdefault(key, val)
+                    if override:
+                        os.environ[key] = val
+                    else:
+                        os.environ.setdefault(key, val)
+                    loaded = True
+            return loaded
+        finally:
+            if fh is not None and fh is not stream:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -64,17 +91,17 @@ def load_rebrickable_environment() -> tuple[str, str, str, str]:
 
     load_dotenv(str(dotenv_path))
 
-    api_key = os.getenv("REBRICKABLE_API_KEY")
-    user_token = os.getenv("REBRICKABLE_USER_TOKEN")
-    username = os.getenv("REBRICKABLE_USERNAME")
-    password = os.getenv("REBRICKABLE_PASSWORD")
+    def _require_env(name: str) -> str:
+        val = os.getenv(name)
+        if not val:
+            print(f"Error: Missing {name} in {dotenv_path}")
+            sys.exit(1)
+        return val
 
-    if not all([api_key, user_token, username, password]):
-        print("Error: Missing one or more required variables in .env:")
-        print(
-            "  REBRICKABLE_API_KEY, REBRICKABLE_USER_TOKEN, REBRICKABLE_USERNAME, REBRICKABLE_PASSWORD"
-        )
-        sys.exit(1)
+    api_key = _require_env("REBRICKABLE_API_KEY")
+    user_token = _require_env("REBRICKABLE_USER_TOKEN")
+    username = _require_env("REBRICKABLE_USERNAME")
+    password = _require_env("REBRICKABLE_PASSWORD")
 
     return api_key, user_token, username, password
 

@@ -22,6 +22,13 @@ import inventory_db as db
 from inventory_db import resolve_color, resolve_part
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 
+
+def _text(el: ET.Element, tag: str, default: str = "") -> str:
+    """Return trimmed text for a tag, or `default` if missing (helps static type checkers)."""
+    val = el.findtext(tag)
+    return val.strip() if isinstance(val, str) else default
+
+
 # --------------------------------------------------------------------------- status map and parser
 
 STATUS_MAP = {
@@ -70,9 +77,17 @@ def load_xml(xml_path: Path) -> None:
     prepared = []
 
     for item in items:
-        alias = item.findtext("ITEMID").strip()
-        bl_color = int(item.findtext("COLOR"))
-        qty = int(item.findtext("QTY"))
+        alias = _text(item, "ITEMID")
+        color_s = _text(item, "COLOR")
+        qty_s = _text(item, "QTY")
+        if not alias or not color_s or not qty_s or not qty_s.isdigit() or not color_s.isdigit():
+            # Skip malformed rows defensively
+            print(
+                f"⚠️  Skipping malformed ITEM (ITEMID={alias!r}, COLOR={color_s!r}, QTY={qty_s!r})"
+            )
+            continue
+        bl_color = int(color_s)
+        qty = int(qty_s)
 
         design_ids = resolve_part(alias)
         if isinstance(design_ids, str):
@@ -86,7 +101,7 @@ def load_xml(xml_path: Path) -> None:
             unknown_colors.add(bl_color)
             continue
 
-        remarks = item.findtext("REMARKS", "")
+        remarks = _text(item, "REMARKS", "")
         status, drawer, container, set_no = parse_remarks(remarks)
 
         for design_id in design_ids:
@@ -94,7 +109,7 @@ def load_xml(xml_path: Path) -> None:
 
     # Try to resolve missing part aliases via API or prompt user
     for alias in sorted(unknown_parts):
-        matching_items = [it for it in items if it.findtext("ITEMID").strip() == alias]
+        matching_items = [it for it in items if _text(it, "ITEMID") == alias]
         example = matching_items[0] if matching_items else None
         print(f"\n🔍 Missing part alias: {alias}")
         if example is not None:
@@ -131,12 +146,12 @@ def load_xml(xml_path: Path) -> None:
     for bl_color in sorted(unknown_colors):
         print(f"\n🎨 Missing color alias: BrickLink color {bl_color}")
         try:
-            data = get_json("/colors/", params={"bricklink_id__in": bl_color})
-            if data["results"]:
+            data = get_json("/colors/", params={"bricklink_id__in": str(bl_color)})
+            if data.get("results"):
                 color = data["results"][0]
                 rb_id = int(color["id"])
-                name = color["name"]
-                hex_code = color["rgb"].lstrip("#").upper()
+                name = str(color.get("name") or "")
+                hex_code = str(color.get("rgb") or "").lstrip("#").upper()
                 db.insert_color(rb_id, name, hex_code)
                 db.add_color_alias(bl_color, rb_id)
                 print(f"✔️ Found and added color: BL {bl_color} → RB {rb_id} ({name})")

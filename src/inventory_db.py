@@ -790,6 +790,18 @@ def resolve_color(bl_id: int) -> int | None:
 
 
 # --------------------------------------------------------------------------- part helpers
+
+
+def fetch_part_name(design_id: str) -> str | None:
+    """Return the part name from the parts table, or None if not present."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT name FROM parts WHERE design_id = ?",
+            (design_id,),
+        ).fetchone()
+        return str(row["name"]) if row and row["name"] is not None else None
+
+
 def insert_part(design_id: str, name: str) -> None:
     """
     Insert a part or update its placeholder name.

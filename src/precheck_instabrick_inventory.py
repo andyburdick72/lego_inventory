@@ -14,6 +14,12 @@ from inventory_db import resolve_color, resolve_part
 from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
 
 
+def _text(el: ET.Element, tag: str) -> str:
+    """Return trimmed text for a tag, or empty string if missing (helps type checkers)."""
+    val = el.findtext(tag)
+    return val.strip() if isinstance(val, str) else ""
+
+
 def precheck_xml(xml_path: Path) -> None:
     print(f"Prechecking XML from: {xml_path}")
     tree = ET.parse(xml_path)
@@ -24,8 +30,9 @@ def precheck_xml(xml_path: Path) -> None:
     unknown_colors: set[int] = set()
 
     for item in items:
-        alias = item.findtext("ITEMID").strip()
-        bl_color = int(item.findtext("COLOR"))
+        alias = _text(item, "ITEMID")
+        color_s = _text(item, "COLOR")
+        bl_color = int(color_s) if color_s else 0
 
         if not resolve_part(alias):
             unknown_parts.add(alias)
@@ -35,7 +42,7 @@ def precheck_xml(xml_path: Path) -> None:
     # Try to resolve missing part aliases via API or prompt user
     total_parts = len(unknown_parts)
     for idx, alias in enumerate(sorted(unknown_parts), 1):
-        matching_items = [it for it in items if it.findtext("ITEMID").strip() == alias]
+        matching_items = [it for it in items if _text(it, "ITEMID") == alias]
         example = matching_items[0] if matching_items else None
         # Check if the alias itself is a valid Rebrickable part ID
         try:
@@ -93,12 +100,12 @@ def precheck_xml(xml_path: Path) -> None:
     for bl_color in sorted(unknown_colors):
         print(f"\n🎨 Missing color alias: BrickLink color {bl_color}")
         try:
-            data = get_json("/colors/", params={"bricklink_id__in": bl_color})
+            data = get_json("/colors/", params={"bricklink_id__in": str(bl_color)})
             if data["results"]:
                 color = data["results"][0]
                 rb_id = int(color["id"])
                 name = color["name"]
-                hex_code = color["rgb"].lstrip("#").upper()
+                hex_code = str(color.get("rgb") or "").lstrip("#").upper()
                 if rb_id != -1:
                     db.insert_color(rb_id, name, hex_code)
                     db.add_color_alias(bl_color, rb_id)
