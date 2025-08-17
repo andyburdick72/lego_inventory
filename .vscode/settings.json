@@ -3,6 +3,19 @@
     "chat.provider": "github.copilot-chat",
     "github.copilot.chat.edits.enabled": true,
     "chat.agent.enabled": true,
+    // --- Copilot & privacy ---
+    "github.copilot.chat.enable": true,
+    "github.copilot.editor.enableAutoCompletions": true,
+    // Enable Copilot everywhere except Markdown and plaintext
+    "github.copilot.enable": {
+        "*": true,
+        "markdown": false,
+        "plaintext": false
+    },
+    // Allow inline suggestions UI (Tab to accept)
+    "editor.inlineSuggest.enabled": true,
+    // VS Code telemetry preference
+    "telemetry.telemetryLevel": "off",
     // --- Editor hygiene for the refactor ---
     "editor.formatOnSave": true,
     "[python]": {
@@ -11,8 +24,10 @@
     // Ruff (lint/fix) — requires the Ruff extension
     "ruff.enable": true,
     "ruff.organizeImports": true,
+    // Run common fixers on save in addition to organize imports
     "editor.codeActionsOnSave": {
-        "source.organizeImports": "explicit"
+        "source.organizeImports": "explicit",
+        "source.fixAll": "explicit"
     },
     // Pytest discovery so Test Explorer and Agent can run it
     "python.testing.pytestEnabled": true,
@@ -20,5 +35,7 @@
         "-q"
     ],
     // Type checking signal (mypy still runs via task)
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    // Helpful: auto-imports in suggestions
+    "python.analysis.autoImportCompletions": true
 }
