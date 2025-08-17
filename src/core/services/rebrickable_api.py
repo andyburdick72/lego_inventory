@@ -17,7 +17,7 @@ from typing import Any
 
 import requests
 
-from utils.common_functions import load_rebrickable_environment as _load_env
+from core.utils.common_functions import load_rebrickable_environment as _load_env
 
 RB_API_BASE = "https://rebrickable.com/api/v3/lego"
 DEFAULT_TIMEOUT = 30  # seconds
@@ -106,7 +106,7 @@ def paginate(
 
     Example::
 
-        from utils.rebrickable_api import paginate
+        from core.services.rebrickable_api import paginate
         for color in paginate("/colors/", params={"page_size": 1000}):
             ...
     """

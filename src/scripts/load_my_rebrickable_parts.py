@@ -22,9 +22,9 @@ from pathlib import Path
 
 import requests
 
-from inventory_db import insert_set_part
-from utils.common_functions import load_rebrickable_environment
-from utils.rebrickable_api import paginate
+from core.services.rebrickable_api import paginate
+from core.utils.common_functions import load_rebrickable_environment
+from infra.db.inventory_db import insert_set_part
 
 API_PAGE_SIZE = 500  # adjust as needed
 DB_PATH = Path("data/lego_inventory.db")

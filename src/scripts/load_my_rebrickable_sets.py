@@ -3,17 +3,29 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from typing import Final
 
 from dotenv import load_dotenv
 
-from load_my_rebrickable_parts import fetch_owned_sets
-from utils.rebrickable_api import get_json
+from core.services.rebrickable_api import get_json
+from scripts.load_my_rebrickable_parts import fetch_owned_sets
 
 DB_PATH = "data/lego_inventory.db"
 
 # Load credentials from .env
-_ENV_PATH = "data/.env"
+_repo_root = Path(__file__).parent.parent.parent.resolve()
+_candidate_paths = [
+    _repo_root / "data" / "user_data" / ".env",
+    _repo_root / "data" / ".env",
+]
+for path in _candidate_paths:
+    if path.exists():
+        _ENV_PATH = path
+        break
+else:
+    raise FileNotFoundError(f"None of the .env files found in {[str(p) for p in _candidate_paths]}")
+
 load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 

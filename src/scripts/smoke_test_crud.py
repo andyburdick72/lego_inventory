@@ -1,4 +1,4 @@
-from inventory_db import (
+from infra.db.inventory_db import (
     DuplicateLabelError,
     InventoryConstraintError,
     _connect,

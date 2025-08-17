@@ -35,10 +35,10 @@ def _js_str(s: str | None) -> str:
 
 
 # --------------------------------------------------------------------------- local import
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can import inventory_db
-import inventory_db as db  # noqa: E402
-from inventory_db import get_set  # noqa: E402
+REPO_ROOT = Path(__file__).resolve().parents[2]  # repository root
+sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can `from infra.db import ...`
+from infra.db import inventory_db as db  # noqa: E402
+from infra.db.inventory_db import get_set  # noqa: E402
 
 SET_STATUSES = {"built", "wip", "in_box", "teardown"}
 

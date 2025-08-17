@@ -6,8 +6,8 @@ Currently includes:
   file kept **outside** version control.  Searches these locations, in
   order:
 
-  1. ``data/env`` file
-  2. ``data/user_data/.env`` (mirrors Instabrick repo layout)
+  1. ``data/user_data/.env`` (mirrors Instabrick repo layout)
+  2. ``data/.env``
 
 If none are found or required vars are missing the function prints a
 friendly error and ``sys.exit(1)``.
@@ -31,14 +31,14 @@ except ImportError:
         override: bool = False,
         interpolate: bool = True,
         encoding: str | None = "utf-8",
-    ) -> bool:  # type: ignore[override]
+    ) -> bool:
         """Minimal fallback compatible with python-dotenv's load_dotenv signature."""
         fh: IO[str] | None = None
         try:
             if stream is not None:
                 fh = stream
             elif dotenv_path is not None:
-                fh = open(dotenv_path, encoding=encoding or "utf-8")  # type: ignore[arg-type]
+                fh = open(str(dotenv_path), encoding=encoding or "utf-8")
             else:
                 return False
             loaded = False
@@ -61,7 +61,7 @@ except ImportError:
 
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _candidate_paths() -> list[Path]:
@@ -70,10 +70,10 @@ def _candidate_paths() -> list[Path]:
     paths = []
     if explicit:
         paths.append(Path(explicit))
-    # repo-root .env
-    paths.append(REPO_ROOT / "data" / ".env")
     # mirror of Instabrick layout
     paths.append(REPO_ROOT / "data" / "user_data" / ".env")
+    # repo-root .env
+    paths.append(REPO_ROOT / "data" / ".env")
     return paths
 
 

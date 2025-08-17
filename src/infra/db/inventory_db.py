@@ -89,7 +89,7 @@ def _lastrowid(cur: sqlite3.Cursor) -> int:
     return int(rid)
 
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
+DB_PATH = Path(__file__).resolve().parents[3] / "data" / "lego_inventory.db"
 
 
 # --------------------------------------------------------------------------- helpers

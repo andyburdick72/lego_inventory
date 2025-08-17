@@ -7,7 +7,7 @@ import requests
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # Import common functions from utils
-from utils.common_functions import load_rebrickable_environment
+from core.utils.common_functions import load_rebrickable_environment
 
 api_key, user_token, username, password = load_rebrickable_environment()
 payload = {"username": username, "password": password}

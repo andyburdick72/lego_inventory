@@ -27,22 +27,32 @@ Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and sup
 ```
 lego_inventory/
 ├── data/
-│   ├── lego_inventory.db               # SQLite database
-│   ├── instabrick_inventory.xml         # Sample Instabrick export
+│   ├── lego_inventory.db                 # SQLite database
+│   ├── instabrick_inventory.xml          # Sample Instabrick export
 ├── src/
-│   ├── inventory_db.py                  # DB creation & execution helpers
-│   ├── load_my_rebrickable_parts.py     # Load parts for all owned sets
-│   ├── load_rebrickable_colors.py       # Load Rebrickable colors
-│   ├── precheck_instabrick_inventory.py # Pre-check Instabrick XML for missing aliases
-│   ├── fix_alias_typos.py               # Fix typos from precheck step
-│   ├── load_instabrick_inventory.py     # Import Instabrick XML into DB
-│   ├── inventory_sanity_checks.py       # Validate loose vs set inventories
-│   ├── server.py                        # Lightweight HTTP server for UI
+│   ├── app/
+│   │   ├── server.py                     # Lightweight HTTP server for UI
+│   │   ├── static/
+│   │   │   └── styles.css                # CSS for web UI
+│   │   └── templates/
+│   │       ├── *.html                    # HTML templates for web UI
+│   ├── infra/
+│   │   └── db/
+│   │       └── inventory_db.py           # DB creation & execution helpers
+│   ├── scripts/
+│   │   ├── load_my_rebrickable_parts.py  # Load parts for all owned sets
+│   │   ├── load_rebrickable_colors.py    # Load Rebrickable colors
+│   │   ├── precheck_instabrick_inventory.py # Pre-check Instabrick XML for missing aliases
+│   │   ├── fix_alias_typos.py            # Fix typos from precheck step
+│   │   ├── load_instabrick_inventory.py  # Import Instabrick XML into DB
+│   │   └── inventory_sanity_checks.py    # Validate loose vs set inventories
 │   └── utils/
-│       ├── rebrickable_api.py           # API client helpers
+│       ├── rebrickable_api.py            # API client helpers
 │       ├── rebrickable_generate_user_token.py
-│       └── common_functions.py          # .env loader for API keys
-└── requirements.txt
+│       └── common_functions.py           # .env loader for API keys
+├── requirements.txt
+├── requirements-dev.txt                  # Dev dependencies (code quality, testing)
+└── README.md
 ```
 
 ---
@@ -153,6 +163,47 @@ http://localhost:8000
 | `load_instabrick_inventory.py` | Import Instabrick XML into DB |
 | `inventory_sanity_checks.py` | Compare loose vs set inventories |
 | `server.py` | Run the web UI |
+
+---
+
+## **Developer Guide**
+
+This section describes recommended practices for local development and code quality.
+
+### 1. Set up a virtual environment
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install dependencies
+- **Production dependencies:**
+  ```bash
+  pip install -r requirements.txt
+  ```
+- **Development dependencies (code quality, testing):**
+  ```bash
+  pip install -r requirements-dev.txt
+  ```
+
+### 3. Code quality tools
+- **Run Ruff (lint/fix):**
+  ```bash
+  ruff check src --fix
+  ```
+- **Format with Black:**
+  ```bash
+  black src
+  ```
+- **Type-check with mypy:**
+  ```bash
+  mypy src
+  ```
+
+### 4. Run tests
+```bash
+pytest
+```
 
 ---
 

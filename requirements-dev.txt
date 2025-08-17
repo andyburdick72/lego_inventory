@@ -1,0 +1,18 @@
+# requirements-dev.txt
+# --- Developer tools (not required at runtime) ---
+
+# Linting & Formatting
+ruff
+black
+
+# Type checking
+mypy
+types-requests
+
+# Testing
+pytest
+pytest-cov
+
+# Developer experience
+ipython
+pre-commit

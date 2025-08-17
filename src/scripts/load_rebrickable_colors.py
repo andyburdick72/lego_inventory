@@ -16,9 +16,9 @@ Usage:
 
 from __future__ import annotations
 
-import inventory_db as db
-from utils.common_functions import load_rebrickable_environment
-from utils.rebrickable_api import paginate
+from core.services.rebrickable_api import paginate
+from core.utils.common_functions import load_rebrickable_environment
+from infra.db import inventory_db as db
 
 
 def _rgb_split(hex_code: str) -> tuple[int, int, int]:

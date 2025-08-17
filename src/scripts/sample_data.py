@@ -11,7 +11,7 @@ repopulating. To run:
 
 from __future__ import annotations
 
-import inventory_db as db
+from infra.db import inventory_db as db
 
 # Use simple, non-conflicting Rebrickable color IDs for sample data.
 # These are inserted if missing so the sample runs against a fresh DB.

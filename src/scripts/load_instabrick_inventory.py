@@ -18,9 +18,9 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import inventory_db as db
-from inventory_db import resolve_color, resolve_part
-from utils.rebrickable_api import bulk_parts_by_bricklink, get_json
+from core.services.rebrickable_api import bulk_parts_by_bricklink, get_json
+from infra.db import inventory_db as db
+from infra.db.inventory_db import resolve_color, resolve_part
 
 
 def _text(el: ET.Element, tag: str, default: str = "") -> str:

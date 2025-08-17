@@ -1,5 +1,5 @@
-from inventory_db import add_part_alias, insert_part
-from utils.rebrickable_api import get_json
+from core.services.rebrickable_api import get_json
+from infra.db.inventory_db import add_part_alias, insert_part
 
 # --- List of manual alias corrections ---
 manual_alias_fixes = {
