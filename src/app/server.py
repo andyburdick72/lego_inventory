@@ -1,9 +1,9 @@
 """
 Light-weight HTTP UI for the Lego inventory database (inventory_db.py).
 
-* “/”              – master table (one row per part + color + status + location)
-* “/parts/<id>”    – detail page for a single part
-* “/locations”     – loose-parts hierarchy  (drawer ▸ container ▸ parts)
+* “/”               – master table (one row per part + color + status + location)
+* “/parts/<id>”     – detail page for a single part
+* “/locations”      – loose-parts hierarchy  (drawer ▸ container ▸ parts)
 * “/sets/<set_num>” – detail page for a single set and its parts
 * “/my-sets”        – list of all sets
 
@@ -28,15 +28,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+# Ensure repo root is on sys.path when running as `python3 src/app/server.py`
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
 
 # Safely embed Python strings inside inline JS (produces a quoted JSON string)
 def _js_str(s: str | None) -> str:
     return json.dumps(s or "")
 
 
-# --------------------------------------------------------------------------- local import
-REPO_ROOT = Path(__file__).resolve().parents[2]  # repository root
-sys.path.insert(0, str(REPO_ROOT / "src"))  # ensure we can `from infra.db import ...`
 from infra.db import inventory_db as db  # noqa: E402
 from infra.db.inventory_db import get_set  # noqa: E402
 
