@@ -83,7 +83,16 @@ cd lego_inventory
 pip install requests
 ```
 
-### 3. Initialize database schema
+### 3. Using `dev.sh` for setup and running
+The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, and starts the server with a single command.
+
+To use `dev.sh`:
+```bash
+./dev.sh
+```
+This will install dependencies, initialize the database if needed, and start the web UI server.
+
+### 4. Initialize database schema (manual alternative)
 ```bash
 python3 src/inventory_db.py
 ```
@@ -127,7 +136,7 @@ python3 src/inventory_db.py
 ## **Web UI**
 Run:
 ```bash
-python3 src/server.py
+./dev.sh
 ```
 Visit:  
 ```
@@ -167,6 +176,8 @@ http://localhost:8000
 ---
 
 ## **Developer Guide**
+
+Developers should generally use `./dev.sh` to start the server and manage dependencies. The instructions below describe manual setup and code quality tools for those who prefer or need to use them.
 
 This section describes recommended practices for local development and code quality.
 

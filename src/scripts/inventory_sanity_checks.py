@@ -11,13 +11,16 @@ Checks:
    rebrickable = sum(set_parts for all owned sets)
 
 Outputs:
-- CSVs in data/reports/ with timestamped filenames
+- CSVs in the configured reports directory (see app.settings) with timestamped filenames
 - Console rollups for quick verification
 
 Usage:
-  python3 src/inventory_sanity_checks.py
-  python3 src/inventory_sanity_checks.py --db ./data/lego_inventory.db --reports-dir ./data/reports \
-      --loose-statuses loose,teardown --counted-set-statuses built,wip,in_box
+  python3 src/scripts/inventory_sanity_checks.py
+  python3 src/scripts/inventory_sanity_checks.py \
+      --db /path/to/lego_inventory.db \
+      --reports-dir /path/to/reports \
+      --loose-statuses loose,teardown \
+      --counted-set-statuses built,wip,in_box
 """
 
 import argparse
@@ -26,9 +29,12 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from app.settings import get_settings
+
 # Defaults assume this file lives in <repo>/scripts/sanity_checks.py
-DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "lego_inventory.db"
-DEFAULT_REPORTS_DIR = Path(__file__).resolve().parents[1] / "data" / "reports"
+SETTINGS = get_settings()
+DEFAULT_DB = SETTINGS.db_path
+DEFAULT_REPORTS_DIR = SETTINGS.reports_dir
 
 
 def _csv_to_list(s: str) -> list[str]:
@@ -150,13 +156,16 @@ def fmt(n):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--db", type=Path, default=DEFAULT_DB, help="Path to sqlite DB (lego_inventory.db)"
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help="Path to sqlite DB (defaults to settings.db_path)",
     )
     ap.add_argument(
         "--reports-dir",
         type=Path,
         default=DEFAULT_REPORTS_DIR,
-        help="Directory to write CSV reports",
+        help="Directory to write CSV reports (defaults to settings.reports_dir)",
     )
     ap.add_argument(
         "--loose-statuses",
@@ -170,7 +179,7 @@ def main():
     )
     args = ap.parse_args()
 
-    db_path = args.db
+    db_path = Path(args.db)
     reports_dir = args.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,7 +194,7 @@ def main():
     print(f"🔗 DB: {db_path}")
     print(f"🗂  Reports → {reports_dir}\n")
 
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(str(db_path)) as conn:
         # Rollups first for context
         rolls = run_query(conn, Q_ROLLUPS)
         print("=== Rollups ===")

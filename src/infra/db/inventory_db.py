@@ -77,7 +77,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
+
+from app.settings import get_settings
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -89,12 +90,13 @@ def _lastrowid(cur: sqlite3.Cursor) -> int:
     return int(rid)
 
 
-DB_PATH = Path(__file__).resolve().parents[3] / "data" / "lego_inventory.db"
+# Centralized DB path from settings (allows .env overrides)
+DB_PATH = get_settings().db_path
 
 
 # --------------------------------------------------------------------------- helpers
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     # Apply robust defaults on every connection
     conn.execute("PRAGMA journal_mode=WAL;")

@@ -13,8 +13,8 @@ CLI flags:
 """
 from __future__ import annotations
 
+import argparse
 import csv
-import os
 import sqlite3
 import sys
 import time
@@ -22,26 +22,33 @@ from pathlib import Path
 
 import requests
 
+from app.settings import get_settings
 from core.services.rebrickable_api import paginate
-from core.utils.common_functions import load_rebrickable_environment
 from infra.db.inventory_db import insert_set_part
 
+# Centralized settings (cached by get_settings via lru_cache)
+SETTINGS = get_settings()
+
 API_PAGE_SIZE = 500  # adjust as needed
-DB_PATH = Path("data/lego_inventory.db")
 
 
 def get_user_token() -> str:
-    token = os.getenv("REBRICKABLE_USER_TOKEN")
+    token = SETTINGS.rebrickable_user_token
     if not token:
-        print("Error: REBRICKABLE_USER_TOKEN not set in environment.", file=sys.stderr)
+        print(
+            "Error: APP_REBRICKABLE_USER_TOKEN not set in data/.env or environment.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     return token
 
 
 def get_api_key() -> str:
-    api_key = os.getenv("REBRICKABLE_API_KEY")
+    api_key = SETTINGS.rebrickable_api_key
     if not api_key:
-        print("Error: REBRICKABLE_API_KEY not set in environment.", file=sys.stderr)
+        print(
+            "Error: APP_REBRICKABLE_API_KEY not set in data/.env or environment.", file=sys.stderr
+        )
         sys.exit(1)
     return api_key
 
@@ -89,7 +96,7 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
     print(f"Backfilling metadata for {total_missing} parts missing URLs/images…")
     checked = updated = skipped = errors = 0
 
-    missing_csv_path = Path("data/missing_part_metadata.csv")
+    missing_csv_path = Path(SETTINGS.reports_dir) / "missing_part_metadata.csv"
     # Prepare CSV with header
     with open(missing_csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -156,7 +163,7 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
 
 def fetch_owned_sets(user_token: str) -> list[str]:
     """Return a list of all set numbers owned by this user token."""
-    print(f"Fetching owned sets for user token '{user_token}'…")
+    print("Fetching owned sets…")
     sets: list[str] = []
     for page in paginate(
         f"https://rebrickable.com/api/v3/users/{user_token}/sets/",
@@ -299,16 +306,42 @@ def gather_and_insert_parts(
 
 
 def main():
-    # Load .env (gets REBRICKABLE_API_KEY, REBRICKABLE_USER_TOKEN)
-    load_rebrickable_environment()
+    parser = argparse.ArgumentParser(
+        description="Load your owned sets' parts from Rebrickable into the local database."
+    )
+    parser.add_argument(
+        "--only-set-parts",
+        action="store_true",
+        help="Skip inserting new parts/aliases; update set_parts only.",
+    )
+    parser.add_argument(
+        "--exclude-spares", action="store_true", help="Do not include spare/extra parts."
+    )
+    parser.add_argument(
+        "--exclude-minifig-parts",
+        action="store_true",
+        help="Do not include minifig component parts.",
+    )
+    parser.add_argument(
+        "--skip-refresh",
+        action="store_true",
+        help="Skip deleting existing set_parts for owned sets before reloading.",
+    )
+    parser.add_argument(
+        "--backfill-all-parts",
+        action="store_true",
+        help="Backfill part URLs/images for parts missing metadata and exit.",
+    )
+    args = parser.parse_args()
+
     user_token = get_user_token()
 
     # Open DB connection
-    if not DB_PATH.exists():
-        print(f"Error: database file {DB_PATH} not found.", file=sys.stderr)
+    if not Path(SETTINGS.db_path).exists():
+        print(f"Error: database file {SETTINGS.db_path} not found.", file=sys.stderr)
         sys.exit(1)
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(SETTINGS.db_path))
     # Match inventory_db connection settings to avoid write-locks
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
@@ -316,7 +349,7 @@ def main():
     conn.execute("PRAGMA foreign_keys=ON;")
 
     # Flags
-    if "--backfill-all-parts" in sys.argv:
+    if args.backfill_all_parts:
         backfill_all_parts(conn)
         conn.close()
         return
@@ -325,7 +358,7 @@ def main():
         # Fetch your sets and insert part mappings
         sets = fetch_owned_sets(user_token)
         # Always refresh set_parts for owned sets unless explicitly skipped
-        if "--skip-refresh" not in sys.argv:
+        if not args.skip_refresh:
             with conn:
                 conn.executemany(
                     "DELETE FROM set_parts WHERE set_num = ?",
@@ -333,12 +366,9 @@ def main():
                 )
             print(f"Cleared set_parts for {len(sets)} owned sets; rebuilding…")
 
-        insert_only_set_parts = "--only-set-parts" in sys.argv
-        # Defaults: include both, unless explicitly excluded
-        exclude_spares = "--exclude-spares" in sys.argv
-        exclude_minifig_parts = "--exclude-minifig-parts" in sys.argv
-        include_spares = not exclude_spares
-        include_minifig_parts = not exclude_minifig_parts
+        insert_only_set_parts = args.only_set_parts
+        include_spares = not args.exclude_spares
+        include_minifig_parts = not args.exclude_minifig_parts
 
         gather_and_insert_parts(
             sets,

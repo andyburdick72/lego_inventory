@@ -1,15 +1,14 @@
 """Shared helpers for Rebrickable API access.
 
-Credentials are resolved via ``utils.common_functions.load_rebrickable_environment``,
-which loads a ``.env`` file (ignored by Git) and exports
-``REBRICKABLE_API_KEY`` for the current process.
+Credentials are resolved via centralized settings:
+    from app.settings import get_settings
+
 This module keeps network-handling, pagination and error-handling logic in
 one place so loaders and other scripts can stay concise.
 """
 
 from __future__ import annotations
 
-import os
 import random
 import time
 from collections.abc import Iterator
@@ -17,7 +16,7 @@ from typing import Any
 
 import requests
 
-from core.utils.common_functions import load_rebrickable_environment as _load_env
+from app.settings import get_settings
 
 RB_API_BASE = "https://rebrickable.com/api/v3/lego"
 DEFAULT_TIMEOUT = 30  # seconds
@@ -29,20 +28,11 @@ RETRY_STATUS = {429, 502, 503, 504}  # include rate‑limit 429
 
 def _api_key() -> str:
     """
-    Return the Rebrickable API key.
-
-    Priority:
-    1. Environment variable ``REBRICKABLE_API_KEY`` (already loaded by your
-       shell or by ``common_functions.load_rebrickable_environment``).
-    2. Fall back to calling ``load_rebrickable_environment()`` which reads the
-       .env file and sets ``REBRICKABLE_API_KEY`` for this process.
+    Return the Rebrickable API key from centralized settings, raising a clear error if missing.
     """
-    key = os.getenv("REBRICKABLE_API_KEY")
-    if key:
-        return key
-
-    # Load from .env via shared helper (also exits with a clear error if missing)
-    key, *_ = _load_env()
+    key = get_settings().rebrickable_api_key
+    if not key:
+        raise RuntimeError("Missing APP_REBRICKABLE_API_KEY in data/.env or environment")
     return key
 
 

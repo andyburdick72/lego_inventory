@@ -1,49 +1,29 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Final
 
-from dotenv import load_dotenv
-
+from app.settings import get_settings
 from core.services.rebrickable_api import get_json
 from scripts.load_my_rebrickable_parts import fetch_owned_sets
 
-DB_PATH = "data/lego_inventory.db"
-
-# Load credentials from .env
-_repo_root = Path(__file__).parent.parent.parent.resolve()
-_candidate_paths = [
-    _repo_root / "data" / "user_data" / ".env",
-    _repo_root / "data" / ".env",
-]
-for path in _candidate_paths:
-    if path.exists():
-        _ENV_PATH = path
-        break
-else:
-    raise FileNotFoundError(f"None of the .env files found in {[str(p) for p in _candidate_paths]}")
-
-load_dotenv(dotenv_path=_ENV_PATH, override=False)
-
-
-def _require_env(name: str) -> str:
-    val = os.getenv(name)
-    if not val:
-        raise RuntimeError(f"Missing {name} in {_ENV_PATH}")
-    return val
-
-
-API_KEY: Final[str] = _require_env("REBRICKABLE_API_KEY")
-USER_TOKEN: Final[str] = _require_env("REBRICKABLE_USER_TOKEN")
+# Centralized settings (cached)
+SETTINGS = get_settings()
+API_KEY: Final[str] | None = SETTINGS.rebrickable_api_key
+USER_TOKEN: Final[str] | None = SETTINGS.rebrickable_user_token
+if not API_KEY or not USER_TOKEN:
+    raise RuntimeError(
+        "Missing APP_REBRICKABLE_API_KEY or APP_REBRICKABLE_USER_TOKEN in data/.env or environment"
+    )
 
 
 def load_my_rebrickable_sets():
+    if USER_TOKEN is None:
+        raise ValueError("USER_TOKEN cannot be None")
     set_nums = fetch_owned_sets(USER_TOKEN)
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(SETTINGS.db_path)) as conn:
         c = conn.cursor()
 
         for set_num in set_nums:

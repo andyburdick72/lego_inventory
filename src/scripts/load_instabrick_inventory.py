@@ -1,5 +1,5 @@
 """
-Load inventory data from an Instabrick XML export into lego_inventory.db
+Load inventory data from an Instabrick XML export into the configured sqlite database (see app.settings)
 using only preloaded Rebrickable parts and colors.
 
 Each BrickLink ITEMID and COLOR is mapped to its Rebrickable equivalent
@@ -8,7 +8,7 @@ is used in this script.
 
 Usage:
 
-    python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
+    PYTHONPATH=src python3 -m scripts.load_instabrick_inventory data/instabrick_inventory.xml
 """
 
 from __future__ import annotations
@@ -18,9 +18,13 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from app.settings import get_settings
 from core.services.rebrickable_api import bulk_parts_by_bricklink, get_json
 from infra.db import inventory_db as db
 from infra.db.inventory_db import resolve_color, resolve_part
+
+# Initialize centralized settings (ensures configuration is loaded and validated early)
+SETTINGS = get_settings()
 
 
 def _text(el: ET.Element, tag: str, default: str = "") -> str:

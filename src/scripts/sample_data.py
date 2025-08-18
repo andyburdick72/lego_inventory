@@ -1,17 +1,23 @@
-"""Populate the SQLite database with sample LEGO inventory data.
+"""
+Populate the SQLite database with sample LEGO inventory data.
 
-This script uses the ``inventory_db`` module to insert a handful of
-parts and inventory records. It is intended for testing the web
-interface. Running the script multiple times will create duplicate
-entries, so it's best to delete the ``lego_inventory.db`` file before
-repopulating. To run:
+This script uses the `infra.db.inventory_db` module to insert a handful of
+parts and inventory records for testing the web interface.
 
-    python3 -m lego_inventory.sample_data
+It writes to the configured SQLite database (see `app.settings`). Depending on
+your schema, re-running may produce duplicates for sample parts/inventory.
+
+Usage:
+
+    PYTHONPATH=src python3 -m scripts.sample_data
 """
 
 from __future__ import annotations
 
+from app.settings import get_settings
 from infra.db import inventory_db as db
+
+SETTINGS = get_settings()
 
 # Use simple, non-conflicting Rebrickable color IDs for sample data.
 # These are inserted if missing so the sample runs against a fresh DB.

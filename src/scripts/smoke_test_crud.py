@@ -1,3 +1,5 @@
+import uuid
+
 from infra.db.inventory_db import (
     DuplicateLabelError,
     InventoryConstraintError,
@@ -8,9 +10,12 @@ from infra.db.inventory_db import (
     soft_delete_container,
 )
 
+# Use a unique drawer name on each run to avoid UNIQUE(name) collisions
+DRAWER_NAME = f"Test Drawer {uuid.uuid4().hex[:8]}"
+
 with _connect() as conn:
-    print("Creating drawer...")
-    d = create_drawer(conn, "Test Drawer")
+    print(f"Creating drawer '{DRAWER_NAME}'...")
+    d = create_drawer(conn, DRAWER_NAME)
     print(f"Drawer created with id={d}")
 
     print("Creating container A1...")

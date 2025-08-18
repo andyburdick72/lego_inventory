@@ -11,6 +11,7 @@ No external dependencies – just the std-lib.
 
 Usage:
     python3 src/server.py
+    # reads host/port/debug from app.settings
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import csv
 import html
 import io
 import json
-import os
 import re
 import sqlite3
 import sys
@@ -28,10 +28,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from app.settings import get_settings
+
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
+
+# Centralized app settings
+SETTINGS = get_settings()
 
 
 # Safely embed Python strings inside inline JS (produces a quoted JSON string)
@@ -751,6 +756,12 @@ def _display_status(status: str) -> str:
 
 # --------------------------------------------------------------------------- request-handler
 class Handler(BaseHTTPRequestHandler):
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A003
+        # Only log requests when debug is enabled
+        if getattr(SETTINGS, "debug", False):
+            super().log_message(format, *args)
+
     def do_GET(self):  # noqa: N802
         try:
             # --- JSON API (GET) ---
@@ -1088,7 +1099,7 @@ class Handler(BaseHTTPRequestHandler):
             body.append("</tr>")
 
         body.append("</tbody></table>")
-        self._send_ok(_html_page("All Owned Sets", "".join(body), total_qty=None))
+        self._send_ok(_html_page("EB's Bricks - Sets", "".join(body), total_qty=None))
 
     def _serve_set(self, set_num: str):
         # Get set metadata using get_set
@@ -1190,7 +1201,9 @@ class Handler(BaseHTTPRequestHandler):
         )
 
         # Use _html_page for consistent look, pass None for total_qty to use combined totals in the header
-        self._send_ok(_html_page(f"Set {set_num}", header_html + table_html, total_qty=None))
+        self._send_ok(
+            _html_page(f"EB's Bricks - Set {set_num}", header_html + table_html, total_qty=None)
+        )
 
     def _send_html(self, html_doc: str, status: int = 200):
         html_bytes = html_doc.encode()
@@ -1246,7 +1259,9 @@ class Handler(BaseHTTPRequestHandler):
         body.append(f"<tfoot><tr><th>Total</th><th>{subtotal:,}</th></tr></tfoot>")
         body.append("</table>")
 
-        self._send_ok(_html_page("Storage Location Counts", "".join(body), total_qty=None))
+        self._send_ok(
+            _html_page("EB's Bricks - Storage Location Counts", "".join(body), total_qty=None)
+        )
 
     # ..................................................................... pages
     def _serve_master(self):
@@ -1282,7 +1297,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page("Inventory – Parts", "".join(body), total_qty=None))
+        self._send_ok(_html_page("EB's Bricks - Loose Parts", "".join(body), total_qty=None))
 
     def _serve_part(self, design_id: str):
         # Resolve part meta
@@ -1384,7 +1399,11 @@ class Handler(BaseHTTPRequestHandler):
         )
 
         self._send_ok(
-            _html_page(f"Part {design_id}", header_html + sets_table + loose_table, total_qty=None)
+            _html_page(
+                f"EB's Bricks - Part {design_id}",
+                header_html + sets_table + loose_table,
+                total_qty=None,
+            )
         )
 
     # The _serve_locations method has been removed.
@@ -1423,7 +1442,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page("Drawers", "".join(body), total_qty=None))
+        self._send_ok(_html_page("EB's Bricks - Drawers", "".join(body), total_qty=None))
 
     def _serve_drawer_detail(self, drawer_id: int):
         d = db.get_drawer(drawer_id)
@@ -1479,7 +1498,9 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page(f"Drawer {d['name']}", "".join(body), total_qty=None))
+        self._send_ok(
+            _html_page(f"EB's Bricks - Drawer {d['name']}", "".join(body), total_qty=None)
+        )
 
     def _serve_container_detail(self, container_id: int):
         c = db.get_container(container_id)
@@ -1535,7 +1556,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page(page_title, "".join(body), total_qty=None))
+        self._send_ok(_html_page("EB's Bricks - " + page_title, "".join(body), total_qty=None))
 
     # The /sets route and _serve_sets method have been removed.
 
@@ -1598,7 +1619,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page("Part Counts", "".join(body), total_qty=None))
+        self._send_ok(_html_page("EB's Bricks - Part Counts", "".join(body), total_qty=None))
 
     def _serve_part_color_counts(self):
         with db._connect() as conn:  # pylint: disable=protected-access
@@ -1666,7 +1687,9 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page("Part + Color Counts", "".join(body), total_qty=None))
+        self._send_ok(
+            _html_page("EB's Bricks - Part + Color Counts", "".join(body), total_qty=None)
+        )
 
     # ------------------------------ export + utilities (inside Handler)
     def _parse_query(self):
@@ -1967,24 +1990,36 @@ class Handler(BaseHTTPRequestHandler):
 
 # --------------------------------------------------------------------------- bootstrap
 def main():
-    host, port = "0.0.0.0", int(os.environ.get("PORT", 8000))
-    # Auto-detect and print the local IP address for user convenience
+    # Use centralized settings for host/port/debug
+    host = SETTINGS.host
+    port = int(SETTINGS.port)
+
+    # Auto-detect a friendly local URL when binding to 0.0.0.0/:: (for copy/paste convenience)
     import socket
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def _detect_local_ip() -> str:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(("10.255.255.255", 1))
+                return s.getsockname()[0] or "localhost"
+            finally:
+                s.close()
+        except Exception:
+            return "localhost"
+
+    local_hint = host
+    if host in ("0.0.0.0", "::"):
+        local_hint = _detect_local_ip()
+
+    print(f"Starting server on {host}:{port} (debug={SETTINGS.debug})")
+    print(f"Open http://{local_hint}:{port}  – Ctrl+C to quit")
+
     try:
-        s.connect(("10.255.255.255", 1))
-        local_ip = s.getsockname()[0]
-    except Exception:
-        local_ip = "localhost"
-    finally:
-        s.close()
-    httpd = HTTPServer((host, port), Handler)
-    print(f"Serving on http://{local_ip}:{port}  – Ctrl+C to quit")
-    try:
+        httpd = HTTPServer((host, port), Handler)
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping…")
+        print("\nShutting down.")
 
 
 if __name__ == "__main__":

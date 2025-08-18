@@ -1,23 +1,19 @@
-"""Load Rebrickable colours (plus BrickLink aliases) into lego_inventory.db.
+"""Load Rebrickable colours (plus BrickLink aliases) into the configured sqlite database (see app.settings).
 
-This script relies on shared utilities:
-* ``utils.common_functions.load_rebrickable_environment`` loads the
-  API key from your ``.env`` file (ignored by Git).  It sets the
-  ``REBRICKABLE_API_KEY`` environment variable for this process.
-* ``utils.rebrickable_api.paginate`` handles paginated API calls and
-  reuses the same API key.
+Configuration:
+* Credentials are resolved centrally via `app.settings` (pydantic-settings).
+  Ensure `APP_REBRICKABLE_API_KEY` is set in `data/.env` (or the environment).
+* HTTP pagination is handled by `core.services.rebrickable_api.paginate`.
 
 Usage:
 
-    python3 src/load_rebrickable_colors.py
-
-(Ensure your ``.env`` has ``REBRICKABLE_API_KEY``.)
+    PYTHONPATH=src python3 -m scripts.load_rebrickable_colors
 """
 
 from __future__ import annotations
 
+from app.settings import get_settings
 from core.services.rebrickable_api import paginate
-from core.utils.common_functions import load_rebrickable_environment
 from infra.db import inventory_db as db
 
 
@@ -27,8 +23,7 @@ def _rgb_split(hex_code: str) -> tuple[int, int, int]:
 
 
 def main() -> None:
-    # Load env vars; exits with error if missing.
-    load_rebrickable_environment()
+    get_settings()
 
     db.init_db()
 
