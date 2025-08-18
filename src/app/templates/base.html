@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>{{ title or "LEGO Inventory" }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+    <!-- jQuery + DataTables (CDN for now; swap to local later if desired) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/..."
+        crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.0.7/css/dataTables.dataTables.min.css">
+    <script src="https://cdn.datatables.net/2.0.7/js/dataTables.min.js"></script>
+
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="nav-wrapper">
+                <a class="brand" href="{{ url_for('index') }}">Instabrick</a>
+                <ul class="nav-links">
+                    <li><a href="{{ url_for('drawers') }}">Drawers</a></li>
+                    <li><a href="{{ url_for('containers') }}">Containers</a></li>
+                    <li><a href="{{ url_for('sets') }}">Sets</a></li>
+                    <li><a href="{{ url_for('parts') }}">Parts</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container">
+        {% include 'partials/alerts.html' %}
+        {% block breadcrumbs %}{% endblock %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/tables.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Drawers</h1>
+
+{% include "partials/export_button.html" with context %}
+
+{{ render_table(
+table_id="drawers_table",
+columns=["Drawer", "Containers", "Notes"],
+rows=rows,
+table_key="drawers",
+nonsearchable=[2] # example: 'Notes' column not searchable
+) }}
+{% endblock %}

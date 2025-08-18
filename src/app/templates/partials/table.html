@@ -1,0 +1,22 @@
+{% macro render_table(table_id, columns, rows, table_key=None, nonsearchable=None) %}
+{# nonsearchable: list of zero-based column indexes that should not be searchable #}
+<table id="{{ table_id }}" data-tablekey="{{ table_key or table_id }}" {% if nonsearchable %}
+    data-nonsearchable='{{ nonsearchable | tojson }}' {% endif %}>
+    <thead>
+        <tr>
+            {% for c in columns %}
+            <th>{{ c }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            {% for cell in r %}
+            <td>{{ cell|safe }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
