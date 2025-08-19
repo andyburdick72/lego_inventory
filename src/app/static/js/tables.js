@@ -71,7 +71,19 @@
             // Keep Actions (and other listed) non-searchable/orderable; mark Containers numeric
             columnDefs: (function () {
                 var defs = [];
-                if (nonSearchable.length) defs.push({ targets: nonSearchable, searchable: false, orderable: false });
+                if (nonSearchable.length) {
+                    defs.push({ targets: nonSearchable, searchable: false });
+                }
+
+                // Auto-detect an Actions column and make it not orderable/searchable
+                var actionsIdx = -1;
+                $table.find('thead th').each(function (i) {
+                    var t = (this.textContent || '').trim().toLowerCase();
+                    if (t === 'actions') { actionsIdx = i; }
+                });
+                if (actionsIdx !== -1) {
+                    defs.push({ targets: actionsIdx, orderable: false, searchable: false });
+                }
                 if (colCount > 1) defs.push({ targets: 1, type: 'num' });
                 return defs;
             })(),

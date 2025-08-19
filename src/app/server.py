@@ -1281,13 +1281,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(html_bytes)
 
     def _serve_location_counts(self):
-        with db._connect() as conn:
+        with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
                 SELECT
-                    COALESCE(d.name, i.drawer)    AS drawer,
+                    COALESCE(d.name, i.drawer)     AS drawer,
                     COALESCE(c2.name, i.container) AS container,
-                    SUM(i.quantity)               AS total_qty
+                    c2.id                          AS container_id,
+                    SUM(i.quantity)                AS total_qty
                 FROM inventory i
                 LEFT JOIN containers c2 ON c2.id = i.container_id
                 LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
@@ -1296,39 +1297,64 @@ class Handler(BaseHTTPRequestHandler):
                 """
             ).fetchall()
 
+        # Build normalized locations and totals
         locations = []
         for r in rows:
             drawer = r["drawer"] or ""
             container = r["container"] or ""
+            container_id = r["container_id"]
             if drawer and container:
-                loc = f"{drawer} / {container}"
+                loc_label = f"{drawer} / {container}"
             elif drawer:
-                loc = drawer
+                loc_label = drawer
             elif container:
-                loc = container
+                loc_label = container
             else:
-                loc = "(unknown)"
-            locations.append((loc, r["total_qty"]))
+                loc_label = "(unknown)"
 
-        # Sort and render as before
-        locations.sort(key=lambda x: x[1], reverse=True)
-        subtotal = sum(qty for _, qty in locations)
+            # Link to container detail when we have a real container id
+            if container_id:
+                loc_html = f"<a href='/containers/{int(container_id)}'>{html.escape(loc_label)}</a>"
+            else:
+                loc_html = html.escape(loc_label)
 
-        body = [
-            "<h1>Storage Location Counts</h1>",
-            "<table><thead><tr><th>Location</th><th>Total Quantity</th></tr></thead><tbody>",
-        ]
+            locations.append(
+                {
+                    "label": loc_label,
+                    "html": loc_html,
+                    "total_qty": int(r["total_qty"] or 0),
+                }
+            )
 
-        for loc, qty in locations:
-            body.append(f"<tr><td>{html.escape(loc)}</td><td>{qty:,}</td></tr>")
+        # Sort desc by total and convert to rows for the table macro
+        locations.sort(key=lambda x: x["total_qty"], reverse=True)
+        rows_for_table = [[x["html"], f"{x['total_qty']:,}"] for x in locations]
 
-        body.append("</tbody>")
-        body.append(f"<tfoot><tr><th>Total</th><th>{subtotal:,}</th></tr></tfoot>")
-        body.append("</table>")
+        # Compute header totals/context similar to _serve_drawers
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
+            )
+            if not total_parts:
+                total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
 
-        self._send_ok(
-            _html_page("EB's Bricks - Storage Location Counts", "".join(body), total_qty=None)
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "location_counts.html",
+            title="EB's Bricks - Storage Location Counts",
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="location_counts",
+            site_title=site_title,
+            total_parts=total_parts,
         )
+        return self._send_html(html_doc, status=200)
 
     # ..................................................................... pages
     def _serve_master(self):
@@ -2065,6 +2091,38 @@ class Handler(BaseHTTPRequestHandler):
             ]
             columns = ["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"]
             return rows, columns
+
+        if table_key == "location_counts":
+            with db._connect() as conn:  # pylint: disable=protected-access
+                rows = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(d.name, i.drawer)     AS drawer,
+                        COALESCE(c2.name, i.container) AS container,
+                        SUM(i.quantity)                AS total_qty
+                    FROM inventory i
+                    LEFT JOIN containers c2 ON c2.id = i.container_id
+                    LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
+                    WHERE i.status NOT IN ('built', 'wip', 'in_box', 'teardown')
+                    GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container)
+                    """
+                ).fetchall()
+            out = []
+            for r in rows:
+                drawer = r["drawer"] or ""
+                container = r["container"] or ""
+                if drawer and container:
+                    loc = f"{drawer} / {container}"
+                elif drawer:
+                    loc = drawer
+                elif container:
+                    loc = container
+                else:
+                    loc = "(unknown)"
+                out.append({"Location": loc, "Total Quantity": int(r["total_qty"] or 0)})
+            # Sort by quantity desc to match page view
+            out.sort(key=lambda x: x["Total Quantity"], reverse=True)
+            return out, ["Location", "Total Quantity"]
 
         raise ValueError(f"Unsupported table key: {table_key}")
 

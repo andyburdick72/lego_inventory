@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Storage Location Counts</h1>
+
+{% include "partials/export_button.html" %}
+
+{{ render_table(
+table_id="location_counts_table",
+columns=["Location", "Total Quantity"],
+rows=rows,
+table_key="location_counts",
+nonsearchable=[1]
+) }}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% endblock %}
