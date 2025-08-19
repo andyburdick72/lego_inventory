@@ -1,7 +1,7 @@
 {% if export_key %}
 <form method="get" action="{{ url_for('export_csv') }}" style="margin: 0 0 1rem 0;">
     <input type="hidden" name="table" value="{{ export_key }}">
-    {# If you pass filter/sort params, include them here as hidden inputs #}
+    <!-- If you pass filter/sort params, include them here as hidden inputs -->
     <button type="submit">Export CSV</button>
 </form>
 {% endif %}

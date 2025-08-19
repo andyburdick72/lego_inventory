@@ -8,29 +8,142 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 
-    <!-- jQuery + DataTables (CDN for now; swap to local later if desired) -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/..."
-        crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="https://cdn.datatables.net/2.0.7/css/dataTables.dataTables.min.css">
-    <script src="https://cdn.datatables.net/2.0.7/js/dataTables.min.js"></script>
+    <!-- jQuery (load first) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
+    <!-- DataTables 1.13.8 (CSS + jQuery plugin) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background: #0645ad;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        nav {
+            background: #f2f2f2;
+            padding: 0.5rem;
+            text-align: center;
+        }
+
+        nav a {
+            margin: 0 1em;
+            text-decoration: none;
+            color: #0645ad;
+            font-weight: bold;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 2px 6px;
+        }
+
+        th {
+            background: #eee;
+            text-align: left;
+        }
+
+        tr:hover {
+            background: #ffffe0;
+        }
+
+        /* Inline modal */
+        #lego-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .4);
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        #lego-modal .panel {
+            background: #fff;
+            padding: 1rem;
+            width: min(420px, 90vw);
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+        }
+
+        #lego-modal .panel h3 {
+            margin: 0 0 .75rem 0;
+        }
+
+        #lego-modal .panel .actions {
+            margin-top: .75rem;
+            display: flex;
+            gap: .5rem;
+            justify-content: flex-end;
+        }
+
+        #lego-modal .panel input {
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        #lego-modal .panel select {
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        #lego-modal .panel .msg {
+            margin: .25rem 0 .5rem 0;
+            color: #333;
+        }
+
+        #lego-modal .panel #lego-modal-form {
+            margin: .25rem 0 .5rem 0;
+        }
+
+        #lego-modal .panel #lego-modal-form input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        #lego-modal .panel #lego-modal-form .row {
+            display: flex;
+            gap: .5rem;
+        }
+
+        #lego-modal .panel #lego-modal-form .row>div {
+            flex: 1;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
     {% block head %}{% endblock %}
 </head>
 
 <body>
     <header>
-        <nav class="navbar">
-            <div class="nav-wrapper">
-                <a class="brand" href="{{ url_for('index') }}">Instabrick</a>
-                <ul class="nav-links">
-                    <li><a href="{{ url_for('drawers') }}">Drawers</a></li>
-                    <li><a href="{{ url_for('containers') }}">Containers</a></li>
-                    <li><a href="{{ url_for('sets') }}">Sets</a></li>
-                    <li><a href="{{ url_for('parts') }}">Parts</a></li>
-                </ul>
-            </div>
-        </nav>
+        <h1>{{ site_title or "Ervin-Burdick's Bricks" }}</h1>
+        <div>Total Parts in Inventory: {{ '{:,}'.format(total_parts) if total_parts is not none else '' }}</div>
     </header>
+    <nav>
+        <a href="{{ url_for('parts') }}">Loose Parts</a>
+        <a href="{{ url_for('drawers') }}">Drawers</a>
+        <a href="{{ url_for('sets') }}">Sets</a>
+        <a href="/part-counts">Part Counts</a>
+        <a href="/part-color-counts">Part + Color Counts</a>
+        <a href="/location-counts">Storage Location Counts</a>
+    </nav>
 
     <main class="container">
         {% include 'partials/alerts.html' %}

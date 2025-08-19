@@ -8,13 +8,27 @@
 {% block content %}
 <h1>Drawers</h1>
 
-{% include "partials/export_button.html" with context %}
+<div id="drawer-controls"
+    style="margin: .5rem 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end; flex-wrap: wrap;">
+    <div><label>Name<br><input id="new-drawer-name" placeholder="e.g., Wall A"></label></div>
+    <div><label>Description<br><input id="new-drawer-desc" placeholder="optional" style="width:18em"></label></div>
+    <div><label>Cols<br><input id="new-drawer-cols" type="number" min="0" style="width:6em"></label></div>
+    <div><label>Rows<br><input id="new-drawer-rows" type="number" min="0" style="width:6em"></label></div>
+    <div><button type="button" data-action="create-drawer">Add Drawer</button></div>
+</div>
+
+{% include "partials/export_button.html" %}
 
 {{ render_table(
 table_id="drawers_table",
-columns=["Drawer", "Containers", "Notes"],
+columns=["Drawer", "Containers", "Actions"],
 rows=rows,
 table_key="drawers",
-nonsearchable=[2] # example: 'Notes' column not searchable
+nonsearchable=[2]
 ) }}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/drawers.js') }}"></script>
 {% endblock %}

@@ -3,43 +3,43 @@
 {% block title %}Locations - LEGO Inventory{% endblock %}
 
 {% block content %}
-  <h1>Locations</h1>
-  {% if not locations_map %}
-    <p>No locations with inventory records.</p>
+<h1>Locations</h1>
+{% if not locations_map %}
+<p>No locations with inventory records.</p>
+{% else %}
+{% for key, records in locations_map.items() %}
+{% set container = key[0] %}
+{% set drawer = key[1] %}
+{% set bin_name = key[2] %}
+<div class="location-header">
+  {% if container or drawer or bin_name %}
+  {% if container %}Container {{ container }}{% endif %}
+  {% if drawer %} - Drawer {{ drawer }}{% endif %}
+  {% if bin_name %} - Bin {{ bin_name }}{% endif %}
   {% else %}
-    {% for key, records in locations_map.items() %}
-      {% set container = key[0] %}
-      {% set drawer = key[1] %}
-      {% set bin_name = key[2] %}
-      <div class="location-header">
-        {% if container or drawer or bin_name %}
-          {% if container %}Container {{ container }}{% endif %}
-          {% if drawer %} - Drawer {{ drawer }}{% endif %}
-          {% if bin_name %} - Bin {{ bin_name }}{% endif %}
-        {% else %}
-          No specified location
-        {% endif %}
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Part Number</th>
-            <th>Name</th>
-            <th>Colour</th>
-            <th>Quantity</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for rec in records %}
-          <tr>
-            <td><a href="{{ url_for('part_detail', part_id=rec.part_id) }}">{{ rec.part_number }}</a></td>
-            <td>{{ rec.name }}</td>
-            <td>{{ rec.colour }}</td>
-            <td>{{ rec.quantity }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endfor %}
+  No specified location
   {% endif %}
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Part Number</th>
+      <th>Name</th>
+      <th>Colour</th>
+      <th>Quantity</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rec in records %}
+    <tr>
+      <td><a href="{{ url_for('part_detail', part_id=rec.part_id) }}">{{ rec.part_number }}</a></td>
+      <td>{{ rec.name }}</td>
+      <td>{{ rec.colour }}</td>
+      <td>{{ rec.quantity }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endif %}
 {% endblock %}

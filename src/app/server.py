@@ -11,7 +11,6 @@ No external dependencies – just the std-lib.
 
 Usage:
     python3 src/server.py
-    # reads host/port/debug from app.settings
 """
 
 from __future__ import annotations
@@ -20,23 +19,55 @@ import csv
 import html
 import io
 import json
+import os
 import re
 import sqlite3
 import sys
+import traceback
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from pathlib import Path as _Path
 from urllib.parse import parse_qs, urlparse
 
-from app.settings import get_settings
+from jinja2 import Environment, FileSystemLoader, select_autoescape  # type: ignore
 
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
 
-# Centralized app settings
-SETTINGS = get_settings()
+_BASE_DIR = _Path(__file__).resolve().parent
+_TEMPLATE_DIR = (_BASE_DIR / "templates").resolve()
+_STATIC_DIR = (_BASE_DIR / "static").resolve()
+
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+    autoescape=select_autoescape(["html", "xml"]),
+    enable_async=False,
+)
+
+
+def _url_for(endpoint: str, **values) -> str:
+    """Very small url_for shim for templates."""
+    if endpoint == "static":
+        fn = str(values.get("filename", "")).lstrip("/")
+        return f"/static/{fn}"
+    mapping = {
+        "index": "/",
+        "drawers": "/drawers",
+        "containers": "/containers",
+        "sets": "/my-sets",
+        "parts": "/",
+        "export_csv": "/export",
+    }
+    return mapping.get(endpoint, "/")
+
+
+def _render_template(name: str, **context) -> str:
+    tmpl = _jinja_env.get_template(name)
+    context.setdefault("url_for", _url_for)
+    return tmpl.render(**context)
 
 
 # Safely embed Python strings inside inline JS (produces a quoted JSON string)
@@ -756,14 +787,12 @@ def _display_status(status: str) -> str:
 
 # --------------------------------------------------------------------------- request-handler
 class Handler(BaseHTTPRequestHandler):
-
-    def log_message(self, format: str, *args) -> None:  # noqa: A003
-        # Only log requests when debug is enabled
-        if getattr(SETTINGS, "debug", False):
-            super().log_message(format, *args)
-
     def do_GET(self):  # noqa: N802
         try:
+            # --- Static files ---
+            if self.path.startswith("/static/"):
+                return self._serve_static()
+
             # --- JSON API (GET) ---
             if self.path.startswith("/api/"):
                 return self._handle_api_get()
@@ -799,6 +828,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._not_found()
         except Exception as exc:  # pylint: disable=broad-except
+            traceback.print_exc()
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Internal error:\n{exc}".encode())
@@ -821,6 +851,43 @@ class Handler(BaseHTTPRequestHandler):
         if not body:
             return {}
         return json.loads(body.decode("utf-8"))
+
+    def _serve_static(self):
+        # Map /static/... to files under _STATIC_DIR
+        rel = self.path[len("/static/") :]
+        safe_rel = rel.lstrip("/").replace("..", "")
+        file_path = (_STATIC_DIR / safe_rel).resolve()
+        try:
+            # Ensure path is inside static dir
+            if not str(file_path).startswith(str(_STATIC_DIR)):
+                self.send_response(403)
+                self.end_headers()
+                self.wfile.write(b"Forbidden")
+                return
+            if not file_path.is_file():
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Not Found")
+                return
+
+            # Content types (minimal)
+            if file_path.suffix == ".js":
+                ctype = "application/javascript; charset=utf-8"
+            elif file_path.suffix == ".css":
+                ctype = "text/css; charset=utf-8"
+            else:
+                ctype = "application/octet-stream"
+
+            data = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Static error: {e}".encode())
 
     # ------------------------------ API GET router
     def _handle_api_get(self):
@@ -1065,7 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
         total_sets = len(rows)
 
         body = [
-            f"<h1>All Owned Sets ({total_sets})</h1>",
+            f"<h1>Sets ({total_sets})</h1>",
             """<table id="sets_table" data-tablekey="sets" data-context="{}">
 <thead>
     <tr>
@@ -1268,7 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
         rows = _query_master_rows()
         total_qty = sum(r["qty"] for r in rows)
         body = [
-            "<h1>All Loose Parts</h1>",
+            "<h1>Loose Parts</h1>",
             "<table id='master_table' data-tablekey='inventory_master' data-context='{}'><thead><tr>",
             "<th>ID</th><th>Name</th><th>Color</th>"
             "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
@@ -1412,37 +1479,63 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.list_drawers()
         total_containers = sum(r.get("container_count", 0) for r in rows)
         total_pieces = sum(r.get("part_count", 0) for r in rows)
-        body = [
-            "<h1>Drawers</h1>",
-            "<div id='drawer-controls' style='margin: 0 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end;'>",
-            "  <div><label>Name<br><input id='new-drawer-name' placeholder='e.g., Wall A' /></label></div>",
-            "  <div><label>Description<br><input id='new-drawer-desc' placeholder='optional' style='width:18em' /></label></div>",
-            "  <div><label>Cols<br><input id='new-drawer-cols' type='number' min='0' style='width:6em' /></label></div>",
-            "  <div><label>Rows<br><input id='new-drawer-rows' type='number' min='0' style='width:6em' /></label></div>",
-            "  <div><button type='button' data-action=\"create-drawer\">Add Drawer</button></div>",
-            "</div>",
-            "<table id='drawers_table' data-tablekey='drawers' data-context='{}'>",
-            "<thead><tr><th>Name</th><th>Description</th><th>Containers</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>",
-        ]
+
+        drawers = []
         for r in rows:
-            raw_name = r.get("name", "")
-            name = html.escape(raw_name)
-            desc = html.escape(r.get("description") or "")
-            containers = r.get("container_count", 0)
-            pieces = r.get("part_count", 0)
+            drawers.append(
+                {
+                    "id": r["id"],
+                    "name": r.get("name", "") or "",
+                    "description": r.get("description") or "",
+                    "container_count": r.get("container_count", 0) or 0,
+                    "part_count": r.get("part_count", 0) or 0,
+                    "cols": r.get("cols"),
+                    "rows": r.get("rows"),
+                }
+            )
+
+        # Build rows for the shared table macro: [Drawer(link), Containers, Actions]
+        rows_for_table = []
+        for d in drawers:
+            drawer_link = f"<a href='/drawers/{d['id']}'>{html.escape(d['name'])}</a>"
             actions = (
-                f"<button type='button' data-action=\"rename-drawer\" data-id=\"{r['id']}\" data-name=\"{html.escape(raw_name)}\" data-desc=\"{html.escape(r.get('description') or '')}\" data-cols=\"{html.escape(str(r.get('cols') or ''))}\" data-rows=\"{html.escape(str(r.get('rows') or ''))}\">Rename</button> "
-                f"<button type='button' data-action=\"delete-drawer\" data-id=\"{r['id']}\">Delete</button>"
+                f"<button type='button' data-action=\"rename-drawer\" "
+                f"data-id=\"{d['id']}\" data-name=\"{html.escape(d['name'])}\" "
+                f"data-desc=\"{html.escape(d.get('description') or '')}\" "
+                f"data-cols=\"{html.escape(str(d.get('cols') or ''))}\" "
+                f"data-rows=\"{html.escape(str(d.get('rows') or ''))}\">Rename</button> "
+                f"<button type='button' data-action=\"delete-drawer\" data-id=\"{d['id']}\">Delete</button>"
             )
-            body.append(
-                f"<tr><td><a href='/drawers/{r['id']}'>{name}</a></td><td>{desc}</td><td>{containers}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
+            rows_for_table.append([drawer_link, d["container_count"], actions])
+
+        # Header context for base.html
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
             )
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='2' style='text-align:right'>Totals</th><th>{total_containers}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
+            if not total_parts:
+                # Fallback: sum from master query
+                total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "drawers.html",
+            title="EB's Bricks - Drawers",
+            drawers=drawers,
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="drawers",
+            totals={"containers": total_containers, "pieces": total_pieces},
+            site_title=site_title,
+            total_parts=total_parts,
         )
-        body.append("</table>")
-        self._send_ok(_html_page("EB's Bricks - Drawers", "".join(body), total_qty=None))
+        return self._send_html(html_doc, status=200)
 
     def _serve_drawer_detail(self, drawer_id: int):
         d = db.get_drawer(drawer_id)
@@ -1556,7 +1649,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
         )
         body.append("</table>")
-        self._send_ok(_html_page("EB's Bricks - " + page_title, "".join(body), total_qty=None))
+        self._send_ok(_html_page(f"EB's Bricks - {page_title}", "".join(body), total_qty=None))
 
     # The /sets route and _serve_sets method have been removed.
 
@@ -1761,22 +1854,23 @@ class Handler(BaseHTTPRequestHandler):
                 break
             val = ((col_state or {}).get("search") or {}).get("value", "")
             if val:
-                sval = val.lower()
+                sval = str(val).lower()
                 colname = columns[i]
                 rows = [r for r in rows if sval in cell_str(r, colname).lower()]
 
-        # Ordering (stable, last key wins)
-        orders = (dt_state or {}).get("order") or []
-        for order in reversed(orders):
-            idx = order.get("column", 0)
-            dir_ = (
-                (order.get("dir") or "asc").lower() if isinstance(order.get("dir"), str) else "asc"
-            )
-            if 0 <= idx < len(columns):
-                colname = columns[idx]
-                rows.sort(key=lambda r: cell_str(r, colname))
-                if dir_ == "desc":
-                    rows.reverse()
+        # Ordering (stable: apply last spec first)
+        order_specs = (dt_state or {}).get("order") or []
+        for spec in reversed(order_specs):
+            try:
+                idx = int(spec.get("column", 0))
+            except Exception:
+                idx = 0
+            if not (0 <= idx < len(columns)):
+                continue
+            colname = columns[idx]
+            reverse = str(spec.get("dir", "asc")).lower() == "desc"
+            rows.sort(key=lambda r: cell_str(r, colname), reverse=reverse)
+
         return rows
 
     def _get_rows_for_table(self, table_key: str, ctx: dict):
@@ -1990,36 +2084,24 @@ class Handler(BaseHTTPRequestHandler):
 
 # --------------------------------------------------------------------------- bootstrap
 def main():
-    # Use centralized settings for host/port/debug
-    host = SETTINGS.host
-    port = int(SETTINGS.port)
-
-    # Auto-detect a friendly local URL when binding to 0.0.0.0/:: (for copy/paste convenience)
+    host, port = "0.0.0.0", int(os.environ.get("PORT", 8000))
+    # Auto-detect and print the local IP address for user convenience
     import socket
 
-    def _detect_local_ip() -> str:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                s.connect(("10.255.255.255", 1))
-                return s.getsockname()[0] or "localhost"
-            finally:
-                s.close()
-        except Exception:
-            return "localhost"
-
-    local_hint = host
-    if host in ("0.0.0.0", "::"):
-        local_hint = _detect_local_ip()
-
-    print(f"Starting server on {host}:{port} (debug={SETTINGS.debug})")
-    print(f"Open http://{local_hint}:{port}  – Ctrl+C to quit")
-
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        httpd = HTTPServer((host, port), Handler)
+        s.connect(("10.255.255.255", 1))
+        local_ip = s.getsockname()[0]
+    except Exception:
+        local_ip = "localhost"
+    finally:
+        s.close()
+    httpd = HTTPServer((host, port), Handler)
+    print(f"Serving on http://{local_ip}:{port}  – Ctrl+C to quit")
+    try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down.")
+        print("\nStopping…")
 
 
 if __name__ == "__main__":
