@@ -57,6 +57,16 @@
         var nonSearchable = [];
         try { nonSearchable = JSON.parse($table.attr('data-nonsearchable') || '[]'); } catch (_) { }
 
+        // Auto-detect columns that should never be searchable across the site
+        // Rule: any header exactly "Total Quantity" or "Qty"
+        var autoNon = [];
+        $table.find('thead th').each(function (i) {
+            var t = (this.textContent || '').trim().toLowerCase();
+            if (t === 'total quantity' || t === 'qty') autoNon.push(i);
+        });
+        // Merge & dedupe with per-table nonsearchable indices
+        nonSearchable = Array.from(new Set([].concat(nonSearchable, autoNon)));
+
         // Prepare orthogonal data BEFORE DT reads the DOM
         prepOrthogonal($table);
 
@@ -71,20 +81,41 @@
             // Keep Actions (and other listed) non-searchable/orderable; mark Containers numeric
             columnDefs: (function () {
                 var defs = [];
+
+                // Respect per-table non-searchable indices (search disabled, sorting still allowed)
                 if (nonSearchable.length) {
                     defs.push({ targets: nonSearchable, searchable: false });
                 }
 
-                // Auto-detect an Actions column and make it not orderable/searchable
-                var actionsIdx = -1;
+                // Build a header map once
+                var headers = [];
                 $table.find('thead th').each(function (i) {
-                    var t = (this.textContent || '').trim().toLowerCase();
-                    if (t === 'actions') { actionsIdx = i; }
+                    headers[i] = (this.textContent || '').trim().toLowerCase();
                 });
+
+                // Auto-detect an Actions column and make it not orderable/searchable
+                var actionsIdx = headers.indexOf('actions');
                 if (actionsIdx !== -1) {
                     defs.push({ targets: actionsIdx, orderable: false, searchable: false });
                 }
+
+                // Auto-disable sorting/searching for any column that looks like a link or image
+                headers.forEach(function (t, i) {
+                    if (t.includes('link') || t.includes('image') || t === 'img') {
+                        defs.push({ targets: i, orderable: false, searchable: false });
+                    }
+                });
+
+                // Ensure numeric sorting for any column titled Total Quantity or Qty
+                headers.forEach(function (t, i) {
+                    if (t === 'total quantity' || t === 'qty') {
+                        defs.push({ targets: i, type: 'num' });
+                    }
+                });
+
+                // Fallback: if table has a second column, treat it as numeric (covers common "Containers" case)
                 if (colCount > 1) defs.push({ targets: 1, type: 'num' });
+
                 return defs;
             })(),
             orderCellsTop: true,

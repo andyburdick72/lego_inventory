@@ -469,8 +469,8 @@ def _html_page(title: str, body_html: str, total_qty: int | None = None) -> str:
       return {{
         name: formDiv.querySelector('#f-name').value,
         desc: formDiv.querySelector('#f-desc').value,
-        cols: formDiv.querySelector('#f-cols').value,
         rows: formDiv.querySelector('#f-rows').value,
+        cols: formDiv.querySelector('#f-cols').value,
       }};
     }});
   }}
@@ -1687,10 +1687,10 @@ class Handler(BaseHTTPRequestHandler):
                 FROM (
                     -- Loose parts
                     SELECT i.design_id,
-                           p.name AS part_name,
-                           p.part_url AS part_url,
-                           p.part_img_url AS part_img_url,
-                           SUM(i.quantity) AS total_qty
+                        p.name AS part_name,
+                        p.part_url AS part_url,
+                        p.part_img_url AS part_img_url,
+                        SUM(i.quantity) AS total_qty
                     FROM inventory i
                     JOIN parts p ON i.design_id = p.design_id
                     WHERE i.status = 'loose'
@@ -1700,10 +1700,10 @@ class Handler(BaseHTTPRequestHandler):
 
                     -- Parts in sets (exclude sets marked as loose)
                     SELECT sp.design_id,
-                           p.name AS part_name,
-                           p.part_url AS part_url,
-                           p.part_img_url AS part_img_url,
-                           SUM(sp.quantity) AS total_qty
+                        p.name AS part_name,
+                        p.part_url AS part_url,
+                        p.part_img_url AS part_img_url,
+                        SUM(sp.quantity) AS total_qty
                     FROM set_parts sp
                     JOIN parts p ON sp.design_id = p.design_id
                     JOIN sets s  ON s.set_num   = sp.set_num
@@ -1714,31 +1714,48 @@ class Handler(BaseHTTPRequestHandler):
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
-        total_qty = sum(r["total_qty"] for r in rows)
-        body = [
-            "<h1>Part Counts</h1>",
-            "<table id='part_counts_table' data-tablekey='part_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
-        ]
+
+        # Build rows for the shared table macro used by part_counts.html
+        rows_for_table = []
         for r in rows:
-            body.append("<tr>")
-            body.append(
-                f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>"
+            design_id = str(r["design_id"]) if r["design_id"] is not None else ""
+            name = r["part_name"] or ""
+            qty = int(r["total_qty"] or 0)
+            link = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
+            img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
+
+            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_name = html.escape(name)
+            cell_qty = f"{qty:,}"  # display formatted; DT will still sort correctly via num/num-fmt
+            cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
+            rows_for_table.append([cell_id, cell_name, cell_qty, cell_link, cell_img])
+
+        # Header context for base.html
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
             )
-            body.append(f"<td>{html.escape(r['part_name'])}</td>")
-            body.append(f"<td>{r['total_qty']:,}</td>")
-            _link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            _img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
-            body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
-            body.append(
-                f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>"
-            )
-            body.append("</tr>")
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='2'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+            if not total_parts:
+                total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "part_counts.html",
+            title="EB's Bricks - Part Counts",
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="part_counts",
+            site_title=site_title,
+            total_parts=total_parts,
         )
-        body.append("</table>")
-        self._send_ok(_html_page("EB's Bricks - Part Counts", "".join(body), total_qty=None))
+        return self._send_html(html_doc, status=200)
 
     def _serve_part_color_counts(self):
         with db._connect() as conn:  # pylint: disable=protected-access
@@ -2123,6 +2140,59 @@ class Handler(BaseHTTPRequestHandler):
             # Sort by quantity desc to match page view
             out.sort(key=lambda x: x["Total Quantity"], reverse=True)
             return out, ["Location", "Total Quantity"]
+
+        if table_key == "part_counts":
+            with db._connect() as conn:  # pylint: disable=protected-access
+                rows = conn.execute(
+                    """
+                    SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
+                    FROM (
+                        -- Loose parts
+                        SELECT i.design_id,
+                            p.name AS part_name,
+                            p.part_url AS part_url,
+                            p.part_img_url AS part_img_url,
+                            SUM(i.quantity) AS total_qty
+                        FROM inventory i
+                        JOIN parts p ON i.design_id = p.design_id
+                        WHERE i.status = 'loose'
+                        GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
+
+                        UNION ALL
+
+                        -- Parts in sets (exclude sets marked as loose)
+                        SELECT sp.design_id,
+                            p.name AS part_name,
+                            p.part_url AS part_url,
+                            p.part_img_url AS part_img_url,
+                            SUM(sp.quantity) AS total_qty
+                        FROM set_parts sp
+                        JOIN parts p ON sp.design_id = p.design_id
+                        JOIN sets s  ON s.set_num   = sp.set_num
+                        WHERE s.status IN ('built','wip','in_box','teardown')
+                        GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url
+                    ) q
+                    GROUP BY design_id, part_name, part_url, part_img_url
+                    ORDER BY total_qty DESC
+                    """
+                ).fetchall()
+            out = []
+            for r in rows:
+                design_id = str(r["design_id"]) if r["design_id"] is not None else ""
+                name = r["part_name"] or ""
+                qty = int(r["total_qty"] or 0)
+                link = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
+                img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
+                out.append(
+                    {
+                        "Part ID": design_id,
+                        "Name": name,
+                        "Total Quantity": qty,
+                        "Rebrickable Link": link,
+                        "Image": img,
+                    }
+                )
+            return out, ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
 
         raise ValueError(f"Unsupported table key: {table_key}")
 

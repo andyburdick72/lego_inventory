@@ -6,17 +6,13 @@
 {% endblock %}
 
 {% block content %}
-<h1>Storage Location Counts</h1>
+<h1>Part Counts</h1>
 
 {{ render_table(
-table_id="location_counts_table",
-columns=["Location", "Total Quantity"],
+table_id="part_counts_table",
+columns=["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"],
 rows=rows,
-table_key="location_counts",
-nonsearchable=[1]
+table_key="part_counts",
+nonsearchable=[2, 3, 4]
 ) }}
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
 {% endblock %}

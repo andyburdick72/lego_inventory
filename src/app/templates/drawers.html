@@ -12,12 +12,11 @@
     style="margin: .5rem 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end; flex-wrap: wrap;">
     <div><label>Name<br><input id="new-drawer-name" placeholder="e.g., Wall A"></label></div>
     <div><label>Description<br><input id="new-drawer-desc" placeholder="optional" style="width:18em"></label></div>
-    <div><label>Cols<br><input id="new-drawer-cols" type="number" min="0" style="width:6em"></label></div>
     <div><label>Rows<br><input id="new-drawer-rows" type="number" min="0" style="width:6em"></label></div>
+    <div><label>Columns<br><input id="new-drawer-cols" type="number" min="0" style="width:6em"></label></div>
     <div><button type="button" data-action="create-drawer">Add Drawer</button></div>
 </div>
 
-{% include "partials/export_button.html" %}
 
 {{ render_table(
 table_id="drawers_table",
