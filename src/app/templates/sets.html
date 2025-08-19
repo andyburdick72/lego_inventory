@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Sets</h1>
+
+{{ render_table(
+table_id="sets_table",
+columns=["Set #", "Name", "Year", "Total Parts", "Status", "Rebrickable Link", "Image"],
+rows=rows,
+table_key="sets",
+nonsearchable=[3, 5, 6]
+) }}
+{% endblock %}

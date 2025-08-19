@@ -1120,53 +1120,76 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def _serve_all_sets(self):
-        with db._connect() as conn:
+        # List all sets using template rendering (no inline HTML)
+        with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT set_num, name, year, image_url, rebrickable_url, status, added_at
-                FROM sets
-                ORDER BY added_at DESC
+                SELECT
+                    s.set_num,
+                    s.name,
+                    s.year,
+                    s.image_url,
+                    s.rebrickable_url,
+                    s.status,
+                    s.added_at,
+                    (
+                      SELECT COALESCE(SUM(sp.quantity), 0)
+                      FROM set_parts sp
+                      WHERE sp.set_num = s.set_num
+                    ) AS total_parts
+                FROM sets s
+                ORDER BY s.added_at DESC
                 """
             ).fetchall()
 
-        total_sets = len(rows)
-
-        body = [
-            f"<h1>Sets ({total_sets})</h1>",
-            """<table id="sets_table" data-tablekey="sets" data-context="{}">
-<thead>
-    <tr>
-        <th>Set Number</th>
-        <th>Name</th>
-        <th>Year</th>
-        <th>Status</th>
-        <th>Rebrickable Link</th>
-        <th>Image</th>
-    </tr>
-</thead>
-<tbody>""",
-        ]
-
+        # Build rows for the shared table macro used by sets.html
+        rows_for_table = []
         for r in rows:
-            body.append("<tr>")
-            # Set Number, Name, Year, Status, Rebrickable Link, Image
-            # Make set number a link to /sets/<set_num>
-            body.append(
-                f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a></td>"
-            )
-            body.append(f"<td>{html.escape(r['name'])}</td>")
-            body.append(f"<td>{r['year']}</td>")
-            body.append(f"<td>{html.escape(_display_status(r['status']))}</td>")
-            body.append(
-                f"<td><a href='{html.escape(r['rebrickable_url'])}' target='_blank'>View</a></td>"
-            )
-            body.append(
-                f"<td><img src='{html.escape(r['image_url'])}' alt='Set image' style='height: 48px;'></td>"
-            )
-            body.append("</tr>")
+            set_num = r["set_num"]
+            name = r["name"] or ""
+            year = int(r["year"] or 0)
+            status = _display_status(r["status"]) if r["status"] else ""
+            total_parts = int(r["total_parts"] or 0)
+            img = r["image_url"] or "https://rebrickable.com/static/img/nil.png"
+            rb_url = r["rebrickable_url"] or f"https://rebrickable.com/sets/{set_num}/"
 
-        body.append("</tbody></table>")
-        self._send_ok(_html_page("EB's Bricks - Sets", "".join(body), total_qty=None))
+            cell_set = f"<a href='/sets/{html.escape(set_num)}'>{html.escape(set_num)}</a>"
+            cell_name = html.escape(name)
+            cell_year = str(year) if year else ""
+            cell_total = f"{total_parts:,}"
+            cell_status = html.escape(status)
+            cell_link = f"<a href='{html.escape(rb_url)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img)}' alt='Set image' style='height: 48px;'>"
+
+            rows_for_table.append(
+                [cell_set, cell_name, cell_year, cell_total, cell_status, cell_link, cell_img]
+            )
+
+        # Header context for base.html
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            header_total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
+            )
+            if not header_total_parts:
+                header_total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            header_total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "sets.html",
+            title="EB's Bricks - Sets",
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="sets",
+            site_title=site_title,
+            total_parts=header_total_parts,
+        )
+        return self._send_html(html_doc, status=200)
 
     def _serve_set(self, set_num: str):
         # Get set metadata using get_set
