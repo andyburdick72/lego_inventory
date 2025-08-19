@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block body_class %}loose-parts-page{% endblock %}
+
+{% block content %}
+<h1>Loose Parts</h1>
+
+{{ render_table(
+table_id="master_table",
+columns=["ID", "Name", "Color", "Drawer", "Container", "Qty", "Rebrickable Link", "Image"],
+rows=rows,
+table_key="inventory_master",
+nonsearchable=[5, 6, 7]
+) }}
+{% endblock %}

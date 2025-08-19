@@ -131,7 +131,7 @@
     {% block head %}{% endblock %}
 </head>
 
-<body>
+<body class="{% block body_class %}{% endblock %}">
     <header>
         <h1>{{ site_title or "Ervin-Burdick's Bricks" }}</h1>
         <div>Total Parts in Inventory: {{ '{:,}'.format(total_parts) if total_parts is not none else '' }}</div>

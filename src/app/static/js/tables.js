@@ -82,12 +82,19 @@
 
         var colCount = $table.find('thead th').length;
 
+        // Per-table default ordering (Loose Parts: Qty desc on column index 5)
+        var defaultOrder = [];
+        var tableId = $table.attr('id') || '';
+        if (tableId === 'master_table') {
+            defaultOrder = [[5, 'desc']];
+        }
+
         var dt = $table.DataTable({
             pageLength: 25,
             paging: true,
             pagingType: 'full_numbers',
             ordering: true,
-            order: [], // no default order
+            order: defaultOrder,
             // Keep Actions (and other listed) non-searchable/orderable; mark Containers numeric
             columnDefs: (function () {
                 var defs = [];

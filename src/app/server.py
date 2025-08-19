@@ -1358,39 +1358,93 @@ class Handler(BaseHTTPRequestHandler):
 
     # ..................................................................... pages
     def _serve_master(self):
+        # Build master rows using the shared query
         rows = _query_master_rows()
-        total_qty = sum(r["qty"] for r in rows)
-        body = [
-            "<h1>Loose Parts</h1>",
-            "<table id='master_table' data-tablekey='inventory_master' data-context='{}'><thead><tr>",
-            "<th>ID</th><th>Name</th><th>Color</th>"
-            "<th>Drawer</th><th>Container</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
-        ]
+
+        # Convert to rows for the shared table macro used by loose_parts.html
+        rows_for_table = []
+
+        def _fg_for_hex(h):
+            try:
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                return "#000" if (r + g + b) > 382 else "#fff"
+            except Exception:
+                return "#000"
+
+        total_qty = 0
         for r in rows:
-            body.append("<tr>")
-            body.append(
-                f"<td><a href='/parts/{r['design_id']}'>{html.escape(r['design_id'])}</a></td>"
+            design_id = str(r.get("design_id", ""))
+            part_name = r.get("part_name", "")
+            color_name = r.get("color_name", "")
+            hex_code = (r.get("hex") or "").lstrip("#")
+            drawer = r.get("drawer") or ""
+            container = r.get("container") or ""
+            qty = int(r.get("qty", 0) or 0)
+            total_qty += qty
+
+            # Cells
+            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_name = html.escape(part_name)
+
+            # Color cell as full-cell background via td_style (consumed by table macro + tables.js)
+            if hex_code:
+                fg = _fg_for_hex(hex_code)
+                cell_color = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(hex_code)}; color:{fg}",
+                }
+            else:
+                cell_color = html.escape(color_name)
+
+            cell_drawer = html.escape(drawer)
+            cell_container = html.escape(container)
+            cell_qty = f"{qty:,}"
+
+            link = r.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+            img = r.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
+            cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
+
+            rows_for_table.append(
+                [
+                    cell_id,
+                    cell_name,
+                    cell_color,
+                    cell_drawer,
+                    cell_container,
+                    cell_qty,
+                    cell_link,
+                    cell_img,
+                ]
             )
-            body.append(f"<td>{html.escape(r['part_name'])}</td>")
-            body.append(_make_color_cell(r["color_name"], r["hex"]))
-            # Insert drawer and container columns before quantity
-            body.append(f"<td>{html.escape(r['drawer'] or '')}</td>")
-            body.append(f"<td>{html.escape(r['container'] or '')}</td>")
-            body.append(f"<td>{r['qty']}</td>")
-            # Rebrickable link and image
-            link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
-            body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
-            body.append(
-                f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>"
+
+        # Header context for base.html
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
             )
-            body.append("</tr>")
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='6'>Total</th><th colspan='2'>{total_qty:,}</th></tr></tfoot>"
+            if not total_parts:
+                total_parts = sum(x.get("qty", 0) for x in rows)
+        except Exception:
+            total_parts = sum(x.get("qty", 0) for x in rows)
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "loose_parts.html",
+            title="EB's Bricks - Loose Parts",
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="inventory_master",
+            site_title=site_title,
+            total_parts=total_parts,
         )
-        body.append("</table>")
-        self._send_ok(_html_page("EB's Bricks - Loose Parts", "".join(body), total_qty=None))
+        return self._send_html(html_doc, status=200)
 
     def _serve_part(self, design_id: str):
         # Resolve part meta
