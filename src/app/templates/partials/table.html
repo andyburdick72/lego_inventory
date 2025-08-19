@@ -13,8 +13,16 @@
         {% for r in rows %}
         <tr>
             {% for cell in r %}
-            <td>{{ cell|safe }}</td>
-            {% endfor %}
+            {% if cell is mapping %}
+            {% set td_style = cell.get('td_style') %}
+            {% set html_val = cell.get('html') %}
+            <td{% if td_style %} data-td-style="{{ td_style }}" {% endif %}>
+                {{ html_val|default(cell)|safe }}
+                </td>
+                {% else %}
+                <td>{{ cell|safe }}</td>
+                {% endif %}
+                {% endfor %}
         </tr>
         {% endfor %}
     </tbody>

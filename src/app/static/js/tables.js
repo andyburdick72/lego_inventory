@@ -19,6 +19,15 @@
             }
         });
     }
+    function applyTdStyles($table) {
+        $table.find('tbody td[data-td-style]').each(function () {
+            var s = this.getAttribute('data-td-style');
+            if (s) {
+                this.setAttribute('style', s);
+                this.removeAttribute('data-td-style');
+            }
+        });
+    }
 
     function addFilterRow($table, api, nonSearchable) {
         var $thead = $table.find('thead');
@@ -69,6 +78,7 @@
 
         // Prepare orthogonal data BEFORE DT reads the DOM
         prepOrthogonal($table);
+        applyTdStyles($table);
 
         var colCount = $table.find('thead th').length;
 

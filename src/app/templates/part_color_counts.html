@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Part + Color Counts</h1>
+
+{{ render_table(
+table_id="part_color_counts_table",
+columns=["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"],
+rows=rows,
+table_key="part_color_counts",
+nonsearchable=[3, 4, 5]
+) }}
+{% endblock %}

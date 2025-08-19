@@ -1761,71 +1761,111 @@ class Handler(BaseHTTPRequestHandler):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
-                SELECT design_id, part_name, part_url, part_img_url, color_name, hex, SUM(total_qty) AS total_qty
+                SELECT
+                    pc.design_id,
+                    p.name         AS part_name,
+                    pc.color_id,
+                    c.name         AS color_name,
+                    c.hex          AS color_hex,
+                    p.part_url     AS part_url,
+                    p.part_img_url AS part_img_url,
+                    SUM(pc.total_qty) AS total_qty
                 FROM (
-                    -- Loose parts
-                    SELECT i.design_id,
-                           p.name AS part_name,
-                           p.part_url AS part_url,
-                           p.part_img_url AS part_img_url,
-                           c.name AS color_name,
-                           c.hex  AS hex,
-                           SUM(i.quantity) AS total_qty
+                    -- loose inventory by part+color
+                    SELECT i.design_id, i.color_id, SUM(i.quantity) AS total_qty
                     FROM inventory i
-                    JOIN parts  p ON i.design_id = p.design_id
-                    JOIN colors c ON i.color_id  = c.id
                     WHERE i.status = 'loose'
-                    GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+                    GROUP BY i.design_id, i.color_id
 
                     UNION ALL
 
-                    -- Parts in sets (exclude sets marked as loose)
-                    SELECT sp.design_id,
-                           p.name AS part_name,
-                           p.part_url AS part_url,
-                           p.part_img_url AS part_img_url,
-                           c.name AS color_name,
-                           c.hex  AS hex,
-                           SUM(sp.quantity) AS total_qty
+                    -- parts in sets (exclude sets marked loose)
+                    SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
                     FROM set_parts sp
-                    JOIN parts  p ON sp.design_id = p.design_id
-                    JOIN colors c ON sp.color_id  = c.id
-                    JOIN sets  s  ON s.set_num    = sp.set_num
+                    JOIN sets s ON s.set_num = sp.set_num
                     WHERE s.status IN ('built','wip','in_box','teardown')
-                    GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
-                ) q
-                GROUP BY design_id, part_name, part_url, part_img_url, color_name, hex
+                    GROUP BY sp.design_id, sp.color_id
+                ) pc
+                JOIN parts  p ON p.design_id = pc.design_id
+                LEFT JOIN colors c ON c.id = pc.color_id
+                GROUP BY pc.design_id, p.name, pc.color_id, c.name, c.hex, p.part_url, p.part_img_url
                 ORDER BY total_qty DESC
                 """
             ).fetchall()
-        total_qty = sum(r["total_qty"] for r in rows)
-        body = [
-            "<h1>Part + Color Counts</h1>",
-            "<table id='part_color_counts_table' data-tablekey='part_color_counts' data-context='{}'><thead><tr><th>Part ID</th><th>Name</th><th>Color</th><th>Total Quantity</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
-        ]
+
+        # Build rows for the shared table macro
+        rows_for_table = []
         for r in rows:
-            body.append("<tr>")
-            body.append(
-                f"<td><a href='/parts/{html.escape(r['design_id'])}'>{html.escape(r['design_id'])}</a></td>"
+            design_id = str(r["design_id"]) if r["design_id"] is not None else ""
+            name = r["part_name"] or ""
+            color_id = r["color_id"]
+            color_name = r["color_name"] or "(unknown)"
+            color_hex = (r["color_hex"] or "").lstrip("#")  # e.g. F2F2F2
+            qty = int(r["total_qty"] or 0)
+
+            # Rebrickable URLs
+            part_url = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
+            rb_color_url = (
+                f"https://rebrickable.com/parts/{design_id}/{int(color_id)}/"
+                if color_id is not None
+                else part_url
             )
-            body.append(f"<td>{html.escape(r['part_name'])}</td>")
-            body.append(_make_color_cell(r["color_name"], r["hex"]))
-            body.append(f"<td>{r['total_qty']:,}</td>")
-            _link = r["part_url"] or f"https://rebrickable.com/parts/{r['design_id']}/"
-            _img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
-            body.append(f"<td><a href='{html.escape(_link)}' target='_blank'>View</a></td>")
-            body.append(
-                f"<td><img src='{html.escape(_img)}' alt='Part image' style='height: 32px;'></td>"
+            img_url = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
+
+            # Cells
+            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_name = html.escape(name)
+
+            # Color cell: full-cell background via td_style (consumed by table macro + tables.js)
+            def _fg_for_hex(h):
+                try:
+                    r = int(h[0:2], 16)
+                    g = int(h[2:4], 16)
+                    b = int(h[4:6], 16)
+                    return "#000" if (r + g + b) > 382 else "#fff"
+                except Exception:
+                    return "#000"
+
+            if color_hex:
+                fg = _fg_for_hex(color_hex)
+                cell_color = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(color_hex)}; color:{fg}",
+                }
+            else:
+                cell_color = html.escape(color_name)
+
+            cell_qty = f"{qty:,}"
+            cell_link = f"<a href='{html.escape(rb_color_url)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img_url)}' alt='Part image' style='height: 32px;'>"
+
+            rows_for_table.append([cell_id, cell_name, cell_color, cell_qty, cell_link, cell_img])
+
+        # Header context for base.html
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
             )
-            body.append("</tr>")
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+            if not total_parts:
+                total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "part_color_counts.html",
+            title="EB's Bricks - Part + Color Counts",
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="part_color_counts",
+            site_title=site_title,
+            total_parts=total_parts,
         )
-        body.append("</table>")
-        self._send_ok(
-            _html_page("EB's Bricks - Part + Color Counts", "".join(body), total_qty=None)
-        )
+        return self._send_html(html_doc, status=200)
 
     # ------------------------------ export + utilities (inside Handler)
     def _parse_query(self):
@@ -2193,6 +2233,50 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             return out, ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
+
+        if table_key == "part_color_counts":
+            with db._connect() as conn:  # pylint: disable=protected-access
+                rows = conn.execute(
+                    """
+                    SELECT
+                        pc.design_id,
+                        p.name        AS part_name,
+                        pc.color_id,
+                        c.name        AS color_name,
+                        SUM(pc.total_qty) AS total_qty
+                    FROM (
+                        SELECT i.design_id, i.color_id, SUM(i.quantity) AS total_qty
+                        FROM inventory i
+                        WHERE i.status = 'loose'
+                        GROUP BY i.design_id, i.color_id
+                        UNION ALL
+                        SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
+                        FROM set_parts sp
+                        JOIN sets s ON s.set_num = sp.set_num
+                        WHERE s.status IN ('built','wip','in_box','teardown')
+                        GROUP BY sp.design_id, sp.color_id
+                    ) pc
+                    JOIN parts  p ON p.design_id = pc.design_id
+                    LEFT JOIN colors c ON c.id = pc.color_id
+                    GROUP BY pc.design_id, p.name, pc.color_id, c.name
+                    ORDER BY total_qty DESC
+                    """
+                ).fetchall()
+            out = []
+            for r in rows:
+                design_id = str(r["design_id"]) if r["design_id"] is not None else ""
+                name = r["part_name"] or ""
+                color_name = r["color_name"] or "(unknown)"
+                qty = int(r["total_qty"] or 0)
+                out.append(
+                    {
+                        "Part ID": design_id,
+                        "Name": name,
+                        "Color": color_name,
+                        "Total Quantity": qty,
+                    }
+                )
+            return out, ["Part ID", "Name", "Color", "Total Quantity"]
 
         raise ValueError(f"Unsupported table key: {table_key}")
 
