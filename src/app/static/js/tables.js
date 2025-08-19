@@ -82,11 +82,15 @@
 
         var colCount = $table.find('thead th').length;
 
-        // Per-table default ordering (Loose Parts: Qty desc on column index 5)
+        // Per-table default ordering
         var defaultOrder = [];
         var tableId = $table.attr('id') || '';
         if (tableId === 'master_table') {
+            // Loose Parts: Qty is column index 5
             defaultOrder = [[5, 'desc']];
+        } else if (tableId === 'set_parts_table') {
+            // Set Detail: Qty is column index 3
+            defaultOrder = [[3, 'desc']];
         }
 
         var dt = $table.DataTable({

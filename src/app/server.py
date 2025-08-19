@@ -1192,18 +1192,17 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_html(html_doc, status=200)
 
     def _serve_set(self, set_num: str):
-        # Get set metadata using get_set
+        # Get set metadata
         set_info = get_set(set_num)
         if not set_info:
             self._not_found()
             return
 
-        # Retrieve the list of parts for this set by calling the appropriate DB function.
+        # Fetch parts for this set (prefer DB helper if available)
         if hasattr(db, "get_parts_for_set"):
             parts = db.get_parts_for_set(set_num)
         else:
-            # fallback: do the query inline (legacy)
-            with db._connect() as conn:
+            with db._connect() as conn:  # pylint: disable=protected-access
                 rows = conn.execute(
                     """
                     SELECT
@@ -1221,79 +1220,95 @@ class Handler(BaseHTTPRequestHandler):
                     """,
                     (set_num,),
                 ).fetchall()
-                # Convert to list of dicts
-                parts = []
-                for r in rows:
-                    parts.append(
-                        {
-                            "design_id": r["design_id"],
-                            "name": r["name"],
-                            "color_name": r["color_name"],
-                            "hex": r["hex"],
-                            "quantity": r["quantity"],
-                            "part_url": r["part_url"],
-                            "part_img_url": r["part_img_url"],
-                        }
-                    )
+                parts = [dict(r) for r in rows]
 
         # Compute total quantity for the set
-        total_qty = sum(p.get("quantity", 0) for p in parts)
+        total_qty = sum(int(p.get("quantity", 0) or 0) for p in parts)
         total_qty_str = f"{total_qty:,}"
 
-        # Header: set image on left, set ID + name as a hyperlink to Rebrickable in header, total quantity in header
+        # Helper for foreground color
+        def _fg_for_hex(h: str) -> str:
+            try:
+                h = (h or "").lstrip("#")
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                return "#000" if (r + g + b) > 382 else "#fff"
+            except Exception:
+                return "#000"
+
+        # Build rows for template table: [Part ID, Part Name, Color(td_style), Qty, Link, Image]
+        rows_for_table = []
+        for part in parts:
+            design_id = html.escape(str(part.get("design_id", "")))
+            name = html.escape(str(part.get("name", "")))
+            color_name = str(part.get("color_name", ""))
+            hex_code = (part.get("hex") or "").lstrip("#")
+            qty = int(part.get("quantity", 0) or 0)
+
+            # Part ID links to part detail
+            cell_id = f"<a href='/parts/{design_id}'>{design_id}</a>"
+            cell_name = name
+
+            # Color cell as full-cell background via td_style
+            if hex_code:
+                fg = _fg_for_hex(hex_code)
+                cell_color = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(hex_code)}; color:{fg}",
+                }
+            else:
+                cell_color = html.escape(color_name)
+
+            cell_qty = f"{qty:,}"
+
+            link = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+            img = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
+            cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
+
+            rows_for_table.append([cell_id, cell_name, cell_color, cell_qty, cell_link, cell_img])
+
+        # Header context
         set_img_url = set_info.get("image_url") or set_info.get("set_img_url") or ""
         set_name = set_info.get("name", set_num)
-        set_url = set_info.get("rebrickable_url") or set_info.get("set_url") or ""
-        header_html = (
-            f"<div style='display: flex; align-items: center; gap: 1.5em; margin-bottom: 1em;'>"
-            f"<img src='{html.escape(set_img_url)}' alt='Set image' style='max-width: 150px; height: auto;'>"
-            f"<div>"
-            f"<h1 style='margin:0;'><a href='{html.escape(set_url)}' target='_blank'>{html.escape(set_num)} - {html.escape(set_name)} (Total Qty: {total_qty_str})</a></h1>"
-            f"</div>"
-            f"</div>"
+        set_url = (
+            set_info.get("rebrickable_url")
+            or set_info.get("set_url")
+            or f"https://rebrickable.com/sets/{set_num}/"
         )
 
-        # Table with columns: Part ID, Part Name, Color, Qty, Rebrickable Link, Image
-        table_body = []
-        for part in parts:
-            table_body.append("<tr>")
-            design_id = html.escape(str(part.get("design_id", "")))
-            # Part ID cell: hyperlink to part page
-            table_body.append(f'<td><a href="/parts/{design_id}">{design_id}</a></td>')
-            # Part Name cell: plain text
-            table_body.append(f"<td>{html.escape(str(part.get('name', '')))}</td>")
-            color_name = str(part.get("color_name", ""))
-            hex_code = part.get("hex")
-            if hex_code:
-                table_body.append(_make_color_cell(color_name, hex_code))
-            else:
-                table_body.append(f"<td>{html.escape(color_name)}</td>")
-            table_body.append(f"<td>{part.get('quantity', 0)}</td>")
-            link = part.get("part_url") or (
-                f"https://rebrickable.com/parts/{part.get('design_id','')}/"
+        # Overall site totals for the header
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            overall_total = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
             )
-            img = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
-            table_body.append(f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td>")
-            table_body.append(
-                f"<td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td>"
-            )
-            table_body.append("</tr>")
+            if not overall_total:
+                overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
 
-        if not table_body:
-            table_body.append("<tr><td colspan='6'>No matching parts found</td></tr>")
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
 
-        table_html = (
-            "<table><thead><tr>"
-            "<th>Part ID</th><th>Part Name</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th>"
-            "</tr></thead><tbody>" + "".join(table_body) + "</tbody>"
-            f"<tfoot><tr><th colspan='3'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
-            "</table>"
+        html_doc = _render_template(
+            "set_detail.html",
+            title=f"EB's Bricks - Set {set_num}",
+            set_num=set_num,
+            set_name=set_name,
+            set_url=set_url,
+            set_img_url=set_img_url,
+            total_qty=total_qty,
+            total_qty_str=total_qty_str,
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="set_parts",
+            site_title=site_title,
+            total_parts=overall_total,
         )
-
-        # Use _html_page for consistent look, pass None for total_qty to use combined totals in the header
-        self._send_ok(
-            _html_page(f"EB's Bricks - Set {set_num}", header_html + table_html, total_qty=None)
-        )
+        return self._send_html(html_doc, status=200)
 
     def _send_html(self, html_doc: str, status: int = 200):
         html_bytes = html_doc.encode()
