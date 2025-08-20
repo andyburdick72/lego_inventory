@@ -1,6 +1,14 @@
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping
+from typing import TypeVar
 
-from core.dtos import ContainerDTO, DrawerDTO, InventoryItemDTO, LEGOSetDTO
+from core.dtos import (
+    ContainerDTO,
+    ContainerSummaryDTO,
+    DrawerDTO,
+    DrawerSummaryDTO,
+    InventoryItemDTO,
+    LEGOSetDTO,
+)
 from core.enums import Status
 
 
@@ -57,5 +65,37 @@ def row_to_inventory_item(row: Mapping) -> InventoryItemDTO:
     )
 
 
-def rows_to(dto_fn: Callable[[Mapping], object], rows: Iterable[Mapping]) -> list[object]:
+def row_to_drawer_summary(row: Mapping) -> DrawerSummaryDTO:
+    return DrawerSummaryDTO(
+        id=int(row.get("id") or 0),
+        name=row.get("name") or "",
+        description=row.get("description"),
+        kind=row.get("kind"),
+        cols=row.get("cols"),
+        rows=row.get("rows"),
+        sort_index=int(row.get("sort_index") or 0),
+        container_count=int(row.get("container_count") or 0),
+        part_count=int(row.get("part_count") or 0),
+    )
+
+
+def row_to_container_summary(row: Mapping) -> ContainerSummaryDTO:
+    return ContainerSummaryDTO(
+        id=int(row.get("id") or 0),
+        name=row.get("name") or "",
+        description=row.get("description"),
+        row_index=row.get("row_index"),
+        col_index=row.get("col_index"),
+        sort_index=int(row.get("sort_index") or 0),
+        part_count=int(row.get("part_count") or 0),
+        unique_parts=int(row.get("unique_parts") or 0),
+    )
+
+
+K = TypeVar("K", bound=Hashable)
+V = TypeVar("V")
+T = TypeVar("T")
+
+
+def rows_to(dto_fn: Callable[[Mapping[K, V]], T], rows: Iterable[Mapping[K, V]]) -> list[T]:
     return [dto_fn(row) for row in rows]

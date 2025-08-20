@@ -46,6 +46,12 @@ from urllib.parse import parse_qs, urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape  # type: ignore
 
+from app.adapters import (
+    row_to_container_summary,
+    row_to_drawer_summary,
+    rows_to,
+)
+
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
@@ -318,16 +324,20 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if path == "/api/drawers":
-                # Active drawers via db.list_drawers(); include_deleted not yet supported here
+                # Active drawers via db.list_drawers(); shape preserved with Summary DTOs
                 rows = db.list_drawers()
-                return self._send_json(200, rows)
+                items = rows_to(row_to_drawer_summary, rows)
+                payload = [d.model_dump() for d in items]
+                return self._send_json(200, payload)
 
             if path == "/api/containers":
                 drawer_id = qs.get("drawer_id", [None])[0]
                 if drawer_id is None:
                     return self._send_json(400, {"error": "drawer_id is required"})
                 rows = db.list_containers_for_drawer(int(drawer_id))
-                return self._send_json(200, rows)
+                items = rows_to(row_to_container_summary, rows)
+                payload = [d.model_dump() for d in items]
+                return self._send_json(200, payload)
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
