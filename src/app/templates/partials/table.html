@@ -1,7 +1,8 @@
-{% macro render_table(table_id, columns, rows, table_key=None, nonsearchable=None) %}
+{% macro render_table(table_id, columns, rows, table_key=None, nonsearchable=None, table_context=None) %}
 {# nonsearchable: list of zero-based column indexes that should not be searchable #}
 <table id="{{ table_id }}" data-tablekey="{{ table_key or table_id }}" {% if nonsearchable %}
-    data-nonsearchable='{{ nonsearchable | tojson }}' {% endif %}>
+    data-nonsearchable='{{ nonsearchable | tojson }}' {% endif %} {% if table_context is not none %}
+    data-context='{{ table_context if table_context is string else (table_context | tojson) }}' {% endif %}>
     <thead>
         <tr>
             {% for c in columns %}

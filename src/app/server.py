@@ -1660,58 +1660,81 @@ class Handler(BaseHTTPRequestHandler):
         if not d:
             self._not_found()
             return
+
+        # Gather parts across all containers in this drawer
         containers = db.list_containers_for_drawer(drawer_id)
-        total_unique = sum(c.get("unique_parts", 0) for c in containers)
-        total_pieces = sum(c.get("part_count", 0) for c in containers)
-        header = f"<h1>Drawer: {html.escape(d['name'])}</h1>"
-        if d.get("description"):
-            header += f"<p>{html.escape(d['description'])}</p>"
-        controls = (
-            "<div id='container-controls' style='margin: .5rem 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end;'>"
-            "  <div><label>Label<br><input id='new-container-name' placeholder='e.g., A1' /></label></div>"
-            "  <div><label>Row<br><input id='new-container-row' type='number' style='width:6em' /></label></div>"
-            "  <div><label>Col<br><input id='new-container-col' type='number' style='width:6em' /></label></div>"
-            "  <div><label>Description<br><input id='new-container-desc' style='width:18em' /></label></div>"
-            f'  <div><button type=\'button\' data-action="add-container" data-drawer-id="{drawer_id}">Add Container</button></div>'
-            f"  <div style='margin-left:auto'><button type='button' data-action=\"rename-drawer\" data-id=\"{drawer_id}\" data-name=\"{html.escape(d.get('name') or '')}\" data-desc=\"{html.escape(d.get('description') or '')}\" data-cols=\"{html.escape(str(d.get('cols') or ''))}\" data-rows=\"{html.escape(str(d.get('rows') or ''))}\">Rename Drawer</button>"
-            f'<button type=\'button\' data-action="delete-drawer" data-id="{drawer_id}">Delete Drawer</button></div>'
-            "</div>"
-        )
-        body = [
-            header,
-            "<p><a href='/drawers'>&larr; All drawers</a></p>",
-            controls,
-            "<table id='containers_table'>",
-            "<thead><tr><th>Pos</th><th>Name</th><th>Description</th><th>Unique Parts</th><th>Total Pieces</th><th>Actions</th></tr></thead><tbody>",
-        ]
+
+        rows_for_table: list[list] = []
+
         for c in containers:
+            c_id = int(c["id"])
+            c_name = str(c.get("name") or "")
+            desc = str(c.get("description") or "")
+            row_index = c.get("row_index")
+            col_index = c.get("col_index")
+
+            # Position label (rX cY) when we have both
             pos = ""
-            if c.get("row_index") is not None and c.get("col_index") is not None:
-                pos = f"r{c['row_index']} c{c['col_index']}"
-            raw_cname = c.get("name", "")
-            name = html.escape(raw_cname)
-            desc = html.escape(c.get("description") or "")
-            uniq = c.get("unique_parts", 0)
-            pieces = c.get("part_count", 0)
-            actions = (
-                f"<button type='button' data-action=\"rename-container\" data-id=\"{c['id']}\" "
-                f"data-name=\"{html.escape(raw_cname)}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
-                f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
-                f'data-drawer-id="{drawer_id}">Rename</button> '
-                f"<button type='button' data-action=\"move-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Move</button> "
-                f"<button type='button' data-action=\"delete-container\" data-id=\"{c['id']}\" data-drawer-id=\"{drawer_id}\">Delete</button>"
+            if row_index is not None and col_index is not None:
+                pos = f"r{int(row_index)} c{int(col_index)}"
+
+            # Prefer precomputed counts if present; otherwise derive from parts
+            unique_parts = c.get("unique_parts")
+            total_pieces = c.get("part_count")
+            if unique_parts is None or total_pieces is None:
+                parts = db.list_parts_in_container(c_id)
+                unique_parts = len(parts)
+                total_pieces = sum(int(p.get("qty") or p.get("quantity") or 0) for p in parts)
+
+            name_link = f"<a href='/containers/{c_id}'>{html.escape(c_name)}</a>"
+            total_pieces_str = f"{int(total_pieces or 0):,}"
+
+            actions_html = (
+                f'<button type=\'button\' data-action="rename-container" data-id="{c_id}" '
+                f'data-name="{html.escape(c_name)}" data-desc="{html.escape(desc)}" '
+                f"data-row=\"{html.escape(str(row_index or ''))}\" data-col=\"{html.escape(str(col_index or ''))}\">Rename</button> "
+                f'<button type=\'button\' data-action="move-container" data-id="{c_id}" data-drawer-id="{drawer_id}">Move</button> '
+                f'<button type=\'button\' data-action="delete-container" data-id="{c_id}" data-drawer-id="{drawer_id}">Delete</button>'
             )
-            body.append(
-                f"<tr><td>{pos}</td><td><a href='/containers/{c['id']}'>{name}</a></td><td>{desc}</td><td>{uniq}</td><td>{pieces:,}</td><td>{actions}</td></tr>"
+
+            rows_for_table.append(
+                [
+                    pos,
+                    name_link,
+                    html.escape(desc),
+                    int(unique_parts or 0),
+                    total_pieces_str,
+                    actions_html,
+                ]
             )
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='3' style='text-align:right'>Totals</th><th>{total_unique}</th><th>{total_pieces:,}</th><th></th></tr></tfoot>"
+
+        # Header totals
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            overall_total = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
+            )
+            if not overall_total:
+                overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "drawer_detail.html",
+            title=f"EB's Bricks - Drawer {d['name']}",
+            drawer_name=d["name"],
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="containers_in_drawer",
+            site_title=site_title,
+            total_parts=overall_total,
+            drawer_id=drawer_id,
         )
-        body.append("</table>")
-        self._send_ok(
-            _html_page(f"EB's Bricks - Drawer {d['name']}", "".join(body), total_qty=None)
-        )
+        return self._send_html(html_doc, status=200)
 
     def _serve_container_detail(self, container_id: int):
         c = db.get_container(container_id)
@@ -1874,7 +1897,8 @@ class Handler(BaseHTTPRequestHandler):
                     -- parts in sets (exclude sets marked loose)
                     SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
                     FROM set_parts sp
-                    JOIN sets s ON s.set_num = sp.set_num
+                    JOIN parts p ON sp.design_id = p.design_id
+                    JOIN sets s  ON s.set_num   = sp.set_num
                     WHERE s.status IN ('built','wip','in_box','teardown')
                     GROUP BY sp.design_id, sp.color_id
                 ) pc
@@ -2072,7 +2096,7 @@ class Handler(BaseHTTPRequestHandler):
             columns = ["Set Number", "Name", "Year", "Status", "Rebrickable Link", "Image"]
             return rows, columns
 
-        if table_key == "drawers":
+        elif table_key == "drawers":
             rows = []
             for r in db.list_drawers():
                 rows.append(
@@ -2086,7 +2110,7 @@ class Handler(BaseHTTPRequestHandler):
             columns = ["Name", "Description", "Containers", "Total Pieces"]
             return rows, columns
 
-        if table_key == "container_parts":
+        elif table_key == "container_parts":
             container_id = int(ctx.get("container_id", 0))
             parts = db.list_parts_in_container(container_id)
             rows = []
@@ -2106,7 +2130,7 @@ class Handler(BaseHTTPRequestHandler):
             columns = ["Design ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
-        if table_key == "inventory_master":
+        elif table_key == "inventory_master":
             rows_raw = _query_master_rows()
             rows = []
             for r in rows_raw:
@@ -2136,7 +2160,7 @@ class Handler(BaseHTTPRequestHandler):
             ]
             return rows, columns
 
-        if table_key == "part_counts":
+        elif table_key == "part_counts":
             with db._connect() as conn:
                 rs = conn.execute(
                     """
@@ -2185,7 +2209,7 @@ class Handler(BaseHTTPRequestHandler):
             columns = ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
             return rows, columns
 
-        if table_key == "part_color_counts":
+        elif table_key == "part_color_counts":
             with db._connect() as conn:
                 rs = conn.execute(
                     """
@@ -2241,7 +2265,7 @@ class Handler(BaseHTTPRequestHandler):
             columns = ["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"]
             return rows, columns
 
-        if table_key == "location_counts":
+        elif table_key == "location_counts":
             with db._connect() as conn:  # pylint: disable=protected-access
                 rows = conn.execute(
                     """
@@ -2273,7 +2297,7 @@ class Handler(BaseHTTPRequestHandler):
             out.sort(key=lambda x: x["Total Quantity"], reverse=True)
             return out, ["Location", "Total Quantity"]
 
-        if table_key == "part_counts":
+        elif table_key == "part_counts":
             with db._connect() as conn:  # pylint: disable=protected-access
                 rows = conn.execute(
                     """
@@ -2326,7 +2350,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             return out, ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
 
-        if table_key == "part_color_counts":
+        elif table_key == "part_color_counts":
             with db._connect() as conn:  # pylint: disable=protected-access
                 rows = conn.execute(
                     """
@@ -2369,6 +2393,45 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             return out, ["Part ID", "Name", "Color", "Total Quantity"]
+
+        elif table_key == "containers_in_drawer":
+            drawer_id = int(ctx.get("drawer_id") or 0)
+            if not drawer_id:
+                raise ValueError("drawer_id is required for containers_in_drawer export")
+
+            rows: list[dict] = []
+            containers = db.list_containers_for_drawer(drawer_id)
+
+            for c in containers:
+                c_id = int(c["id"])  # id not used in CSV row
+                name = str(c.get("name") or "")
+                desc = str(c.get("description") or "")
+                row_idx = c.get("row_index")
+                col_idx = c.get("col_index")
+                pos = ""
+                if row_idx is not None and col_idx is not None:
+                    pos = f"r{int(row_idx)} c{int(col_idx)}"
+
+                # Prefer precomputed counts if available; otherwise compute from parts
+                unique_parts = c.get("unique_parts")
+                total_pieces = c.get("part_count")
+                if unique_parts is None or total_pieces is None:
+                    parts = db.list_parts_in_container(c_id)
+                    unique_parts = len(parts)
+                    total_pieces = sum(int(p.get("qty") or p.get("quantity") or 0) for p in parts)
+
+                rows.append(
+                    {
+                        "Pos": pos,
+                        "Name": name,
+                        "Description": desc,
+                        "Unique Parts": int(unique_parts or 0),
+                        "Total Pieces": int(total_pieces or 0),
+                    }
+                )
+
+            columns = ["Pos", "Name", "Description", "Unique Parts", "Total Pieces"]
+            return rows, columns
 
         raise ValueError(f"Unsupported table key: {table_key}")
 

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% set extra_breadcrumbs = [{ 'href': '/drawers', 'label': '⬅ Back to Drawers' }] %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Drawer: {{ drawer_name }}</h1>
+
+{{ render_table(
+table_id="drawer_detail_table",
+columns=["Pos", "Name", "Description", "Unique Parts", "Total Pieces", "Actions"],
+rows=rows,
+table_key="containers_in_drawer",
+table_context={'drawer_id': drawer_id},
+nonsearchable=[5]
+) }}
+{% endblock %}
