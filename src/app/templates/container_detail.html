@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
+
+{% block breadcrumbs %}
+{% set extra_breadcrumbs = [
+{"href": url_for('drawers'), "label": "⬅ Back to Drawers"},
+{"href": "/drawers/" ~ drawer_id, "label": "⬅ Back to " ~ drawer_name}
+] %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
+
+{% block content %}
+<h1>Container: {{ container_name }}</h1>
+<div style="margin:.5rem 0 1rem 0">
+    <button type="button" data-action="rename-container" data-id="{{ container_id }}" data-name="{{ container_name }}"
+        data-desc="{{ container_desc|default('') }}" data-row="{{ row_index|default('') }}"
+        data-col="{{ col_index|default('') }}" data-drawer-id="{{ drawer_id }}">
+        Rename
+    </button>
+    <button type="button" data-action="move-container" data-id="{{ container_id }}" data-drawer-id="{{ drawer_id }}">
+        Move
+    </button>
+    <button type="button" data-action="delete-container" data-id="{{ container_id }}" data-drawer-id="{{ drawer_id }}">
+        Delete
+    </button>
+</div>
+
+{{ render_table(
+table_id="container_parts_table",
+columns=["Part ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"],
+rows=rows,
+table_key="container_parts",
+table_context={'container_id': container_id},
+nonsearchable=[4, 5]
+) }}
+{% endblock %}

@@ -1741,56 +1741,100 @@ class Handler(BaseHTTPRequestHandler):
         if not c:
             self._not_found()
             return
-        parts = db.list_parts_in_container(container_id)
-        total_qty = sum(p.get("qty", 0) for p in parts)
 
-        header = (
-            f"<h1>Container: {html.escape(c['name'])}</h1>"
-            f"<p>Drawer: <a href='/drawers/{c['drawer_id']}'>{html.escape(c.get('drawer_name',''))}</a></p>"
-        )
-        page_title = f"Container {c['name']}"
-        actions_html = (
-            f"<div style='margin:.5rem 0 1rem 0'>"
-            f'  <button type=\'button\' data-action="rename-container" data-id="{container_id}" '
-            f"data-name=\"{html.escape(c.get('name') or '')}\" data-desc=\"{html.escape(c.get('description') or '')}\" "
-            f"data-row=\"{html.escape(str(c.get('row_index') or ''))}\" data-col=\"{html.escape(str(c.get('col_index') or ''))}\" "
-            f"data-drawer-id=\"{c['drawer_id']}\">Rename</button> "
-            f"  <button type='button' data-action=\"move-container\" data-id=\"{container_id}\" data-drawer-id=\"{c['drawer_id']}\">Move</button> "
-            f"  <button type='button' data-action=\"delete-container\" data-id=\"{container_id}\" data-drawer-id=\"{c['drawer_id']}\">Delete</button>"
-            f"</div>"
-        )
-        header = header + actions_html
-        body = [
-            header,
-            f"<table id='container_parts' data-tablekey='container_parts' data-context='{{\"container_id\": {container_id}}}'>",
-            "<thead><tr><th>Design ID</th><th>Part</th><th>Color</th><th>Qty</th><th>Rebrickable Link</th><th>Image</th></tr></thead><tbody>",
-        ]
+        # Parts in this container
+        parts = db.list_parts_in_container(container_id)
+
+        # Foreground color helper
+        def _fg_for_hex(h: str) -> str:
+            try:
+                h = (h or "").lstrip("#")
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                return "#000" if (r + g + b) > 382 else "#fff"
+            except Exception:
+                return "#000"
+
+        # Rows for container_detail.html table: [Design ID, Part, Color(td_style), Qty, Link, Image]
+        rows_for_table: list[list] = []
         for p in parts:
-            design_id = html.escape(str(p.get("design_id", "")))
+            raw_design_id = str(p.get("design_id", ""))  # use raw for lookups
+            design_id = html.escape(raw_design_id)  # escaped for HTML
             part_name = html.escape(str(p.get("part_name", "")))
             color_name = str(p.get("color_name", ""))
-            hex_code = p.get("hex")
-            color_td = (
-                _make_color_cell(color_name, hex_code)
-                if hex_code
-                else f"<td>{html.escape(color_name)}</td>"
+            hex_code = (p.get("hex") or "").lstrip("#")
+            qty = int(p.get("qty", 0) or 0)
+
+            cell_id = f"<a href='/parts/{design_id}'>{design_id}</a>"
+            cell_name = part_name
+
+            if hex_code:
+                fg = _fg_for_hex(hex_code)
+                cell_color = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(hex_code)}; color:{fg}",
+                }
+            else:
+                cell_color = html.escape(color_name)
+
+            cell_qty = f"{qty:,}"
+
+            # Prefer explicit URLs on the row; fall back to a Rebrickable guess
+            link = (
+                p.get("rebrickable_url")
+                or p.get("part_url")
+                or (f"https://rebrickable.com/parts/{raw_design_id}/" if raw_design_id else "")
             )
-            qty = p.get("qty", 0)
-            link = f"https://rebrickable.com/parts/{p.get('design_id','')}/"
-            part_meta = db.get_part(p.get("design_id", "")) or {}
-            img = part_meta.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
-            body.append(
-                f"<tr><td><a href='/parts/{design_id}'>{design_id}</a></td><td>{part_name}</td>{color_td}<td>{qty}</td>"
-                f"<td><a href='{html.escape(link)}' target='_blank'>View</a></td><td><img src='{html.escape(img)}' alt='Part image' style='height: 32px;'></td></tr>"
+
+            # Image: try row fields, then look up part meta as a fallback
+            part_meta = db.get_part(raw_design_id) or {}
+            img = (
+                p.get("image_url")
+                or p.get("img_url")
+                or p.get("part_img_url")
+                or part_meta.get("part_img_url")
+                or part_meta.get("image_url")
+                or "https://rebrickable.com/static/img/nil.png"
             )
-        if not parts:
-            body.append("<tr><td colspan='6'>(empty)</td></tr>")
-        body.append("</tbody>")
-        body.append(
-            f"<tfoot><tr><th colspan='3' style='text-align:right'>Total</th><th>{total_qty:,}</th><th colspan='2'></th></tr></tfoot>"
+
+            cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
+            cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
+
+            rows_for_table.append([cell_id, cell_name, cell_color, cell_qty, cell_link, cell_img])
+
+        # Header context like other templated pages
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            total_parts = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
+            )
+            if not total_parts:
+                total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            total_parts = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        html_doc = _render_template(
+            "container_detail.html",
+            title=f"EB's Bricks - Container {c['name']}",
+            container_id=container_id,
+            container_name=c.get("name") or "",
+            container_desc=c.get("description") or "",
+            drawer_id=c.get("drawer_id"),
+            drawer_name=c.get("drawer_name") or "",
+            row_index=c.get("row_index"),
+            col_index=c.get("col_index"),
+            rows=rows_for_table,
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            export_key="container_parts",
+            site_title=site_title,
+            total_parts=total_parts,
         )
-        body.append("</table>")
-        self._send_ok(_html_page(f"EB's Bricks - {page_title}", "".join(body), total_qty=None))
+        return self._send_html(html_doc, status=200)
 
     # The /sets route and _serve_sets method have been removed.
 
@@ -2118,7 +2162,7 @@ class Handler(BaseHTTPRequestHandler):
                 part_meta = db.get_part(p.get("design_id", "")) or {}
                 rows.append(
                     {
-                        "Design ID": p.get("design_id", ""),
+                        "Part ID": p.get("design_id", ""),
                         "Part": p.get("part_name", ""),
                         "Color": p.get("color_name", ""),
                         "Qty": p.get("qty", 0),
@@ -2127,7 +2171,7 @@ class Handler(BaseHTTPRequestHandler):
                         or "https://rebrickable.com/static/img/nil.png",
                     }
                 )
-            columns = ["Design ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
+            columns = ["Part ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
         elif table_key == "inventory_master":
@@ -2136,7 +2180,7 @@ class Handler(BaseHTTPRequestHandler):
             for r in rows_raw:
                 rows.append(
                     {
-                        "ID": r["design_id"],
+                        "Part ID": r["design_id"],
                         "Name": r["part_name"],
                         "Color": r["color_name"],
                         "Drawer": r.get("drawer") or "",
@@ -2149,7 +2193,7 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             columns = [
-                "ID",
+                "Part ID",
                 "Name",
                 "Color",
                 "Drawer",
@@ -2431,6 +2475,38 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             columns = ["Pos", "Name", "Description", "Unique Parts", "Total Pieces"]
+            return rows, columns
+
+        elif table_key == "container_parts":
+            container_id = int((ctx or {}).get("container_id") or 0)
+            if not container_id:
+                raise ValueError("container_id is required for container_parts export")
+
+            parts = db.list_parts_in_container(container_id)
+
+            rows: list[dict] = []
+            for p in parts:
+                design_id = str(p.get("design_id", ""))
+                part_name = str(p.get("part_name", ""))
+                color_name = str(p.get("color_name", ""))
+                qty = int(p.get("qty", 0) or 0)
+                link = p.get("part_url") or (
+                    f"https://rebrickable.com/parts/{design_id}/" if design_id else ""
+                )
+                img = p.get("part_img_url") or ""
+
+                rows.append(
+                    {
+                        "Part ID": design_id,
+                        "Part": part_name,
+                        "Color": color_name,
+                        "Qty": qty,
+                        "Rebrickable Link": link,
+                        "Image": img,
+                    }
+                )
+
+            columns = ["Part ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
         raise ValueError(f"Unsupported table key: {table_key}")

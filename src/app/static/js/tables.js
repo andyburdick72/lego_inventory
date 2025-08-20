@@ -86,11 +86,26 @@
         var defaultOrder = [];
         var tableId = $table.attr('id') || '';
         if (tableId === 'master_table') {
-            // Loose Parts: Qty is column index 5
+            // Qty is column index 5
             defaultOrder = [[5, 'desc']];
         } else if (tableId === 'set_parts_table') {
-            // Set Detail: Qty is column index 3
+            // Qty is column index 3
             defaultOrder = [[3, 'desc']];
+        } else if (tableId === 'container_parts_table') {
+            // Qty is column index 3
+            defaultOrder = [[3, 'desc']];
+        }
+
+        // Ensure the table has a <tfoot>; if missing, clone header row and clear cells
+        if ($table.find('tfoot').length === 0) {
+            var $tfoot = $('<tfoot></tfoot>');
+            var $theadRow = $table.find('thead tr').first();
+            var $tfootRow = $theadRow.clone();
+            $tfootRow.find('th').each(function () {
+                $(this).text('');
+            });
+            $tfoot.append($tfootRow);
+            $table.append($tfoot);
         }
 
         var dt = $table.DataTable({
@@ -165,6 +180,68 @@
                     url.searchParams.set('ctx', contextJson);
                     window.location.href = url.toString();
                 });
+
+                // Add draw event handler to compute and render column totals in tfoot
+                api.on('draw', function () {
+                    var footer = $table.find('tfoot tr').first();
+                    var headers = [];
+                    $table.find('thead th').each(function (i) {
+                        headers[i] = (this.textContent || '').trim().toLowerCase();
+                    });
+
+                    // Set first column footer cell label
+                    var $firstFooterCell = footer.find('th').eq(0);
+                    if ($firstFooterCell.length === 0) {
+                        $firstFooterCell = footer.find('td').eq(0);
+                    }
+                    if ($firstFooterCell.length) {
+                        $firstFooterCell.text('Grand Total');
+                    }
+
+                    var totalCols = [];
+                    headers.forEach(function (t, i) {
+                        if (['qty', 'total pieces', 'total quantity', 'quantity', 'total parts'].includes(t)) {
+                            totalCols.push(i);
+                        }
+                    });
+
+                    if (totalCols.length === 0) {
+                        $table.find('tfoot').hide();
+                        return;
+                    } else {
+                        $table.find('tfoot').show();
+                    }
+
+                    function toNumber(val) {
+                        if (val == null) return 0;
+                        if (typeof val !== 'string') return Number(val) || 0;
+                        // strip HTML tags
+                        var text = val.replace(/<[^>]*>/g, '');
+                        // remove thousands separators and non-numeric chars (except dot/minus)
+                        text = text.replace(/,/g, '').replace(/[^0-9.\-]/g, '');
+                        var n = parseFloat(text);
+                        return isNaN(n) ? 0 : n;
+                    }
+
+                    totalCols.forEach(function (colIdx) {
+                        var total = api.column(colIdx, { search: 'applied' }).data().reduce(function (sum, v) {
+                            return sum + toNumber(v);
+                        }, 0);
+                        // Format total with comma separators
+                        var formatted = total.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                        var $cell = footer.find('th').eq(colIdx);
+                        if ($cell.length === 0) {
+                            // If footer cell is td instead of th
+                            $cell = footer.find('td').eq(colIdx);
+                        }
+                        if ($cell.length) {
+                            $cell.text(formatted);
+                        }
+                    });
+                });
+
+                // Trigger initial draw to compute totals on load
+                api.draw();
             }
         });
     }
