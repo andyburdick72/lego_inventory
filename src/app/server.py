@@ -1485,7 +1485,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_html(html_doc, status=200)
 
     def _serve_part(self, design_id: str):
-        # Resolve part meta
+        # Resolve part meta (fallbacks preserved)
         part = db.get_part(design_id) or {
             "design_id": design_id,
             "name": "Unknown part",
@@ -1493,17 +1493,18 @@ class Handler(BaseHTTPRequestHandler):
             "part_img_url": None,
         }
 
-        # Data for the two sections
+        # "In Sets" rows (prefer helper)
         sets_rows = db.sets_for_part(design_id)
-        # Resolve loose inventory via relational join (containers/drawers), with legacy fallback
+
+        # Loose inventory rows aggregated by drawer/container/color
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
                 """
                 SELECT
-                    COALESCE(d.name, i.drawer)   AS drawer,
+                    COALESCE(d.name, i.drawer)     AS drawer,
                     COALESCE(c2.name, i.container) AS container,
-                    col.name AS color_name,
-                    col.hex  AS hex,
+                    col.name  AS color_name,
+                    col.hex   AS hex,
                     SUM(i.quantity) AS quantity
                 FROM inventory i
                 JOIN colors col ON col.id = i.color_id
@@ -1517,81 +1518,106 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
             loose_rows = [dict(r) for r in rows]
 
-        # Totals for this part
-        part_total = sum(r.get("quantity", 0) for r in sets_rows) + sum(
-            r.get("quantity", 0) for r in loose_rows
+        # Foreground color helper
+        def _fg_for_hex(h: str) -> str:
+            try:
+                h = (h or "").lstrip("#")
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                return "#000" if (r + g + b) > 382 else "#fff"
+            except Exception:
+                return "#000"
+
+        # Build rows for the two tables used by part_detail.html
+        # Loose Parts: Drawer, Container, Color(td_style), Qty
+        rows_loose_tbl: list[list] = []
+        for r in loose_rows:
+            drawer = html.escape(str(r.get("drawer", "")))
+            container = html.escape(str(r.get("container", "")))
+            color_name = str(r.get("color_name", ""))
+            hex_code = (r.get("hex") or "").lstrip("#")
+            qty = int(r.get("quantity", 0) or 0)
+
+            if hex_code:
+                fg = _fg_for_hex(hex_code)
+                color_cell = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(hex_code)}; color:{fg}",
+                }
+            else:
+                color_cell = html.escape(color_name)
+
+            rows_loose_tbl.append([drawer, container, color_cell, f"{qty:,}"])
+
+        # In Sets: Set (link + name), Color(td_style), Qty
+        rows_sets_tbl: list[list] = []
+        for r in sets_rows:
+            set_num = str(r.get("set_num", ""))
+            set_name = str(r.get("set_name", ""))
+            color_name = str(r.get("color_name", ""))
+            hex_code = (r.get("hex") or "").lstrip("#")
+            qty = int(r.get("quantity", 0) or 0)
+
+            set_cell = f"<a href='/sets/{html.escape(set_num)}'>{html.escape(set_num)}</a> – {html.escape(set_name)}"
+            if hex_code:
+                fg = _fg_for_hex(hex_code)
+                color_cell = {
+                    "html": html.escape(color_name),
+                    "td_style": f"background:#{html.escape(hex_code)}; color:{fg}",
+                }
+            else:
+                color_cell = html.escape(color_name)
+
+            rows_sets_tbl.append([set_cell, color_cell, f"{qty:,}"])
+
+        # Per-part total quantity (raw sums, not formatted strings)
+        part_total = sum(int(r.get("quantity", 0) or 0) for r in loose_rows) + sum(
+            int(r.get("quantity", 0) or 0) for r in sets_rows
         )
 
-        # Header
+        # Overall site totals for the header
+        try:
+            _totals = getattr(db, "totals", lambda: {})() or {}
+            overall_total = (
+                _totals.get("overall_total")
+                or _totals.get("total_parts")
+                or _totals.get("loose_total")
+            )
+            if not overall_total:
+                overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
+        except Exception:
+            overall_total = sum(r.get("qty", 0) for r in _query_master_rows())
+
+        site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
+
+        # Part meta for header
         part_url = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
         part_img_url = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
         part_name = part.get("name", "")
-        header_html = (
-            f"<div style='display: flex; align-items: center; gap: 1em; margin-bottom: 1em;'>"
-            f"<img src='{html.escape(part_img_url)}' alt='{html.escape(part_name)}' style='height: 64px;'>"
-            f"<h1 style='margin:0;'><a href='{html.escape(part_url)}' target='_blank'>{html.escape(design_id)} - {html.escape(part_name)}</a></h1>"
-            f"<span style='font-size: 1.1em; margin-left: 1em;'>Total Quantity: {part_total:,}</span>"
-            f"</div>"
-        )
 
-        # In Sets table
-        sets_body = []
-        for r in sets_rows:
-            hex_val = r.get("hex")
-            if isinstance(hex_val, str) and hex_val:
-                color_cell = _make_color_cell(r["color_name"], hex_val)
-            else:
-                color_cell = f"<td>{html.escape(r['color_name'])}</td>"
-            sets_body.append("<tr>")
-            sets_body.append(
-                f"<td><a href='/sets/{html.escape(r['set_num'])}'>{html.escape(r['set_num'])}</a> – {html.escape(r['set_name'])}</td>"
-            )
-            sets_body.append(color_cell)
-            sets_body.append(f"<td>{r['quantity']}</td>")
-            sets_body.append("</tr>")
-        if not sets_body:
-            sets_body.append(
-                "<tr><td colspan='3'>This part is not currently in any sets.</td></tr>"
-            )
-        sets_table = (
-            "<h2>In Sets</h2>"
-            "<table><thead><tr><th>Set</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
-            + "".join(sets_body)
-            + "</tbody></table>"
+        html_doc = _render_template(
+            "part_detail.html",
+            title=f"EB's Bricks - Part {design_id}",
+            design_id=design_id,
+            part_id=design_id,
+            part_name=part_name,
+            part_url=part_url,
+            part_img_url=part_img_url,
+            total_qty=part_total,
+            total_qty_str=f"{part_total:,}",
+            rows_loose=rows_loose_tbl,
+            rows_sets=rows_sets_tbl,
+            # Export keys & per-table context
+            loose_table_key="part_in_loose",
+            sets_table_key="part_in_sets",
+            loose_table_ctx={"design_id": design_id},
+            sets_table_ctx={"design_id": design_id},
+            breadcrumbs=[{"href": _url_for("index"), "label": "Back to Home"}],
+            site_title=site_title,
+            total_parts=overall_total,
         )
-
-        # Loose Parts table
-        loose_body = []
-        for r in loose_rows:
-            hex_val = r.get("hex")
-            if isinstance(hex_val, str) and hex_val:
-                color_cell = _make_color_cell(r["color_name"], hex_val)
-            else:
-                color_cell = f"<td>{html.escape(r['color_name'])}</td>"
-            loose_body.append("<tr>")
-            loose_body.append(f"<td>{html.escape(str(r.get('drawer','')))}</td>")
-            loose_body.append(f"<td>{html.escape(str(r.get('container','')))}</td>")
-            loose_body.append(color_cell)
-            loose_body.append(f"<td>{r['quantity']}</td>")
-            loose_body.append("</tr>")
-        if not loose_body:
-            loose_body.append("<tr><td colspan='4'>No loose parts on hand.</td></tr>")
-        loose_table = (
-            "<h2>Loose Parts</h2>"
-            "<table><thead><tr><th>Drawer</th><th>Container</th><th>Color</th><th>Qty</th></tr></thead><tbody>"
-            + "".join(loose_body)
-            + "</tbody></table>"
-        )
-
-        self._send_ok(
-            _html_page(
-                f"EB's Bricks - Part {design_id}",
-                header_html + sets_table + loose_table,
-                total_qty=None,
-            )
-        )
-
-    # The _serve_locations method has been removed.
+        return self._send_html(html_doc, status=200)
 
     def _serve_drawers(self):
         rows = db.list_drawers()
@@ -2163,7 +2189,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows.append(
                     {
                         "Part ID": p.get("design_id", ""),
-                        "Part": p.get("part_name", ""),
+                        "Part Name": p.get("part_name", ""),
                         "Color": p.get("color_name", ""),
                         "Qty": p.get("qty", 0),
                         "Rebrickable Link": f"https://rebrickable.com/parts/{p.get('design_id','')}/",
@@ -2171,7 +2197,7 @@ class Handler(BaseHTTPRequestHandler):
                         or "https://rebrickable.com/static/img/nil.png",
                     }
                 )
-            columns = ["Part ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
+            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
         elif table_key == "inventory_master":
@@ -2498,7 +2524,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows.append(
                     {
                         "Part ID": design_id,
-                        "Part": part_name,
+                        "Part Name": part_name,
                         "Color": color_name,
                         "Qty": qty,
                         "Rebrickable Link": link,
@@ -2506,7 +2532,126 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
 
-            columns = ["Part ID", "Part", "Color", "Qty", "Rebrickable Link", "Image"]
+            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
+            return rows, columns
+
+        elif table_key == "part_in_loose":
+            design_id = (ctx or {}).get("design_id")
+            if not design_id:
+                raise ValueError("design_id is required for part_in_loose export")
+            with db._connect() as conn:  # pylint: disable=protected-access
+                rows = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(d.name, i.drawer)     AS drawer,
+                        COALESCE(c2.name, i.container) AS container,
+                        col.name AS color_name,
+                        SUM(i.quantity) AS qty
+                    FROM inventory i
+                    JOIN colors col ON col.id = i.color_id
+                    LEFT JOIN containers c2 ON c2.id = i.container_id
+                    LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
+                    WHERE i.status = 'loose' AND i.design_id = ?
+                    GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
+                    ORDER BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
+                    """,
+                    (design_id,),
+                ).fetchall()
+            out_rows: list[dict] = []
+            for r in rows:
+                out_rows.append(
+                    {
+                        "Drawer": r["drawer"] or "",
+                        "Container": r["container"] or "",
+                        "Color": r["color_name"] or "",
+                        "Qty": int(r["qty"] or 0),
+                    }
+                )
+            return out_rows, ["Drawer", "Container", "Color", "Qty"]
+
+        elif table_key == "part_in_sets":
+            design_id = (ctx or {}).get("design_id")
+            if not design_id:
+                raise ValueError("design_id is required for part_in_sets export")
+            rows = db.sets_for_part(design_id)
+            out_rows: list[dict] = []
+            for r in rows:
+                set_num = str(r.get("set_num", ""))
+                set_name = str(r.get("set_name", ""))
+                out_rows.append(
+                    {
+                        "Set": (
+                            (f"{set_num} – {set_name}").removeprefix(" – ")
+                            if f"{set_num} – {set_name}".startswith(" – ")
+                            else f"{set_num} – {set_name}"
+                        ),
+                        "Color": str(r.get("color_name", "")),
+                        "Qty": int(r.get("quantity", 0) or 0),
+                    }
+                )
+            return out_rows, ["Set", "Color", "Qty"]
+
+        elif table_key == "set_parts":
+            set_num = (ctx or {}).get("set_num")
+            if not set_num:
+                raise ValueError("set_num is required for set_parts export")
+
+            # Load parts for the set (prefer helper; fallback to SQL with the expected fields)
+            try:
+                if hasattr(db, "get_parts_for_set"):
+                    parts = db.get_parts_for_set(set_num)
+                else:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        rows = conn.execute(
+                            """
+                            SELECT
+                                p.design_id,
+                                p.name              AS part_name,
+                                c.name              AS color_name,
+                                c.hex               AS hex,
+                                sp.quantity         AS quantity,
+                                p.part_url          AS part_url,
+                                p.part_img_url      AS part_img_url
+                            FROM set_parts sp
+                            JOIN parts  p ON p.design_id = sp.design_id
+                            JOIN colors c ON c.id        = sp.color_id
+                            WHERE sp.set_num = ?
+                            ORDER BY p.design_id, c.id
+                            """,
+                            (set_num,),
+                        ).fetchall()
+                        parts = [dict(r) for r in rows]
+            except Exception as e:
+                raise ValueError(f"Failed to fetch parts for set {set_num}: {e}") from e
+
+            rows: list[dict] = []
+            for p in parts:
+                design_id = str(p.get("design_id") or p.get("part_id") or "")
+                part_name = str(p.get("part_name") or p.get("name") or "")
+                color = str(p.get("color_name") or p.get("color") or "")
+                qty = int(p.get("quantity") or p.get("qty") or 0)
+
+                link = p.get("part_url") or (
+                    f"https://rebrickable.com/parts/{design_id}/" if design_id else ""
+                )
+                img = (
+                    p.get("part_img_url")
+                    or p.get("image_url")
+                    or "https://rebrickable.com/static/img/nil.png"
+                )
+
+                rows.append(
+                    {
+                        "Part ID": design_id,
+                        "Part Name": part_name,
+                        "Color": color,
+                        "Qty": qty,
+                        "Rebrickable Link": link,
+                        "Image": img,
+                    }
+                )
+
+            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
             return rows, columns
 
         raise ValueError(f"Unsupported table key: {table_key}")

@@ -94,6 +94,12 @@
         } else if (tableId === 'container_parts_table') {
             // Qty is column index 3
             defaultOrder = [[3, 'desc']];
+        } else if (tableId === 'part_loose_table') {
+            // Drawer, Container, Color, Qty -> Qty is index 3
+            defaultOrder = [[3, 'desc']];
+        } else if (tableId === 'part_sets_table') {
+            // Set, Color, Qty -> Qty is index 2
+            defaultOrder = [[2, 'desc']];
         }
 
         // Ensure the table has a <tfoot>; if missing, clone header row and clear cells

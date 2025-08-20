@@ -1,33 +1,51 @@
-{% extends "layout.html" %}
+{% extends "base.html" %}
+{% from "partials/table.html" import render_table %}
 
-{% block title %}Part {{ part.part_number }} - LEGO Inventory{% endblock %}
+{% block breadcrumbs %}
+{% include "partials/breadcrumbs.html" %}
+{% endblock %}
 
 {% block content %}
-<h1>Part {{ part.part_number }}</h1>
-<p>Name: <strong>{{ part.name }}</strong></p>
-<a href="{{ url_for('index') }}">&larr; Back to parts list</a>
-{% if not records %}
-<p>No inventory records found for this part.</p>
-{% else %}
-<table>
-  <thead>
-    <tr>
-      <th>Colour</th>
-      <th>Quantity</th>
-      <th>Status</th>
-      <th>Location</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for record in records %}
-    <tr>
-      <td>{{ record.colour }}</td>
-      <td>{{ record.quantity }}</td>
-      <td>{{ record.status.value.replace('_', ' ').title() }}</td>
-      <td>{{ record.location_str() }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endif %}
+<h1>Part: {{ design_id }} – {{ part_name }}</h1>
+<div class="d-flex align-items-center gap-3 my-2">
+  {% if part_img_url %}
+  <img src="{{ part_img_url }}" alt="Part image" style="height:48px;">
+  {% endif %}
+  {% if part_url %}
+  <a href="{{ part_url }}" target="_blank" rel="noopener">View on Rebrickable</a>
+  {% endif %}
+  <span class="ms-auto"><strong>Total Qty:</strong> {{ total_qty_str }}</span>
+</div>
+
+<ul class="nav nav-tabs" id="partTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="loose-parts-tab" data-bs-toggle="tab" data-bs-target="#loose-parts"
+      type="button" role="tab" aria-controls="loose-parts" aria-selected="true">Loose Parts</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="in-sets-tab" data-bs-toggle="tab" data-bs-target="#in-sets" type="button" role="tab"
+      aria-controls="in-sets" aria-selected="false">In Sets</button>
+  </li>
+</ul>
+
+<div class="tab-content" id="partTabsContent">
+  <div class="tab-pane fade show active pt-3" id="loose-parts" role="tabpanel" aria-labelledby="loose-parts-tab">
+    {{ render_table(
+    table_id="part_loose_table",
+    columns=["Drawer","Container","Color","Qty"],
+    rows=rows_loose,
+    table_key=loose_table_key,
+    table_context=loose_table_ctx
+    ) }}
+  </div>
+  <div class="tab-pane fade pt-3" id="in-sets" role="tabpanel" aria-labelledby="in-sets-tab">
+    {{ render_table(
+    table_id="part_sets_table",
+    columns=["Set","Color","Qty"],
+    rows=rows_sets,
+    table_key=sets_table_key,
+    table_context=sets_table_ctx
+    ) }}
+  </div>
+</div>
 {% endblock %}

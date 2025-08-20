@@ -7,15 +7,16 @@
 {% endblock %}
 
 {% block content %}
-<h1>Set: <a href="{{ set_url }}" target="_blank">{{ set_num }} – {{ set_name }}</a></h1>
+<h1>Set: {{ set_num }} – {{ set_name }}</h1>
 
-<div style="display:flex; align-items:center; gap:1.5em; margin:.5em 0 1em;">
+<div class="d-flex align-items-center gap-3 my-2">
     {% if set_img_url %}
-    <img src="{{ set_img_url }}" alt="Set image" style="max-width:150px; height:auto;">
+    <img src="{{ set_img_url }}" alt="Set image" style="height:64px;">
     {% endif %}
-    <div>
-        <div><strong>Total Qty:</strong> {{ total_qty_str }}</div>
-    </div>
+    {% if set_url %}
+    <a href="{{ set_url }}" target="_blank" rel="noopener">View on Rebrickable</a>
+    {% endif %}
+    <span class="ms-auto"><strong>Total Qty:</strong> {{ total_qty_str }}</span>
 </div>
 
 {{ render_table(
@@ -23,6 +24,7 @@ table_id="set_parts_table",
 columns=["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"],
 rows=rows,
 table_key="set_parts",
+table_context={"set_num": set_num},
 nonsearchable=[3, 4, 5]
 ) }}
 {% endblock %}
