@@ -24,7 +24,7 @@ import requests
 
 from app.settings import get_settings
 from core.services.rebrickable_api import paginate
-from infra.db.inventory_db import insert_set_part
+from infra.db.inventory_db import _connect, insert_set_part
 
 # Centralized settings (cached by get_settings via lru_cache)
 SETTINGS = get_settings()
@@ -341,20 +341,12 @@ def main():
         print(f"Error: database file {SETTINGS.db_path} not found.", file=sys.stderr)
         sys.exit(1)
 
-    conn = sqlite3.connect(str(SETTINGS.db_path))
-    # Match inventory_db connection settings to avoid write-locks
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA busy_timeout=30000;")
-    conn.execute("PRAGMA foreign_keys=ON;")
+    with _connect() as conn:
+        # Flags
+        if args.backfill_all_parts:
+            backfill_all_parts(conn)
+            return
 
-    # Flags
-    if args.backfill_all_parts:
-        backfill_all_parts(conn)
-        conn.close()
-        return
-
-    try:
         # Fetch your sets and insert part mappings
         sets = fetch_owned_sets(user_token)
         # Always refresh set_parts for owned sets unless explicitly skipped
@@ -377,8 +369,6 @@ def main():
             include_spares=include_spares,
             include_minifig_parts=include_minifig_parts,
         )
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,18 @@
+import os
+import uuid
+from contextlib import closing
+
+import pytest
+
+# Opt-in: only run when explicitly enabled
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("ALLOW_SMOKE_TESTS"),
+    reason="Set ALLOW_SMOKE_TESTS=1 to run destructive smoke tests",
+)
+
+TEST_DRAWER_PREFIX = "Test Drawer "
+
+
 def _container_label_column(conn):
     # Detect whether containers table uses 'label' or 'name' for the container label
     with closing(conn.cursor()) as cur:
@@ -7,33 +22,7 @@ def _container_label_column(conn):
         return "label"
     if "name" in cols:
         return "name"
-    # Fallback: many schemas use 'code' or similar, but fail explicitly if unknown
-    raise RuntimeError(f"Unknown containers label column; found columns: {cols}")
-
-
-import os
-import uuid
-from contextlib import closing
-
-import pytest
-
-from infra.db.inventory_db import (
-    DuplicateLabelError,
-    InventoryConstraintError,
-    _connect,
-    create_container,
-    create_drawer,
-    restore_container,
-    soft_delete_container,
-)
-
-# Opt-in: only run when explicitly enabled
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ALLOW_SMOKE_TESTS"),
-    reason="Set ALLOW_SMOKE_TESTS=1 to run destructive smoke tests",
-)
-
-TEST_DRAWER_PREFIX = "Test Drawer "
+    raise RuntimeError(f"Unknown containers label column; found: {cols}")
 
 
 def cleanup_test_artifacts(conn):
@@ -73,8 +62,25 @@ def cleanup_test_artifacts(conn):
 
 
 def test_smoke_drawers_containers():
+    import pathlib
+    import sys
+
+    ROOT = pathlib.Path(__file__).resolve().parents[1]
+    SRC = ROOT / "src"
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from infra.db.inventory_db import (
+        DuplicateLabelError,
+        InventoryConstraintError,
+        _connect,
+        create_container,
+        create_drawer,
+        restore_container,
+        soft_delete_container,
+    )
+
     DRAWER_NAME = f"Test Drawer {uuid.uuid4().hex[:8]}"
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         # Pre-clean any leftovers from previous runs
         cleanup_test_artifacts(conn)
 

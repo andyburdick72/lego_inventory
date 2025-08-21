@@ -33,5 +33,10 @@ if ! ALLOW_SMOKE_TESTS=1 pytest -q tests/test_smoke_drawers_containers.py; then
   fi
 fi
 
+if [ "${1:-}" = "cov" ]; then
+  echo "🧪 Running tests with coverage..."
+  ALLOW_SMOKE_TESTS=1 pytest --cov=src --cov-report=term-missing --cov-branch
+fi
+
 echo "🚀 Starting dev server on http://localhost:8000"
 exec python -m app.server

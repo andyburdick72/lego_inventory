@@ -1,4 +1,4 @@
-# LEGO Inventory Management System
+<file name=0 path=/Users/andyburdick/Code/GitHub/andyburdick72/lego_inventory/README.md># LEGO Inventory Management System
 
 A SQLite-backed inventory management system for LEGO parts and sets.  
 Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and supports importing inventory from Instabrick/BrickLink XML exports.
@@ -216,7 +216,19 @@ source .venv/bin/activate
 pytest
 ```
 
----
+### 5. Test coverage
+To measure test coverage, first ensure development dependencies are installed:
+```bash
+pip install -r requirements-dev.txt
+```
+Then run pytest with coverage reporting:
+```bash
+pytest --cov=src --cov-report=term-missing
+```
+This command runs tests and displays coverage details in the terminal.
 
-## **License**
-MIT License — See `LICENSE` file.
+For an HTML coverage report, run:
+```bash
+pytest --cov=src --cov-report=html
+```
+The report will be generated in the `htmlcov` directory. Open `htmlcov/index.html` in a browser to view a detailed coverage report.
