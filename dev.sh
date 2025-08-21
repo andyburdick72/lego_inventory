@@ -23,7 +23,15 @@ echo "📦 Installing/updating dependencies..."
 pip install -r "${REPO_ROOT}/requirements.txt"
 
 echo "🛠️ Running smoke tests..."
-python -m scripts.smoke_test_crud
+if ! ALLOW_SMOKE_TESTS=1 pytest -q tests/test_smoke_drawers_containers.py; then
+  code=$?
+  if [ "$code" -eq 5 ]; then
+    echo "ℹ️ No smoke tests collected; continuing to start server..."
+  else
+    echo "❌ Smoke tests failed (exit $code)"
+    exit "$code"
+  fi
+fi
 
 echo "🚀 Starting dev server on http://localhost:8000"
 exec python -m app.server

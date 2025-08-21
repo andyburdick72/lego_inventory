@@ -17,7 +17,7 @@ ignore = ["E501"]
 known-first-party = ["lego_inventory"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --disable-warnings"
 testpaths = ["tests"]
 
 [tool.mypy]
