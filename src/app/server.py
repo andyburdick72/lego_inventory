@@ -51,6 +51,7 @@ from app.adapters import (
     row_to_drawer_summary,
     rows_to,
 )
+from core.enums import Status
 
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -93,7 +94,7 @@ def _render_template(name: str, **context) -> str:
 from infra.db import inventory_db as db  # noqa: E402
 from infra.db.inventory_db import get_set  # noqa: E402
 
-SET_STATUSES = {"built", "wip", "in_box", "teardown"}
+SET_STATUSES = {Status.BUILT.value, Status.WIP.value, Status.IN_BOX.value, Status.TEARDOWN.value}
 
 # Mapping from status code to display-friendly name
 STATUS_DISPLAY_NAMES = {
@@ -209,7 +210,8 @@ def _numeric_set_sort_key(set_no: str) -> float:
 def _display_status(status: str) -> str:
     if status == "unsorted":
         return "Unsorted"
-    return STATUS_DISPLAY_NAMES.get(status, "Loose")
+    st = Status.from_any(status)
+    return st.label if st else "Loose"
 
 
 # --------------------------------------------------------------------------- request-handler
