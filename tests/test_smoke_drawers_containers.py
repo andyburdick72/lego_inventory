@@ -4,6 +4,16 @@ from contextlib import closing
 
 import pytest
 
+from infra.db.inventory_db import (
+    DuplicateLabelError,
+    InventoryConstraintError,
+    _connect,
+    create_container,
+    create_drawer,
+    restore_container,
+    soft_delete_container,
+)
+
 # Opt-in: only run when explicitly enabled
 pytestmark = pytest.mark.skipif(
     not os.environ.get("ALLOW_SMOKE_TESTS"),
@@ -62,22 +72,6 @@ def cleanup_test_artifacts(conn):
 
 
 def test_smoke_drawers_containers():
-    import pathlib
-    import sys
-
-    ROOT = pathlib.Path(__file__).resolve().parents[1]
-    SRC = ROOT / "src"
-    if str(SRC) not in sys.path:
-        sys.path.insert(0, str(SRC))
-    from infra.db.inventory_db import (
-        DuplicateLabelError,
-        InventoryConstraintError,
-        _connect,
-        create_container,
-        create_drawer,
-        restore_container,
-        soft_delete_container,
-    )
 
     DRAWER_NAME = f"Test Drawer {uuid.uuid4().hex[:8]}"
     with closing(_connect()) as conn:
