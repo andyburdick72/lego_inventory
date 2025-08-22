@@ -32,10 +32,32 @@
     // Pytest discovery so Test Explorer and Agent can run it
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
-        "-q"
+        "-q",
+        "tests"
     ],
     // Type checking signal (mypy still runs via task)
     "python.analysis.typeCheckingMode": "basic",
     // Helpful: auto-imports in suggestions
-    "python.analysis.autoImportCompletions": true
+    "python.analysis.autoImportCompletions": true,
+    "python.defaultInterpreterPath": ".venv/bin/python",
+    "python.testing.pytestEnvVars": {
+        "ALLOW_SMOKE_TESTS": "0"
+    },
+    "files.exclude": {
+        "**/__pycache__": true,
+        ".pytest_cache": true,
+        "htmlcov": true,
+        ".coverage*": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true,
+        ".pytest_cache": true,
+        "htmlcov": true
+    },
+    "editor.formatOnSaveMode": "file",
+    "editor.rulers": [
+        88
+    ],
+    "python.testing.cwd": "${workspaceFolder}",
+    "python.terminal.activateEnvironment": true
 }
