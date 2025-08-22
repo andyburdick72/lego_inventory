@@ -212,9 +212,22 @@ source .venv/bin/activate
   ```
 
 ### 4. Run tests
-```bash
-pytest
-```
+
+- **Unit tests** (default):
+  ```bash
+  pytest
+  ```
+
+- **Contract tests** (API endpoints, requires server running):
+  ```bash
+  export API_BASE_URL=http://localhost:8000/api
+  pytest -m contract
+  ```
+
+- **All tests with coverage**:
+  ```bash
+  pytest --cov=src --cov-report=term-missing
+  ```
 
 ### 5. Test coverage
 To measure test coverage, first ensure development dependencies are installed:
