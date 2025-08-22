@@ -16,11 +16,11 @@ def _get_first(d, *candidates):
     raise KeyError(candidates)
 
 
-def test_contract_drawers_list(api_base_url):
-    if not api_base_url:
-        pytest.skip("Set API_BASE_URL to run contract tests, e.g. http://localhost:8000/api")
-
-    url = f"{api_base_url.rstrip('/')}/drawers"
+def test_drawers_basic_shape_optional_empty(api_base_url, skip_if_no_api):
+    # skip_if_no_api is handled automatically by the fixture
+    base = api_base_url.rstrip("/")
+    base_api = base if base.endswith("/api") else f"{base}/api"
+    url = f"{base_api}/drawers"
     resp = requests.get(url, timeout=10)
 
     # Basic contract checks

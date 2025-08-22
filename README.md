@@ -220,8 +220,13 @@ source .venv/bin/activate
 
 - **Contract tests** (API endpoints, requires server running):
   ```bash
-  export API_BASE_URL=http://localhost:8000/api
+  export API_BASE_URL=http://localhost:8000
   pytest -m contract
+  ```
+
+  Or as a one-liner:
+  ```bash
+  API_BASE_URL=http://localhost:8000 pytest -m contract
   ```
 
 - **All tests with coverage**:
