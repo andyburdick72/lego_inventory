@@ -28,3 +28,25 @@ no_implicit_optional = true
 strict_equality = true
 # Loosen until you have types everywhere
 ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = [
+  "src/app/server.py",
+  "src/scripts/*",
+  "src/core/services/*",
+  "src/infra/db/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "^if __name__ == ['\\\"]__main__['\\\"]:$",
+]
+
+[tool.coverage.html]
+directory = "coverage_html_report"

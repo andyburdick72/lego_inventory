@@ -1,0 +1,21 @@
+# .coveragerc
+[run]
+branch = True
+source =
+    src
+omit =
+    src/app/server.py
+    src/scripts/*
+    src/core/services/*
+    src/infra/db/*
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    ^if __name__ == ['"]__main__['"]:$
+
+[html]
+directory = coverage_html_report
