@@ -79,7 +79,7 @@ import json
 import sqlite3
 
 from app.settings import get_settings
-from infra.db.repositories import DrawersRepo
+from infra.db.repositories import DrawersRepo, InventoryRepo
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -702,6 +702,23 @@ def list_parts_in_container(container_id: int) -> list[dict]:
     with _connect() as conn:
         repo = DrawersRepo(conn)
         rows = repo.list_aggregated_parts_in_container(container_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+
+
+# --------------------------------------------------------------------------- inventory (read-only repo delegations)
+def iter_loose_parts(filters: dict | None = None):
+    """Yield loose parts honoring optional filters. See InventoryRepo.iter_loose_parts for supported keys."""
+    with _connect() as conn:
+        repo = InventoryRepo(conn)
+        for r in repo.iter_loose_parts(filters or {}):
+            yield dict(r) if not isinstance(r, dict) else r
+
+
+def storage_location_counts(filters: dict | None = None) -> list[dict]:
+    """Aggregate loose inventory by drawer/container."""
+    with _connect() as conn:
+        repo = InventoryRepo(conn)
+        rows = repo.storage_location_counts(filters or {})
     return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
