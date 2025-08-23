@@ -23,7 +23,7 @@ echo "📦 Installing/updating dependencies..."
 pip install -r "${REPO_ROOT}/requirements.txt"
 
 echo "🛠️ Running smoke tests..."
-if ! ALLOW_SMOKE_TESTS=1 pytest -q tests/smoke/test_drawers_containers_smoke.py; then
+if ! ALLOW_SMOKE_TESTS=1 pytest -q --no-cov tests/smoke/test_drawers_containers_smoke.py; then
   code=$?
   if [ "$code" -eq 5 ]; then
     echo "ℹ️ No smoke tests collected; continuing to start server..."

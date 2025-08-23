@@ -235,18 +235,14 @@ source .venv/bin/activate
   ```
 
 ### 5. Test coverage
-To measure test coverage, first ensure development dependencies are installed:
-```bash
-pip install -r requirements-dev.txt
-```
-Then run pytest with coverage reporting:
-```bash
-pytest --cov=src --cov-report=term-missing
-```
-This command runs tests and displays coverage details in the terminal.
+Coverage is enabled by default via `pytest.ini`. Simply run:
 
-For an HTML coverage report, run:
-```bash
-pytest --cov=src --cov-report=html
-```
-The report will be generated in the `htmlcov` directory. Open `htmlcov/index.html` in a browser to view a detailed coverage report.
+    pytest
+
+This will:
+- Run all tests
+- Enforce a minimum coverage threshold (currently 70%)
+- Print missing lines (skipping fully covered files)
+- Generate XML and HTML coverage reports
+
+Open `htmlcov/index.html` in a browser to view the detailed coverage report.
