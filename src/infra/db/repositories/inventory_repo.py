@@ -240,4 +240,4 @@ class InventoryRepo(BaseRepo):
     def loose_total(self) -> int:
         """Return the total loose quantity (COALESCE SUM)."""
         row = self._one("SELECT COALESCE(SUM(quantity),0) AS q FROM inventory WHERE status='loose'")
-        return int(row["q"] if row and row.get("q") is not None else 0)
+        return int(row["q"]) if row and row["q"] is not None else 0

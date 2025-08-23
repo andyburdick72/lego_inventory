@@ -79,7 +79,7 @@ import json
 import sqlite3
 
 from app.settings import get_settings
-from infra.db.repositories import DrawersRepo, InventoryRepo, SetsRepo
+from infra.db.repositories import DrawersRepo, InventoryRepo, PartsRepo, SetsRepo
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -754,13 +754,10 @@ def resolve_color(bl_id: int) -> int | None:
 
 
 def fetch_part_name(design_id: str) -> str | None:
-    """Return the part name from the parts table, or None if not present."""
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT name FROM parts WHERE design_id = ?",
-            (design_id,),
-        ).fetchone()
-        return str(row["name"]) if row and row["name"] is not None else None
+        repo = PartsRepo(conn)
+        name = repo.fetch_part_name(design_id)
+    return name
 
 
 def insert_part(design_id: str, name: str) -> None:
@@ -785,12 +782,11 @@ def insert_part(design_id: str, name: str) -> None:
         conn.commit()
 
 
-# List all design_ids whose name is still the placeholder
 def unknown_parts() -> list[str]:
-    """Return a list of design_ids whose name is still the placeholder."""
     with _connect() as conn:
-        rows = conn.execute("SELECT design_id FROM parts WHERE name = 'Unknown part'").fetchall()
-    return [r["design_id"] for r in rows]
+        repo = PartsRepo(conn)
+        rows = repo.unknown_parts()
+    return [(r["design_id"] if not isinstance(r, dict) else r["design_id"]) for r in rows]
 
 
 def add_part_alias(alias: str, design_id: str) -> None:
@@ -804,22 +800,20 @@ def add_part_alias(alias: str, design_id: str) -> None:
 
 def resolve_part(alias: str) -> str | None:
     with _connect() as conn:
-        row = conn.execute("SELECT design_id FROM part_aliases WHERE alias=?", (alias,)).fetchone()
-        return row["design_id"] if row else None
+        repo = PartsRepo(conn)
+        row = repo.resolve_part_alias(alias)
+    if not row:
+        return None
+    if isinstance(row, dict):
+        return row.get("design_id")
+    return row["design_id"]
 
 
-# --------------------------------------------------------------------------- new helper: get_part
 def get_part(design_id: str) -> dict | None:
-    """
-    Retrieve a single part row (design_id, name) as a dict, or None
-    if the part is not in the table.
-    """
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT design_id, name, part_url, part_img_url FROM parts WHERE design_id = ?",
-            (design_id,),
-        ).fetchone()
-    return dict(row) if row else None
+        repo = PartsRepo(conn)
+        row = repo.get_part(design_id)
+    return dict(row) if (row is not None and not isinstance(row, dict)) else row
 
 
 # --------------------------------------------------------------------------- set_parts

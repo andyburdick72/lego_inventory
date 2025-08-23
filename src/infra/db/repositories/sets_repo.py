@@ -158,4 +158,4 @@ class SetsRepo(BaseRepo):
             """,
             statuses,
         )
-        return int(row["q"] if row and row.get("q") is not None else 0)
+        return int(row["q"]) if row and row["q"] is not None else 0
