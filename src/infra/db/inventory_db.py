@@ -79,7 +79,7 @@ import json
 import sqlite3
 
 from app.settings import get_settings
-from infra.db.repositories import DrawersRepo, InventoryRepo, PartsRepo, SetsRepo
+from infra.db.repositories import ColorsRepo, DrawersRepo, InventoryRepo, PartsRepo, SetsRepo
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -744,10 +744,8 @@ def add_color_alias(bl_id: int, color_id: int) -> None:
 
 def resolve_color(bl_id: int) -> int | None:
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT color_id FROM color_aliases WHERE alias_id=?", (bl_id,)
-        ).fetchone()
-        return row["color_id"] if row else None
+        repo = ColorsRepo(conn)
+        return repo.resolve_color_alias(bl_id)
 
 
 # --------------------------------------------------------------------------- part helpers
