@@ -79,6 +79,7 @@ import json
 import sqlite3
 
 from app.settings import get_settings
+from infra.db.repositories import DrawersRepo
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -667,100 +668,41 @@ def get_or_create_container_by_names(
 def list_drawers() -> list[dict]:
     """Return all drawers with container and piece counts."""
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT d.id,
-                   d.name,
-                   d.description,
-                   d.kind,
-                   d.cols,
-                   d.rows,
-                   d.sort_index,
-                   COUNT(DISTINCT c.id) AS container_count,
-                   COALESCE(SUM(i.quantity), 0) AS part_count
-            FROM drawers d
-            LEFT JOIN containers c ON c.drawer_id = d.id AND c.deleted_at IS NULL
-            LEFT JOIN inventory  i ON i.container_id = c.id AND i.status='loose'
-            WHERE (d.kind IS NULL OR d.kind NOT IN ('rub_box_legacy','rub_box_nested_error'))
-              AND d.deleted_at IS NULL
-            GROUP BY d.id
-            ORDER BY d.sort_index, d.name
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = DrawersRepo(conn)
+        rows = repo.list_drawers_with_counts()
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def get_drawer(drawer_id: int) -> dict | None:
     """Return a single drawer row by id, or None."""
     with _connect() as conn:
-        r = conn.execute(
-            "SELECT * FROM drawers WHERE id = ? AND deleted_at IS NULL", (drawer_id,)
-        ).fetchone()
-    return dict(r) if r else None
+        repo = DrawersRepo(conn)
+        r = repo.get_drawer_active(drawer_id)
+    return dict(r) if (r is not None and not isinstance(r, dict)) else r
 
 
 def list_containers_for_drawer(drawer_id: int) -> list[dict]:
     """Return containers for a drawer with counts and optional positions."""
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT c.id,
-                   c.name,
-                   c.description,
-                   c.row_index,
-                   c.col_index,
-                   c.sort_index,
-                   COALESCE(SUM(i.quantity), 0) AS part_count,
-                   COUNT(DISTINCT i.design_id || ':' || i.color_id) AS unique_parts
-            FROM containers c
-            JOIN drawers d ON d.id = c.drawer_id AND d.deleted_at IS NULL
-            LEFT JOIN inventory i ON i.container_id = c.id AND i.status='loose'
-            WHERE c.drawer_id = ? AND c.deleted_at IS NULL
-            GROUP BY c.id
-            ORDER BY c.row_index, c.col_index, c.sort_index, c.name
-            """,
-            (drawer_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = DrawersRepo(conn)
+        rows = repo.list_containers_with_counts(drawer_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def get_container(container_id: int) -> dict | None:
     """Return a single container row with its drawer name, or None."""
     with _connect() as conn:
-        r = conn.execute(
-            """
-            SELECT c.*, d.name AS drawer_name
-            FROM containers c
-            JOIN drawers d ON d.id = c.drawer_id
-            WHERE c.id = ? AND c.deleted_at IS NULL AND d.deleted_at IS NULL
-            """,
-            (container_id,),
-        ).fetchone()
-    return dict(r) if r else None
+        repo = DrawersRepo(conn)
+        r = repo.get_container_with_drawer(container_id)
+    return dict(r) if (r is not None and not isinstance(r, dict)) else r
 
 
 def list_parts_in_container(container_id: int) -> list[dict]:
     """List aggregated parts (by design_id + color) within a container."""
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT p.design_id,
-                   p.name AS part_name,
-                   col.id   AS color_id,
-                   col.name AS color_name,
-                   col.hex,
-                   SUM(i.quantity) AS qty
-            FROM inventory i
-            JOIN parts  p   ON p.design_id = i.design_id
-            JOIN colors col ON col.id      = i.color_id
-            WHERE i.container_id = ? AND i.status='loose'
-              AND EXISTS (SELECT 1 FROM containers c2 WHERE c2.id = i.container_id AND c2.deleted_at IS NULL)
-            GROUP BY p.design_id, col.id
-            ORDER BY p.design_id, col.id
-            """,
-            (container_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = DrawersRepo(conn)
+        rows = repo.list_aggregated_parts_in_container(container_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 # --------------------------------------------------------------------------- color helpers
