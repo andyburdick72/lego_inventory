@@ -79,7 +79,7 @@ import json
 import sqlite3
 
 from app.settings import get_settings
-from infra.db.repositories import DrawersRepo, InventoryRepo
+from infra.db.repositories import DrawersRepo, InventoryRepo, SetsRepo
 
 
 # Helper to safely get lastrowid with static type checkers
@@ -895,15 +895,9 @@ def sets_for_part(design_id: str) -> list[dict]:
 def get_set(set_num: str) -> dict | None:
     """Return a single set row by set_num or None if not found."""
     with _connect() as conn:
-        row = conn.execute(
-            """
-            SELECT set_num, name, year, theme, image_url, rebrickable_url, status, added_at
-            FROM sets
-            WHERE set_num = ?
-            """,
-            (set_num,),
-        ).fetchone()
-    return dict(row) if row else None
+        repo = SetsRepo(conn)
+        row = repo.get_set_by_num(set_num)
+    return dict(row) if (row is not None and not isinstance(row, dict)) else row
 
 
 def get_parts_for_set(set_num: str) -> list[dict]:
@@ -911,29 +905,14 @@ def get_parts_for_set(set_num: str) -> list[dict]:
     Falls back to canonical URL/placeholder image when metadata is missing.
     """
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT sp.design_id,
-                   p.name,
-                   sp.color_id,
-                   c.name AS color_name,
-                   c.hex  AS hex,
-                   sp.quantity,
-                   p.part_url,
-                   p.part_img_url
-            FROM set_parts sp
-            JOIN parts  p ON p.design_id = sp.design_id
-            JOIN colors c ON c.id        = sp.color_id
-            WHERE sp.set_num = ?
-            ORDER BY sp.design_id, sp.color_id
-            """,
-            (set_num,),
-        ).fetchall()
+        repo = SetsRepo(conn)
+        rows = repo.list_parts_for_set(set_num)
 
     out: list[dict] = []
     for r in rows:
-        d = dict(r)
-        d["hex"] = r["hex"]
+        d = dict(r) if not isinstance(r, dict) else dict(r)
+        # ensure hex is present explicitly (your code uses it in the dict)
+        d["hex"] = d.get("hex")
         if not d.get("part_url"):
             d["part_url"] = f"https://rebrickable.com/parts/{d['design_id']}/"
         if not d.get("part_img_url"):
@@ -1007,121 +986,52 @@ def insert_inventory(
 
 def loose_inventory_for_part(design_id: str) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT c.name AS color_name, c.hex,
-                   i.color_id, i.quantity,
-                   i.drawer, i.container
-            FROM inventory i
-            JOIN colors c ON c.id = i.color_id
-            WHERE i.design_id = ? AND i.status = 'loose'
-            ORDER BY i.drawer, i.container, i.color_id
-            """,
-            (design_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = InventoryRepo(conn)
+        rows = repo.loose_inventory_for_part(design_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 # --------------------------------------------------------------------------- queries
 def parts_with_totals() -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT p.design_id, p.name,
-                   SUM(i.quantity) AS total_quantity
-            FROM parts p
-            LEFT JOIN inventory i ON i.design_id = p.design_id
-            GROUP BY p.design_id
-            ORDER BY p.design_id
-            """
-        ).fetchall()
-        return [dict(r) for r in rows]
+        repo = InventoryRepo(conn)
+        rows = repo.parts_with_totals()
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def inventory_by_part(design_id: str) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT c.name AS color_name, c.hex,
-                   i.color_id, i.quantity, i.status,
-                   i.drawer, i.container, i.set_number
-            FROM inventory i
-            JOIN colors c ON c.id = i.color_id
-            WHERE i.design_id = ?
-            ORDER BY i.status, i.drawer, i.container, i.color_id
-            """,
-            (design_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        repo = InventoryRepo(conn)
+        rows = repo.inventory_by_part(design_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def locations_map() -> dict[tuple[str, str], list[dict]]:
     with _connect() as conn:
-        # New-path rows: inventory linked to containers/drawers
-        new_rows = conn.execute(
-            """
-            SELECT d.name AS drawer, c.name AS container,
-                   p.design_id, p.name,
-                   col.name AS color_name, col.hex,
-                   SUM(i.quantity) AS qty
-            FROM inventory i
-            JOIN containers c ON c.id = i.container_id
-            JOIN drawers    d ON d.id = c.drawer_id
-            JOIN parts      p ON p.design_id = i.design_id
-            JOIN colors     col ON col.id = i.color_id
-            WHERE i.status = 'loose' AND i.container_id IS NOT NULL
-              AND c.deleted_at IS NULL AND d.deleted_at IS NULL
-            GROUP BY d.name, c.name, p.design_id, i.color_id
-            """
-        ).fetchall()
-
-        # Legacy-path rows: no container_id yet, use text columns
-        legacy_rows = conn.execute(
-            """
-            SELECT i.drawer AS drawer, i.container AS container,
-                   p.design_id, p.name,
-                   col.name AS color_name, col.hex,
-                   SUM(i.quantity) AS qty
-            FROM inventory i
-            JOIN parts  p  ON p.design_id = i.design_id
-            JOIN colors col ON col.id     = i.color_id
-            WHERE i.status = 'loose' AND i.container_id IS NULL
-            GROUP BY i.drawer, i.container, p.design_id, i.color_id
-            """
-        ).fetchall()
+        repo = InventoryRepo(conn)
+        new_rows = repo.locations_rows_new()
+        legacy_rows = repo.locations_rows_legacy()
 
     rows = list(new_rows) + list(legacy_rows)
     tree: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
         key = (r["drawer"], r["container"])  # type: ignore[index]
-        tree.setdefault(key, []).append(dict(r))
+        tree.setdefault(key, []).append(dict(r) if not isinstance(r, dict) else dict(r))
     return tree
 
 
 def search_parts(query: str) -> list[dict]:
-    pattern = f"%{query}%"
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT p.design_id, p.name,
-                   SUM(i.quantity) AS total_quantity
-            FROM parts p
-            LEFT JOIN inventory i ON i.design_id = p.design_id
-            WHERE p.design_id LIKE ? OR p.name LIKE ?
-            GROUP BY p.design_id
-            ORDER BY p.design_id
-            """,
-            (pattern, pattern),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        repo = InventoryRepo(conn)
+        rows = repo.search_parts(query)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def totals() -> dict[str, int]:
     """Return total counts: loose_total, set_total, overall_total."""
     with _connect() as conn:
-        loose_row = conn.execute(
-            "SELECT COALESCE(SUM(quantity),0) AS q FROM inventory WHERE status='loose'"
-        ).fetchone()
+        repo = InventoryRepo(conn)
+        loose_total = repo.loose_total()
         set_row = conn.execute(
             """
             SELECT COALESCE(SUM(sp.quantity), 0) AS q
@@ -1130,7 +1040,6 @@ def totals() -> dict[str, int]:
             WHERE s.status IN ('built','wip','in_box','teardown')
             """
         ).fetchone()
-    loose_total = loose_row["q"] if loose_row else 0
     set_total = set_row["q"] if set_row else 0
     return {
         "loose_total": loose_total,
