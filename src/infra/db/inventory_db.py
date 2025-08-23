@@ -852,41 +852,30 @@ def insert_set_part(
 
 def get_set_parts(set_num: str) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT sp.set_num, sp.design_id, p.name, sp.color_id, c.name AS color_name,
-                   sp.quantity
-            FROM set_parts sp
-            JOIN parts p ON sp.design_id = p.design_id
-            JOIN colors c ON sp.color_id = c.id
-            WHERE sp.set_num = ?
-            ORDER BY p.design_id, sp.color_id
-            """,
-            (set_num,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = SetsRepo(conn)
+        rows = repo.get_set_parts_basic(set_num)
+    # Preserve legacy shape: only include the original keys (set_num, design_id, name, color_id, color_name, quantity)
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r) if not isinstance(r, dict) else dict(r)
+        out.append(
+            {
+                "set_num": d.get("set_num"),
+                "design_id": d.get("design_id"),
+                "name": d.get("name"),
+                "color_id": d.get("color_id"),
+                "color_name": d.get("color_name"),
+                "quantity": d.get("quantity"),
+            }
+        )
+    return out
 
 
 def sets_for_part(design_id: str) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT s.set_num,
-                   s.name        AS set_name,
-                   s.year        AS year,
-                   c.id          AS color_id,
-                   c.name        AS color_name,
-                   c.hex         AS hex,
-                   sp.quantity   AS quantity
-            FROM set_parts sp
-            JOIN sets  s ON s.set_num = sp.set_num
-            JOIN colors c ON c.id     = sp.color_id
-            WHERE sp.design_id = ?
-            ORDER BY s.year, s.set_num, c.id
-            """,
-            (design_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        repo = SetsRepo(conn)
+        rows = repo.sets_for_part_with_colors(design_id)
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 # --------------------------------------------------------------------------- sets helpers
@@ -1030,17 +1019,10 @@ def search_parts(query: str) -> list[dict]:
 def totals() -> dict[str, int]:
     """Return total counts: loose_total, set_total, overall_total."""
     with _connect() as conn:
-        repo = InventoryRepo(conn)
-        loose_total = repo.loose_total()
-        set_row = conn.execute(
-            """
-            SELECT COALESCE(SUM(sp.quantity), 0) AS q
-            FROM set_parts sp
-            JOIN sets s ON s.set_num = sp.set_num
-            WHERE s.status IN ('built','wip','in_box','teardown')
-            """
-        ).fetchone()
-    set_total = set_row["q"] if set_row else 0
+        inv_repo = InventoryRepo(conn)
+        set_repo = SetsRepo(conn)
+        loose_total = inv_repo.loose_total()
+        set_total = set_repo.set_total_for_statuses(["built", "wip", "in_box", "teardown"])
     return {
         "loose_total": loose_total,
         "set_total": set_total,
