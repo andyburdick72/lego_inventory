@@ -9,6 +9,19 @@
 {% block content %}
 <h1>Drawer: {{ drawer_name }}</h1>
 
+<div id="add-container-inline"
+    style="margin: .5rem 0 1rem 0; display:flex; gap:.5rem; align-items:flex-end; flex-wrap: wrap;">
+    <div><label>Name<br><input id="new-container-name" placeholder="e.g., A1"></label></div>
+    <div><label>Description<br><input id="new-container-desc" placeholder="optional" style="width:18em"></label>
+    </div>
+    <div><label>Row<br><input id="new-container-row" type="number" min="0" style="width:6em"></label></div>
+    <div><label>Column<br><input id="new-container-col" type="number" min="0" style="width:6em"></label></div>
+    <div><button type="button" data-action="create-container">Add Container</button></div>
+    <div class="w-100">
+        <div id="add-container-error" class="text-danger small mt-1" style="display:none"></div>
+    </div>
+</div>
+
 {{ render_table(
 table_id="drawer_detail_table",
 columns=["Pos", "Name", "Description", "Unique Parts", "Total Pieces", "Actions"],
@@ -17,4 +30,10 @@ table_key="containers_in_drawer",
 table_context={'drawer_id': drawer_id},
 nonsearchable=[5]
 ) }}
+
+<script>
+    // Make drawer_id available to JS
+    document.body.dataset.drawerId = "{{ drawer_id }}";
+</script>
+<script src="/static/js/drawer_detail.js"></script>
 {% endblock %}
