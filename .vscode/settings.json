@@ -59,5 +59,16 @@
         88
     ],
     "python.testing.cwd": "${workspaceFolder}",
-    "python.terminal.activateEnvironment": true
+    "python.terminal.activateEnvironment": true,
+    "terminal.integrated.profiles.osx": {
+        "venv": {
+            "path": "zsh",
+            "args": [
+                "-l",
+                "-c",
+                "source ${workspaceFolder}/.venv/bin/activate; exec zsh -l"
+            ]
+        }
+    },
+    "terminal.integrated.defaultProfile.osx": "venv"
 }
