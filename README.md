@@ -1,4 +1,4 @@
-<file name=0 path=/Users/andyburdick/Code/GitHub/andyburdick72/lego_inventory/README.md># LEGO Inventory Management System
+# LEGO Inventory Management System
 
 A SQLite-backed inventory management system for LEGO parts and sets.  
 Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and supports importing inventory from Instabrick/BrickLink XML exports.
@@ -246,3 +246,51 @@ This will:
 - Generate XML and HTML coverage reports
 
 Open `htmlcov/index.html` in a browser to view the detailed coverage report.
+
+---
+
+## Roadmap Management (GitHub Issues + Project)
+
+This repo tracks the roadmap in GitHub Issues and a Project board (user project: **LEGO Inventory Management System Roadmap**). Issues include checklists, labels, and—when appropriate—a **Copilot** prompt and a **Recommended branch name**.
+
+### Labels
+- `type:*` → feature | refactor | test | bug | exploration  
+- `area:*` → backend | frontend | scripts  
+- `priority:*` → P1 | P2 | P3  
+- `size:*` → S | M | L  
+- `copilot` → multi-file or cross-cutting work where Copilot Pro will help
+
+### Milestones & Project
+- 13 milestones mirror the roadmap phases (e.g., *Refactor: write endpoints*, *Part-Out Wizard*).  
+- A GitHub Actions workflow auto-adds any new issue to the Project using the repo variable **`LEGO_PROJECT_ID`**.
+
+### Scripts (one-time setup / regeneration)
+From repo root:
+
+```bash
+# seed labels & milestones
+./scripts/seed_labels.sh
+./scripts/seed_milestones.sh
+
+# create (or find) the Project and set repo var LEGO_PROJECT_ID
+./scripts/create_project_and_set_var.sh
+
+# scaffold issue/PR templates and the add-to-project workflow, then push
+./scripts/scaffold_github_files.sh
+git push
+
+# batch create the 13 roadmap issues (with Copilot prompts + branch suggestions)
+./scripts/create_roadmap_issues_with_copilot.sh
+```
+
+### Working an issue
+1. Open the issue and copy **🔀 Recommended branch** (e.g. `feature/route-write-endpoints`).
+2. Create the branch and reference the issue number in commits:
+   ```bash
+   git checkout -b feature/route-write-endpoints
+   git commit -m "Implement create_drawer endpoint (#1)"
+   ```
+3. Use the **💡 Copilot Prompt** in the issue body with Copilot Chat (VS Code) for multi-file changes.
+4. Move the card on the Project board using the **Status** field (Backlog → In Progress → Done). Closing the issue auto-moves it to **Done**.
+
+> Note: The Project board title and node id are managed by scripts; the node id is stored in the repo variable `LEGO_PROJECT_ID`.

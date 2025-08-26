@@ -208,3 +208,18 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Coverage and test artifacts
+coverage_html_report/
+coverage.xml
+
+# Local databases
+data/*.db
+
+# macOS cruft
+.DS_Store
+
+# VS Code workspace (allow intentional tracked files)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
