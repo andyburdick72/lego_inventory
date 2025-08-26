@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from app.settings import get_settings
 from core.services.export_service import ExportService
 
 # Services (match current Protocols in core/services/inventory_service.py)
 from core.services.inventory_service import InventoryService
+
+# Parts service/repo
+from core.services.parts_service import PartsService
 from core.services.set_parts_service import SetPartsService
 
 # Concrete repos (your implementations)
 from infra.db.repositories.drawers_repo import DrawersRepo as DrawersRepoImpl
 from infra.db.repositories.inventory_repo import InventoryRepo as InventoryRepoImpl
+from infra.db.repositories.parts_repo import PartsRepo as PartsRepoImpl
 from infra.db.repositories.sets_repo import SetsRepo as SetsRepoImpl
 
 # -----------------------------
@@ -137,6 +141,9 @@ class _InventoryRepoAdapter:
         # Your concrete repo method name is storage_location_counts(filters)
         return self._impl.storage_location_counts(filters=None)
 
+    def loose_inventory_for_part(self, design_id: str) -> list[dict]:
+        return self._impl.loose_inventory_for_part(design_id)
+
 
 class _SetsRepoAdapter:
     """
@@ -147,9 +154,15 @@ class _SetsRepoAdapter:
     def __init__(self, impl: SetsRepoImpl) -> None:
         self._impl = impl
 
-    def get(self, *, set_number: str):
+    def get(self, *, set_number: str) -> Mapping[str, Any] | None:
         # Concrete uses get_set_by_num(set_num)
         return self._impl.get_set_by_num(set_number)
+
+    def sets_for_part(self, design_id: str) -> list[Mapping[str, Any]]:
+        return cast(list[Mapping[str, Any]], self._impl.sets_for_part(design_id))
+
+    def sets_for_part_with_colors(self, design_id: str) -> list[Mapping[str, Any]]:
+        return cast(list[Mapping[str, Any]], self._impl.sets_for_part_with_colors(design_id))
 
 
 class _SetPartsRepoAdapter:
@@ -228,3 +241,14 @@ def get_set_parts_service() -> SetPartsService:
 def get_export_service() -> ExportService:
     exporter = _ExportRepoAdapter()
     return ExportService(exporter=exporter)
+
+
+# -----------------------------
+# Parts service factory
+# -----------------------------
+
+
+def get_parts_service() -> PartsService:
+    conn = _get_conn()
+    parts_impl = PartsRepoImpl(conn)
+    return PartsService(parts=parts_impl)

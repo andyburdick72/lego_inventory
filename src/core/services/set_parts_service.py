@@ -11,6 +11,8 @@ class SetPartsRepo(Protocol):
 
 class SetsRepo(Protocol):
     def get(self, *, set_number: str) -> Mapping[str, Any] | None: ...
+    def sets_for_part(self, design_id: str) -> list[Mapping[str, Any]]: ...
+    def sets_for_part_with_colors(self, design_id: str) -> list[Mapping[str, Any]]: ...
 
 
 class SetPartsService:
@@ -30,3 +32,9 @@ class SetPartsService:
 
     def upsert_parts(self, *, set_number: str, parts: Iterable[Mapping[str, Any]]):
         return self._set_parts.upsert_for_set(set_number=set_number, parts=parts)
+
+    def sets_for_part(self, *, design_id: str):
+        return self._sets.sets_for_part(design_id)
+
+    def sets_for_part_with_colors(self, *, design_id: str):
+        return self._sets.sets_for_part_with_colors(design_id)

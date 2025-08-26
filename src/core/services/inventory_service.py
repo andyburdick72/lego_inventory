@@ -22,7 +22,7 @@ class ContainersRepo(Protocol):
 class InventoryRepo(Protocol):
     def counts_by_storage_location(self) -> Iterable[Mapping[str, Any]]: ...
 
-    # …add other signatures you actually expose
+    def loose_inventory_for_part(self, design_id: str) -> list[dict]: ...
 
 
 class InventoryService:
@@ -70,3 +70,7 @@ class InventoryService:
     # Inventory rollups
     def storage_location_counts(self):
         return self._inventory.counts_by_storage_location()
+
+    # Per-part loose inventory
+    def loose_inventory_for_part(self, design_id: str) -> list[dict]:
+        return self._inventory.loose_inventory_for_part(design_id)

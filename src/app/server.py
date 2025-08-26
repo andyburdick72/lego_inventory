@@ -51,7 +51,7 @@ from app.adapters import (
     row_to_drawer_summary,
     rows_to,
 )
-from app.di import get_inventory_service  # type: ignore
+from app.di import get_inventory_service, get_parts_service, get_set_parts_service  # type: ignore
 from core.enums import Status
 
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
@@ -93,7 +93,6 @@ def _render_template(name: str, **context) -> str:
 
 
 from infra.db import inventory_db as db  # noqa: E402
-from infra.db.inventory_db import get_set  # noqa: E402
 
 SET_STATUSES = {Status.BUILT.value, Status.WIP.value, Status.IN_BOX.value, Status.TEARDOWN.value}
 
@@ -628,35 +627,14 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_html(html_doc, status=200)
 
     def _serve_set(self, set_num: str):
-        # Get set metadata
-        set_info = get_set(set_num)
+        # Get set metadata and parts using new service
+        svc = get_set_parts_service()
+        set_info = svc.get_set(set_number=set_num)
         if not set_info:
             self._not_found()
             return
 
-        # Fetch parts for this set (prefer DB helper if available)
-        if hasattr(db, "get_parts_for_set"):
-            parts = db.get_parts_for_set(set_num)
-        else:
-            with db._connect() as conn:  # pylint: disable=protected-access
-                rows = conn.execute(
-                    """
-                    SELECT
-                        p.design_id,
-                        p.name AS name,
-                        c.name AS color_name,
-                        c.hex AS hex,
-                        sp.quantity AS quantity,
-                        p.part_url AS part_url,
-                        p.part_img_url AS part_img_url
-                    FROM set_parts sp
-                    JOIN parts p ON p.design_id = sp.design_id
-                    JOIN colors c ON c.id = sp.color_id
-                    WHERE sp.set_num = ?
-                    """,
-                    (set_num,),
-                ).fetchall()
-                parts = [dict(r) for r in rows]
+        parts = list(svc.list_parts(set_number=set_num))
 
         # Compute total quantity for the set
         total_qty = sum(int(p.get("quantity", 0) or 0) for p in parts)
@@ -921,38 +899,19 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_html(html_doc, status=200)
 
     def _serve_part(self, design_id: str):
-        # Resolve part meta (fallbacks preserved)
-        part = db.get_part(design_id) or {
+        # Resolve part meta via service (fallbacks preserved)
+        part = get_parts_service().get_part(design_id=design_id) or {
             "design_id": design_id,
             "name": "Unknown part",
             "part_url": None,
             "part_img_url": None,
         }
 
-        # "In Sets" rows (prefer helper)
-        sets_rows = db.sets_for_part(design_id)
+        # "In Sets" rows via service (with per-color detail)
+        sets_rows = get_set_parts_service().sets_for_part_with_colors(design_id=design_id)
 
-        # Loose inventory rows aggregated by drawer/container/color
-        with db._connect() as conn:  # pylint: disable=protected-access
-            rows = conn.execute(
-                """
-                SELECT
-                    COALESCE(d.name, i.drawer)     AS drawer,
-                    COALESCE(c2.name, i.container) AS container,
-                    col.name  AS color_name,
-                    col.hex   AS hex,
-                    SUM(i.quantity) AS quantity
-                FROM inventory i
-                JOIN colors col ON col.id = i.color_id
-                LEFT JOIN containers c2 ON c2.id = i.container_id
-                LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
-                WHERE i.status = 'loose' AND i.design_id = ?
-                GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
-                ORDER BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
-                """,
-                (design_id,),
-            ).fetchall()
-            loose_rows = [dict(r) for r in rows]
+        # Loose inventory rows aggregated by drawer/container/color via service
+        loose_rows = get_inventory_service().loose_inventory_for_part(design_id)
 
         # Foreground color helper
         def _fg_for_hex(h: str) -> str:
@@ -969,11 +928,28 @@ class Handler(BaseHTTPRequestHandler):
         # Loose Parts: Drawer, Container, Color(td_style), Qty
         rows_loose_tbl: list[list] = []
         for r in loose_rows:
-            drawer = html.escape(str(r.get("drawer", "")))
-            container = html.escape(str(r.get("container", "")))
+            drawer_txt = str(r.get("drawer", ""))
+            container_txt = str(r.get("container", ""))
+            drawer_id = r.get("drawer_id")
+            container_id = r.get("container_id")
             color_name = str(r.get("color_name", ""))
             hex_code = (r.get("hex") or "").lstrip("#")
             qty = int(r.get("quantity", 0) or 0)
+
+            # Linkify drawer/container when we have real IDs (dict with html so template renders safely)
+            if drawer_id:
+                drawer_cell = {
+                    "html": f"<a href='/drawers/{int(drawer_id)}'>{html.escape(drawer_txt)}</a>"
+                }
+            else:
+                drawer_cell = html.escape(drawer_txt)
+
+            if container_id:
+                container_cell = {
+                    "html": f"<a href='/containers/{int(container_id)}'>{html.escape(container_txt)}</a>"
+                }
+            else:
+                container_cell = html.escape(container_txt)
 
             if hex_code:
                 fg = _fg_for_hex(hex_code)
@@ -984,7 +960,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 color_cell = html.escape(color_name)
 
-            rows_loose_tbl.append([drawer, container, color_cell, f"{qty:,}"])
+            rows_loose_tbl.append([drawer_cell, container_cell, color_cell, f"{qty:,}"])
 
         # In Sets: Set (link + name), Color(td_style), Qty
         rows_sets_tbl: list[list] = []
