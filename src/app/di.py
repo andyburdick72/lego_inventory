@@ -61,9 +61,30 @@ class _DrawersRepoAdapter:
 
     # Protocol: def list(self, *, filters: Mapping[str, Any] | None = None) -> Iterable[Mapping[str, Any]]
     def list(self, *, filters: Mapping[str, Any] | None = None):
-        # Your concrete repo exposes list_drawers() without filters for now.
-        # We ignore filters in this skeleton; you can extend later.
-        return self._impl.list_drawers()
+        # Prefer aggregated variant to preserve counts expected by templates/DTOs
+        rows = (
+            self._impl.list_drawers_with_counts()
+            if hasattr(self._impl, "list_drawers_with_counts")
+            else self._impl.list_drawers()
+        )
+        # Normalize keys: add aliases some templates expect
+        normalized: list[dict] = []
+        for row in rows:
+            d = dict(row)
+            if "container_count" in d and "containers" not in d:
+                try:
+                    d["containers"] = (
+                        int(d["container_count"]) if d["container_count"] is not None else 0
+                    )
+                except Exception:
+                    d["containers"] = d["container_count"]
+            if "part_count" in d and "parts" not in d:
+                try:
+                    d["parts"] = int(d["part_count"]) if d["part_count"] is not None else 0
+                except Exception:
+                    d["parts"] = d["part_count"]
+            normalized.append(d)
+        return normalized
 
     # Protocol: def create(self, *, label: str) -> Mapping[str, Any]
     def create(self, *, label: str):

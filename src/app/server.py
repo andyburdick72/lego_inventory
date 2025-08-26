@@ -51,6 +51,7 @@ from app.adapters import (
     row_to_drawer_summary,
     rows_to,
 )
+from app.di import get_inventory_service  # type: ignore
 from core.enums import Status
 
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
@@ -326,8 +327,9 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if path == "/api/drawers":
-                # Active drawers via db.list_drawers(); shape preserved with Summary DTOs
-                rows = db.list_drawers()
+                # Use InventoryService (read-only) to fetch drawers with counts
+                svc = get_inventory_service()
+                rows = svc.list_drawers()
                 items = rows_to(row_to_drawer_summary, rows)
                 payload = [d.model_dump() for d in items]
                 return self._send_json(200, payload)
@@ -336,7 +338,8 @@ class Handler(BaseHTTPRequestHandler):
                 drawer_id = qs.get("drawer_id", [None])[0]
                 if drawer_id is None:
                     return self._send_json(400, {"error": "drawer_id is required"})
-                rows = db.list_containers_for_drawer(int(drawer_id))
+                svc = get_inventory_service()
+                rows = svc.list_containers(filters={"drawer_id": int(drawer_id)})
                 items = rows_to(row_to_container_summary, rows)
                 payload = [d.model_dump() for d in items]
                 return self._send_json(200, payload)
@@ -1053,7 +1056,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_html(html_doc, status=200)
 
     def _serve_drawers(self):
-        rows = db.list_drawers()
+        svc = get_inventory_service()
+        rows = list(svc.list_drawers())
         total_containers = sum(r.get("container_count", 0) for r in rows)
         total_pieces = sum(r.get("part_count", 0) for r in rows)
 
@@ -1077,8 +1081,8 @@ class Handler(BaseHTTPRequestHandler):
             drawer_link = f"<a href='/drawers/{d['id']}'>{html.escape(d['name'])}</a>"
             actions = (
                 f"<button type='button' data-action=\"rename-drawer\" "
-                f"data-id=\"{d['id']}\" data-name=\"{html.escape(d['name'])}\" "
-                f"data-desc=\"{html.escape(d.get('description') or '')}\" "
+                f"data-drawer-id=\"{d['id']}\" data-name=\"{html.escape(d['name'])}\" "
+                f"data-description=\"{html.escape(d.get('description') or '')}\" "
                 f"data-cols=\"{html.escape(str(d.get('cols') or ''))}\" "
                 f"data-rows=\"{html.escape(str(d.get('rows') or ''))}\">Rename</button> "
                 f"<button type='button' data-action=\"delete-drawer\" data-id=\"{d['id']}\">Delete</button>"
@@ -1121,7 +1125,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Gather parts across all containers in this drawer
-        containers = db.list_containers_for_drawer(drawer_id)
+        svc = get_inventory_service()
+        containers = list(svc.list_containers(filters={"drawer_id": drawer_id}))
 
         rows_for_table: list[list] = []
 
@@ -1149,9 +1154,9 @@ class Handler(BaseHTTPRequestHandler):
             total_pieces_str = f"{int(total_pieces or 0):,}"
 
             actions_html = (
-                f'<button type=\'button\' data-action="rename-container" data-id="{c_id}" '
-                f'data-name="{html.escape(c_name)}" data-desc="{html.escape(desc)}" '
-                f"data-row=\"{html.escape(str(row_index or ''))}\" data-col=\"{html.escape(str(col_index or ''))}\">Rename</button> "
+                f'<button type=\'button\' data-action="rename-container" data-container-id="{c_id}" '
+                f'data-name="{html.escape(c_name)}" data-description="{html.escape(desc)}" '
+                f"data-row-index=\"{html.escape(str(row_index or ''))}\" data-col-index=\"{html.escape(str(col_index or ''))}\">Rename</button> "
                 f'<button type=\'button\' data-action="move-container" data-id="{c_id}" data-drawer-id="{drawer_id}">Move</button> '
                 f'<button type=\'button\' data-action="delete-container" data-id="{c_id}" data-drawer-id="{drawer_id}">Delete</button>'
             )

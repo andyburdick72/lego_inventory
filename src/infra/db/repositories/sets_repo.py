@@ -10,11 +10,14 @@ class SetsRepo(BaseRepo):
         return self._one(
             """
             SELECT s.id,
-                   s.set_number,
+                   s.set_num,
                    s.name,
                    s.status,
-                   s.theme_id,
-                   s.year
+                   s.theme,
+                   s.year,
+                   s.image_url,
+                   s.rebrickable_url,
+                   s.added_at
             FROM sets s
             WHERE s.id = ?
             """,
@@ -29,17 +32,17 @@ class SetsRepo(BaseRepo):
         return self._iter(
             """
             SELECT
-                sp.part_id,
+                p.design_id,
                 p.name AS part_name,
                 sp.color_id,
                 c.name AS color_name,
                 c.hex  AS hex,
-                sp.quantity,
-                sp.is_spare
-            FROM set_parts sp
-            JOIN parts  p ON p.id = sp.part_id
-            JOIN colors c ON c.id = sp.color_id
-            WHERE sp.set_id = ?
+                sp.quantity
+            FROM sets s
+            JOIN set_parts sp ON sp.set_num = s.set_num
+            JOIN parts  p     ON p.design_id = sp.design_id
+            JOIN colors c     ON c.id        = sp.color_id
+            WHERE s.id = ?
             ORDER BY p.name COLLATE NOCASE, sp.color_id
             """,
             [set_id],

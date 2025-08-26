@@ -7,7 +7,7 @@ class DrawersRepo(BaseRepo):
     def get_drawer(self, drawer_id: int) -> dict | None:
         return self._one(
             """
-            SELECT d.id, d.name, d.note
+            SELECT d.id, d.name, d.description
             FROM drawers d
             WHERE d.id = ?
             """,
@@ -17,7 +17,7 @@ class DrawersRepo(BaseRepo):
     def list_drawers(self) -> list[dict]:
         return self._all(
             """
-            SELECT d.id, d.name, d.note
+            SELECT d.id, d.name, d.description
             FROM drawers d
             ORDER BY d.name COLLATE NOCASE
             """
@@ -26,10 +26,13 @@ class DrawersRepo(BaseRepo):
     def list_containers(self, drawer_id: int) -> list[dict]:
         return self._all(
             """
-            SELECT c.id, c.drawer_id, c.label, c.deleted
+            SELECT c.id,
+                   c.drawer_id,
+                   c.name AS label,
+                   CASE WHEN c.deleted_at IS NULL THEN 0 ELSE 1 END AS deleted
             FROM containers c
             WHERE c.drawer_id = ?
-            ORDER BY c.label COLLATE NOCASE
+            ORDER BY c.name COLLATE NOCASE
             """,
             [drawer_id],
         )

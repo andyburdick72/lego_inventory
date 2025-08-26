@@ -27,9 +27,9 @@
     }
 
     async function renameDrawer(btn) {
-        var id = parseInt(btn.getAttribute('data-id') || '0', 10) || 0;
+        var id = parseInt(btn.getAttribute('data-drawer-id') || '0', 10) || 0;
         var name = btn.getAttribute('data-name') || '';
-        var desc = btn.getAttribute('data-desc') || '';
+        var desc = btn.getAttribute('data-description') || '';
         var cols = btn.getAttribute('data-cols') || '';
         var rows = btn.getAttribute('data-rows') || '';
 
@@ -43,11 +43,11 @@
       <form id="lego-modal-form">\
         <div class="row">\
           <div><label>Name<br><input name="name"></label></div>\
-          <div><label>Desc<br><input name="desc"></label></div>\
+          <div><label>Description<br><input name="desc"></label></div>\
         </div>\
         <div class="row" style="margin-top:.5rem;">\
-          <div><label>Cols<br><input name="cols" type="number" min="0"></label></div>\
           <div><label>Rows<br><input name="rows" type="number" min="0"></label></div>\
+          <div><label>Columns<br><input name="cols" type="number" min="0"></label></div>\
         </div>\
       </form>\
       <div class="actions">\
@@ -107,9 +107,13 @@
     document.addEventListener('click', function (e) {
         const el = e.target.closest('button[data-action]');
         if (!el) return;
+        // Prevent default (e.g., if button is inside a form and defaults to submit)
+        e.preventDefault();
+        // Stop bubbling so any legacy inline handlers/prompt() don’t also run
+        e.stopPropagation();
         const action = el.getAttribute('data-action');
-        if (action === 'create-drawer') return createDrawer();
-        if (action === 'rename-drawer') return renameDrawer(el);
-        if (action === 'delete-drawer') return deleteDrawer(el);
+        if (action === 'create-drawer') { createDrawer(); return; }
+        if (action === 'rename-drawer') { renameDrawer(el); return; }
+        if (action === 'delete-drawer') { deleteDrawer(el); return; }
     });
 })();
