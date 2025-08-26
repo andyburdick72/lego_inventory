@@ -44,14 +44,14 @@ from pathlib import Path
 from pathlib import Path as _Path
 from urllib.parse import parse_qs, urlparse
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape  # type: ignore
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.adapters import (
     row_to_container_summary,
     row_to_drawer_summary,
     rows_to,
 )
-from app.di import get_inventory_service, get_parts_service, get_set_parts_service  # type: ignore
+from app.di import get_inventory_service, get_parts_service, get_set_parts_service
 from core.enums import Status
 
 # Ensure repo root is on sys.path when running as `python3 src/app/server.py`
@@ -102,6 +102,7 @@ STATUS_DISPLAY_NAMES = {
     "wip": "Work in Progress",
     "in_box": "In Box",
     "teardown": "Teardown",
+    "loose": "Loose",
 }
 
 
