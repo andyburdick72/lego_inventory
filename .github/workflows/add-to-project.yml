@@ -1,0 +1,31 @@
+name: Add issues to Project
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  projects: write
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add to project
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_ID: ${{ vars.LEGO_PROJECT_ID }}
+          CONTENT_ID: ${{ github.event.issue.node_id }}
+        run: |
+          cat > body.json <<'JSON'
+          {
+            "query": "mutation($project:ID!, $content:ID!){ addProjectV2ItemById(input:{projectId:$project, contentId:$content}){ item { id }}}",
+            "variables": { "project": "'"$PROJECT_ID"'", "content": "'"$CONTENT_ID"'" }
+          }
+          JSON
+          curl -s -X POST https://api.github.com/graphql \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @body.json | jq .

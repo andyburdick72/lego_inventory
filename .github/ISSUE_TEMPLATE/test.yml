@@ -1,0 +1,28 @@
+name: Test
+description: Add or expand tests
+title: "[Test]: "
+labels: ["type:test"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      placeholder: What behaviors & edges are being verified?
+    validations:
+      required: true
+
+  - type: textarea
+    id: coverage
+    attributes:
+      label: Coverage targets
+      value: |
+        - [ ] Adapter X
+        - [ ] Enum Y
+        - [ ] Contract edges Z
+
+  - type: input
+    id: branch
+    attributes:
+      label: Recommended branch name
+      description: Suggested naming convention: type/short-slug
+      placeholder: test/coverage-phase-2a

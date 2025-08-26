@@ -1,0 +1,51 @@
+name: Refactor
+description: Improve structure without changing behavior
+title: "[Refactor]: "
+labels: ["type:refactor"]
+body:
+  - type: input
+    id: scope
+    attributes:
+      label: Scope
+      placeholder: e.g., Repositories layer / DTOs
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risk / Blast radius
+      placeholder: Modules touched, behavior to watch
+
+  - type: checkboxes
+    id: testplan
+    attributes:
+      label: Test plan
+      options:
+        - label: Unit tests updated
+        - label: Smoke tests pass locally (`./dev.sh`)
+        - label: Coverage unchanged or improved
+
+  - type: textarea
+    id: extra_checklist
+    attributes:
+      label: Additional checklist
+      value: |
+        - [ ] Extract code to new module
+        - [ ] Rename symbols
+        - [ ] Update imports
+
+  - type: input
+    id: branch
+    attributes:
+      label: Recommended branch name
+      description: Suggested naming convention: type/short-slug
+      placeholder: refactor/error-taxonomy
+
+  - type: textarea
+    id: copilot
+    attributes:
+      label: Copilot prompt (optional)
+      description: Add a starting prompt for Copilot Chat to accelerate this issue
+      placeholder: |
+        e.g. "Replace ad-hoc dict responses with DTOs across services and update tests."

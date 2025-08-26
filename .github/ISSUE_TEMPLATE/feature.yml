@@ -1,0 +1,84 @@
+name: Feature
+description: New capability or enhancement
+title: "[Feature]: "
+labels: ["type:feature"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: One-line what & why
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / Links
+      description: Relevant code, screenshots, URLs, related issues
+      placeholder: |
+        - Code refs:
+        - Screenshot:
+        - Related issues:
+
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: Acceptance criteria (required)
+      description: These define "done"
+      options:
+        - label: Tests updated/added
+          required: true
+        - label: No regressions in smoke tests (`./dev.sh`)
+          required: true
+        - label: Linked to milestone (phase)
+          required: true
+
+  - type: textarea
+    id: extra_checklist
+    attributes:
+      label: Additional checklist (edit freely)
+      value: |
+        - [ ] Task 1
+        - [ ] Task 2
+        - [ ] Task 3
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [backend, frontend, scripts]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      options: [S, M, L]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: [P1, P2, P3]
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: Recommended branch name
+      description: Suggested naming convention: type/short-slug
+      placeholder: feature/hyperlink-drawer-columns
+
+  - type: textarea
+    id: copilot
+    attributes:
+      label: Copilot prompt (optional)
+      description: Add a starting prompt for Copilot Chat to accelerate this issue
+      placeholder: |
+        e.g. "Update all DTOs to include 'category' field, update repos,
+        API endpoints, and tests that reference Status or Brick Architect categories."
