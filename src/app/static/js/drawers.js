@@ -94,26 +94,57 @@
     }
 
     async function deleteDrawer(btn) {
-        const id = parseInt(btn.getAttribute('data-id') || '0', 10) || 0;
-        if (!id) return;
-        if (!confirm('Soft delete this drawer? (must be empty)')) return;
+        const id = parseInt(
+            btn.getAttribute('data-id') ||
+            btn.getAttribute('data-drawer-id') ||
+            '0', 10
+        ) || 0;
+        if (!id) { toast('Missing drawer id'); return; }
 
-        const r = await api('DELETE', `/api/drawers/${id}`);
+        const name = btn.getAttribute('data-name') || '';
+        const msg = `Soft delete this drawer${name ? ` "${name}"` : ''}? (must be empty)`;
+        if (!confirm(msg)) return;
+
+        // Use action-style endpoint to align with new server routes
+        const r = await api('POST', '/api/drawers/delete', { id });
         if (r.ok) location.reload();
         else toast(r.json?.error || 'Failed to delete drawer');
+    }
+
+    async function moveDrawer(btn) {
+        const id = parseInt(btn.getAttribute('data-id') || btn.getAttribute('data-drawer-id') || '0', 10) || 0;
+        if (!id) { toast('Missing drawer id'); return; }
+        const current = parseInt(btn.getAttribute('data-sort-index') || '0', 10) || '';
+        const input = prompt('New position (sort index):', current);
+        if (input === null) return; // user cancelled
+        const new_sort_index = input.trim() === '' ? null : parseInt(input, 10);
+        if (Number.isNaN(new_sort_index) && input.trim() !== '') { toast('Please enter a number'); return; }
+        const r = await api('POST', '/api/drawers/move', { id, new_sort_index });
+        if (r.ok) location.reload();
+        else toast(r.json?.error || 'Failed to move drawer');
     }
 
     // ---- Event delegation ----
     document.addEventListener('click', function (e) {
         const el = e.target.closest('button[data-action]');
         if (!el) return;
-        // Prevent default (e.g., if button is inside a form and defaults to submit)
-        e.preventDefault();
-        // Stop bubbling so any legacy inline handlers/prompt() don’t also run
-        e.stopPropagation();
         const action = el.getAttribute('data-action');
+
+        // Block default and any legacy handlers before they can run (prevents double prompts)
+        if (
+            action === 'create-drawer' ||
+            action === 'rename-drawer' ||
+            action === 'move-drawer' ||
+            action === 'delete-drawer'
+        ) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+        }
+
         if (action === 'create-drawer') { createDrawer(); return; }
         if (action === 'rename-drawer') { renameDrawer(el); return; }
+        if (action === 'move-drawer') { moveDrawer(el); return; }
         if (action === 'delete-drawer') { deleteDrawer(el); return; }
-    });
+    }, true); // capture phase
 })();

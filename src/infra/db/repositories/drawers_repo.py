@@ -3,6 +3,13 @@ from __future__ import annotations
 from .base import BaseRepo
 
 
+# Local duplicate error to avoid circular import during module import.
+# Server maps DB constraint violations separately; this signals duplicates when
+# calling the repository directly.
+class DuplicateLabelError(Exception):
+    pass
+
+
 class DrawersRepo(BaseRepo):
     def get_drawer(self, drawer_id: int) -> dict | None:
         return self._one(
@@ -136,6 +143,198 @@ class DrawersRepo(BaseRepo):
             AND EXISTS (SELECT 1 FROM containers c2 WHERE c2.id = i.container_id AND c2.deleted_at IS NULL)
             GROUP BY p.design_id, col.id
             ORDER BY p.design_id, col.id
+            """,
+            [container_id],
+        )
+
+    # ----------------------------
+    # Write operations: Drawers
+    # ----------------------------
+    def create_drawer(self, *, name: str, description: str | None = None) -> int:
+        dup = self._one(
+            """
+            SELECT 1
+            FROM drawers
+            WHERE name = ? COLLATE NOCASE
+            AND deleted_at IS NULL
+            """,
+            [name],
+        )
+        if dup:
+            raise DuplicateLabelError(f"Drawer '{name}' already exists")
+
+        row = self._one(
+            """
+            INSERT INTO drawers (name, description)
+            VALUES (?, ?)
+            RETURNING id
+            """,
+            [name, description],
+        )
+        if row is None:
+            raise RuntimeError("Failed to create drawer: no ID returned")
+        return int(row["id"] if isinstance(row, dict) else row[0])
+
+    def rename_drawer(self, *, drawer_id: int, new_name: str) -> None:
+        dup = self._one(
+            """
+            SELECT 1
+            FROM drawers
+            WHERE name = ? COLLATE NOCASE
+            AND deleted_at IS NULL
+            """,
+            [new_name],
+        )
+        if dup:
+            raise DuplicateLabelError(f"Drawer '{new_name}' already exists")
+
+        self._one(
+            """
+            UPDATE drawers
+            SET name = ?
+            WHERE id = ?
+            """,
+            [new_name, drawer_id],
+        )
+
+    def move_drawer(self, *, drawer_id: int, new_sort_index: int | None) -> None:
+        self._one(
+            """
+            UPDATE drawers
+            SET sort_index = ?
+            WHERE id = ?
+            """,
+            [new_sort_index, drawer_id],
+        )
+
+    def delete_drawer(self, *, drawer_id: int) -> None:
+        self._one(
+            """
+            UPDATE drawers
+            SET deleted_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            [drawer_id],
+        )
+
+    # ----------------------------
+    # Write operations: Containers
+    # ----------------------------
+    def create_container(
+        self,
+        *,
+        drawer_id: int,
+        name: str,
+        description: str | None = None,
+        row_index: int | None = None,
+        col_index: int | None = None,
+        sort_index: int | None = None,
+    ) -> int:
+        dup = self._one(
+            """
+            SELECT 1
+            FROM containers
+            WHERE drawer_id = ?
+            AND name = ? COLLATE NOCASE
+            AND deleted_at IS NULL
+            """,
+            [drawer_id, name],
+        )
+        if dup:
+            raise DuplicateLabelError(f"Container '{name}' already exists in this drawer")
+
+        row = self._one(
+            """
+            INSERT INTO containers (drawer_id, name, description, row_index, col_index, sort_index)
+            VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id
+            """,
+            [drawer_id, name, description, row_index, col_index, sort_index],
+        )
+        if row is None:
+            raise RuntimeError("Failed to create container: no ID returned")
+        return int(row["id"] if isinstance(row, dict) else row[0])
+
+    def rename_container(self, *, container_id: int, new_name: str) -> None:
+        row = self._one(
+            """
+            SELECT drawer_id
+            FROM containers
+            WHERE id = ?
+            """,
+            [container_id],
+        )
+        if not row:
+            return
+        drawer_id = row["drawer_id"] if isinstance(row, dict) else row[0]
+
+        dup = self._one(
+            """
+            SELECT 1
+            FROM containers
+            WHERE drawer_id = ?
+            AND name = ? COLLATE NOCASE
+            AND deleted_at IS NULL
+            """,
+            [drawer_id, new_name],
+        )
+        if dup:
+            raise DuplicateLabelError(f"Container '{new_name}' already exists in this drawer")
+
+        self._one(
+            """
+            UPDATE containers
+            SET name = ?
+            WHERE id = ?
+            """,
+            [new_name, container_id],
+        )
+
+    def move_container(
+        self,
+        *,
+        container_id: int,
+        new_drawer_id: int | None = None,
+        row_index: int | None = None,
+        col_index: int | None = None,
+        sort_index: int | None = None,
+    ) -> None:
+        fields = []
+        params: list[object] = []
+        if new_drawer_id is not None:
+            fields.append("drawer_id = ?")
+            params.append(new_drawer_id)
+        if row_index is not None:
+            fields.append("row_index = ?")
+            params.append(row_index)
+        if col_index is not None:
+            fields.append("col_index = ?")
+            params.append(col_index)
+        if sort_index is not None:
+            fields.append("sort_index = ?")
+            params.append(sort_index)
+        if not fields:
+            return
+        params.append(container_id)
+
+        self._one(
+            f"""
+            UPDATE containers
+            SET {', '.join(fields)}
+            WHERE id = ?
+            """,
+            params,
+        )
+
+    def delete_container(self, *, container_id: int) -> None:
+        self._one(
+            """
+            UPDATE containers
+            SET deleted_at = CURRENT_TIMESTAMP,
+                row_index  = NULL,
+                col_index  = NULL,
+                sort_index = NULL
+            WHERE id = ?
             """,
             [container_id],
         )

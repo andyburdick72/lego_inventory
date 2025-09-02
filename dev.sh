@@ -33,6 +33,35 @@ if ! ALLOW_SMOKE_TESTS=1 pytest -q --no-cov tests/smoke/test_drawers_containers_
   fi
 fi
 
+echo "📜 Starting server for contract tests..."
+python -m app.server &
+SERVER_PID=$!
+trap 'kill ${SERVER_PID} >/dev/null 2>&1 || true' EXIT
+
+# Wait for server to accept connections (up to ~10s)
+for i in {1..40}; do
+  if curl -sS http://localhost:8000/ >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+  if [ "$i" -eq 40 ]; then
+    echo "❌ Server did not start in time for contract tests"
+    kill ${SERVER_PID} >/dev/null 2>&1 || true
+    exit 1
+  fi
+done
+
+echo "📜 Running contract tests..."
+if ! pytest -m contract --no-cov -q; then
+  echo "❌ Contract tests failed"
+  kill ${SERVER_PID} >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# Stop background server before starting the dev server in the foreground
+kill ${SERVER_PID} >/dev/null 2>&1 || true
+trap - EXIT
+
 if [ "${1:-}" = "cov" ]; then
   echo "🧪 Running tests with coverage..."
   ALLOW_SMOKE_TESTS=1 pytest --cov=src --cov-report=term-missing --cov-branch

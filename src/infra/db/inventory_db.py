@@ -317,6 +317,51 @@ def init_db() -> None:
 
 
 def create_drawer(conn, name, description=None, kind=None, cols=None, rows=None, sort_index=0):
+    # Reuse soft-deleted names by restoring the row; enforce uniqueness only among active drawers.
+    name = (name or "").strip()
+    # Check for any row with this name (active or soft-deleted)
+    row = conn.execute(
+        "SELECT id, deleted_at FROM drawers WHERE name = ? COLLATE NOCASE",
+        (name,),
+    ).fetchone()
+    if row is not None:
+        did_val = row[0] if not isinstance(row, dict) else row.get("id")
+        deleted_at = row[1] if not isinstance(row, dict) else row.get("deleted_at")
+        if deleted_at is None:
+            # Active duplicate → raise duplicate
+            raise DuplicateLabelError(f"Drawer '{name}' already exists")
+        if did_val is None:
+            raise RuntimeError("Expected existing drawer id when restoring soft-deleted drawer")
+        did = int(did_val)
+        # Restore soft-deleted drawer and update fields
+        before = conn.execute("SELECT * FROM drawers WHERE id=?", (did,)).fetchone()
+        conn.execute(
+            """
+            UPDATE drawers
+               SET deleted_at = NULL,
+                   description = ?,
+                   kind = ?,
+                   cols = ?,
+                   rows = ?,
+                   sort_index = COALESCE(?, sort_index),
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+            """,
+            (description, kind, cols, rows, sort_index, did),
+        )
+        after = conn.execute("SELECT * FROM drawers WHERE id=?", (did,)).fetchone()
+        _audit(
+            conn,
+            "drawer",
+            did,
+            "restore",
+            dict(before) if before else None,
+            dict(after) if after else None,
+        )
+        conn.commit()
+        return did
+
+    # No record with that name → insert new
     cur = conn.execute(
         """
         INSERT INTO drawers (name, description, kind, cols, rows, sort_index)
@@ -465,7 +510,14 @@ def soft_delete_container(conn, container_id):
         raise InventoryConstraintError("Container has inventory; merge/move required.")
     before = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
     conn.execute(
-        "UPDATE containers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+        """
+        UPDATE containers
+           SET deleted_at = CURRENT_TIMESTAMP,
+               row_index  = NULL,
+               col_index  = NULL,
+               sort_index = NULL
+         WHERE id = ? AND deleted_at IS NULL
+        """,
         (container_id,),
     )
     after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()

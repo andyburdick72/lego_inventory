@@ -42,6 +42,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from pathlib import Path as _Path
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -272,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _read_json(self) -> dict:
+    def _read_json(self) -> dict[str, Any]:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except Exception:
@@ -281,6 +282,30 @@ class Handler(BaseHTTPRequestHandler):
         if not body:
             return {}
         return json.loads(body.decode("utf-8"))
+
+    # ------------------------------ typed JSON helpers
+    def _parse_int(self, data: dict[str, Any], key: str) -> tuple[bool, int | None, str | None]:
+        """Safely parse an integer field from a JSON dict.
+        Returns (ok, value, error). If not ok, value is None and error is a message.
+        """
+        val = data.get(key)
+        if val is None:
+            return False, None, f"{key} is required"
+        try:
+            return True, int(cast(Any, val)), None
+        except (TypeError, ValueError):
+            return False, None, f"{key} must be an integer"
+
+    def _parse_optional_int(
+        self, data: dict[str, Any], key: str
+    ) -> tuple[bool, int | None, str | None]:
+        """Parse an optional integer field; missing returns (True, None, None)."""
+        if key not in data or data.get(key) is None:
+            return True, None, None
+        try:
+            return True, int(cast(Any, data.get(key))), None
+        except (TypeError, ValueError):
+            return False, None, f"{key} must be an integer"
 
     def _serve_static(self):
         # Map /static/... to files under _STATIC_DIR
@@ -356,6 +381,112 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         data = self._read_json()
         try:
+            # Rename drawer (action-style)
+            if path == "/api/drawers/rename":
+                ok, did, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                new_name = (data.get("new_name") or data.get("new_label") or "").strip()
+                if not new_name:
+                    return self._send_json(400, {"error": "new_name is required"})
+                try:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        db.update_drawer(conn, did, name=new_name)
+                    return self._send_json(200, {"updated": did})
+                except getattr(db, "DuplicateLabelError", sqlite3.IntegrityError):  # type: ignore[attr-defined]
+                    return self._send_json(409, {"error": "Duplicate drawer name"})
+
+            # Move drawer (action-style) – updates sort_index
+            if path == "/api/drawers/move":
+                ok, did, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                ok, new_sort_index, err = self._parse_optional_int(data, "new_sort_index")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    db.update_drawer(conn, did, sort_index=new_sort_index)
+                return self._send_json(200, {"updated": did})
+
+            # Delete drawer (action-style)
+            if path == "/api/drawers/delete":
+                ok, did, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        db.soft_delete_drawer(conn, did)
+                        return self._send_json(200, {"deleted": did})
+                    except db.InventoryConstraintError as e:  # type: ignore[attr-defined]
+                        return self._send_json(409, {"error": str(e)})
+
+            # Rename container (action-style)
+            if path == "/api/containers/rename":
+                ok, cid, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                new_name = (data.get("new_name") or data.get("new_label") or "").strip()
+                if not new_name:
+                    return self._send_json(400, {"error": "new_name is required"})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        db.update_container(conn, cid, name=new_name)
+                        return self._send_json(200, {"updated": cid})
+                    except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
+                        return self._send_json(
+                            409, {"error": str(e) or "Duplicate label in this drawer"}
+                        )
+
+            # Move container (action-style)
+            if path == "/api/containers/move":
+                ok, cid, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                # Accept any subset of these; only provided fields will be updated
+                patch: dict[str, int] = {}
+                ok, v, err = self._parse_optional_int(data, "new_drawer_id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                if v is not None:
+                    patch["drawer_id"] = v
+                for k in ("row_index", "col_index", "sort_index"):
+                    ok, v, err = self._parse_optional_int(data, k)
+                    if not ok:
+                        return self._send_json(400, {"error": err})
+                    if v is not None:
+                        patch[k] = v
+                if not patch:
+                    return self._send_json(400, {"error": "no fields to update"})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    db.update_container(conn, cid, **patch)
+                return self._send_json(200, {"updated": cid})
+
+            # Delete container (action-style) – mirrors DELETE pre-check behavior
+            if path == "/api/containers/delete":
+                ok, cid, err = self._parse_int(data, "id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    # Pre-check: if inventory exists, request merge/move
+                    row = conn.execute(
+                        "SELECT COUNT(*) AS n FROM inventory WHERE container_id=?",
+                        (cid,),
+                    ).fetchone()
+                    has_inv = bool(row and (row["n"] or 0) > 0)
+                    if has_inv:
+                        return self._send_json(
+                            409,
+                            {
+                                "error": "Container has inventory; merge/move required",
+                                "needed": "merge_move",
+                            },
+                        )
+                    try:
+                        db.soft_delete_container(conn, cid)
+                        return self._send_json(200, {"deleted": cid})
+                    except db.InventoryConstraintError as e:  # type: ignore[attr-defined]
+                        return self._send_json(409, {"error": str(e), "needed": "merge_move"})
+
             # Create drawer
             if path == "/api/drawers":
                 name = (data.get("name") or "").strip()
@@ -372,19 +503,69 @@ class Handler(BaseHTTPRequestHandler):
                             rows=data.get("rows"),
                         )
                     return self._send_json(201, {"id": did})
-                except sqlite3.IntegrityError:
+                except (
+                    sqlite3.IntegrityError,
+                    getattr(db, "DuplicateLabelError", sqlite3.IntegrityError),
+                ) as _:
+                    return self._send_json(409, {"error": "Duplicate drawer name"})
+
+            # Create drawer (action-style alias)
+            if path == "/api/drawers/create":
+                name = (data.get("name") or data.get("label") or "").strip()
+                if not name:
+                    return self._send_json(400, {"error": "name is required"})
+                try:
+                    with db._connect() as conn:  # pylint: disable=protected-access
+                        did = db.create_drawer(
+                            conn,
+                            name=name,
+                            description=data.get("description"),
+                            kind=data.get("kind"),
+                            cols=data.get("cols"),
+                            rows=data.get("rows"),
+                        )
+                    return self._send_json(201, {"id": did})
+                except getattr(db, "DuplicateLabelError", sqlite3.IntegrityError):  # type: ignore[attr-defined]
                     return self._send_json(409, {"error": "Duplicate drawer name"})
 
             # Create container
             if path == "/api/containers":
                 if "drawer_id" not in data or "name" not in data:
                     return self._send_json(400, {"error": "drawer_id and name are required"})
+                ok, drawer_id_val, err = self._parse_int(data, "drawer_id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
                 with db._connect() as conn:  # pylint: disable=protected-access
                     try:
                         cid = db.create_container(
                             conn,
-                            drawer_id=int(data["drawer_id"]),
+                            drawer_id=drawer_id_val,
                             name=str(data["name"]).strip(),
+                            description=data.get("description"),
+                            row_index=data.get("row_index"),
+                            col_index=data.get("col_index"),
+                        )
+                        return self._send_json(201, {"id": cid})
+                    except db.DuplicateLabelError as e:  # type: ignore[attr-defined]
+                        return self._send_json(
+                            409, {"error": str(e) or "Duplicate label in this drawer"}
+                        )
+
+            # Create container (action-style alias)
+            if path == "/api/containers/create":
+                if "drawer_id" not in data or (
+                    data.get("name") is None and data.get("label") is None
+                ):
+                    return self._send_json(400, {"error": "drawer_id and name are required"})
+                ok, drawer_id_val, err = self._parse_int(data, "drawer_id")
+                if not ok:
+                    return self._send_json(400, {"error": err})
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    try:
+                        cid = db.create_container(
+                            conn,
+                            drawer_id=drawer_id_val,
+                            name=str(data.get("name") or data.get("label") or "").strip(),
                             description=data.get("description"),
                             row_index=data.get("row_index"),
                             col_index=data.get("col_index"),
