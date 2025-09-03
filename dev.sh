@@ -52,6 +52,14 @@ for i in {1..40}; do
 done
 
 echo "📜 Running contract tests..."
+# Fast contract sanity for error taxonomy (run the file; it's small/quick)
+if ! pytest --no-cov -q tests/contract/api/test_errors_normalized.py; then
+  echo "❌ Error-normalization contract sanity failed"
+  kill ${SERVER_PID} >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# Full contract suite
 if ! pytest -m contract --no-cov -q; then
   echo "❌ Contract tests failed"
   kill ${SERVER_PID} >/dev/null 2>&1 || true

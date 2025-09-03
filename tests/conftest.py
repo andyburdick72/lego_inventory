@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 
+import httpx
 import pytest
 
 # Ensure repo root and 'src/' are on sys.path for imports like 'from src.core import enums'
@@ -38,6 +39,20 @@ def api_base_url(pytestconfig):
     if cli:
         return cli
     return os.environ.get(API_ENV_VAR)
+
+
+# Shared HTTP client for contract tests
+@pytest.fixture()
+def client(api_base_url):
+    """Shared HTTP client for contract tests.
+    Uses the base URL provided by the test harness and ensures cleanup.
+    """
+    if not api_base_url:
+        pytest.skip(
+            f"Skipping contract tests: {API_ENV_VAR} is unset and --api-base-url not provided"
+        )
+    with httpx.Client(base_url=api_base_url, timeout=5.0) as c:
+        yield c
 
 
 @pytest.fixture
