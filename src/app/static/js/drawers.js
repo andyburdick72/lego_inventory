@@ -1,17 +1,55 @@
 // src/app/static/js/drawers.js
+// src/app/static/js/drawers.js
 (function () {
-    async function api(method, path, body) {
-        const res = await fetch(path, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: body ? JSON.stringify(body) : undefined
-        });
-        let json = null;
-        try { json = await res.json(); } catch (_) { }
-        return { ok: res.ok, status: res.status, json };
-    }
-
-    function toast(msg) { alert(msg); }
+    // Use centralized API utilities (added in src/app/static/js/api.js). Provide shims if not loaded.
+    const Api = (window.AppApi) || {
+        async api(method, path, body) {
+            const res = await fetch(path, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : undefined
+            });
+            let json = null; try { json = await res.json(); } catch (_) { }
+            const ok = res.ok;
+            const error = json && json.error ? json.error : { code: 'unknown', message: res.statusText };
+            const message = (json && json.error && json.error.message) ? json.error.message : (ok ? '' : (res.statusText || 'Request failed'));
+            return { ok, status: res.status, json, error, message };
+        },
+        toast(msg) {
+            try {
+                let c = document.getElementById('toast-container');
+                if (!c) {
+                    c = document.createElement('div');
+                    c.id = 'toast-container';
+                    c.style.position = 'fixed';
+                    c.style.bottom = '16px';
+                    c.style.right = '16px';
+                    c.style.zIndex = '9999';
+                    c.style.display = 'flex';
+                    c.style.flexDirection = 'column';
+                    c.style.gap = '8px';
+                    document.body.appendChild(c);
+                }
+                const t = document.createElement('div');
+                t.textContent = String(msg ?? '');
+                t.style.padding = '10px 12px';
+                t.style.background = '#333';
+                t.style.color = '#fff';
+                t.style.borderRadius = '4px';
+                t.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+                t.style.maxWidth = '320px';
+                t.style.fontSize = '14px';
+                c.appendChild(t);
+                setTimeout(() => {
+                    t.style.transition = 'opacity .3s';
+                    t.style.opacity = '0';
+                    setTimeout(() => t.remove(), 300);
+                }, 3000);
+            } catch (_) { console.warn(msg); }
+        },
+        humanizeApiError(err) { return (err && err.message) || 'Unexpected error'; },
+    };
+    const { api, toast, humanizeApiError } = Api;
 
     // ---- Actions ----
     async function createDrawer() {
@@ -23,7 +61,7 @@
 
         const r = await api('POST', '/api/drawers', { name, description: desc, cols, rows });
         if (r.ok) location.reload();
-        else toast(r.json?.error || 'Failed to create drawer');
+        else toast(r.message || humanizeApiError(r.error));
     }
 
     async function renameDrawer(btn) {
@@ -86,7 +124,7 @@
             const res = await api('PUT', '/api/drawers/' + id, payload);
             cleanup(); hide();
             if (res.ok) location.reload();
-            else toast(res.json && res.json.error ? res.json.error : 'Failed to update drawer');
+            else toast(res.message || humanizeApiError(res.error));
         }
 
         function cleanup() { modal.removeEventListener('click', onClick); }
@@ -108,7 +146,7 @@
         // Use action-style endpoint to align with new server routes
         const r = await api('POST', '/api/drawers/delete', { id });
         if (r.ok) location.reload();
-        else toast(r.json?.error || 'Failed to delete drawer');
+        else toast(r.message || humanizeApiError(r.error));
     }
 
     async function moveDrawer(btn) {
@@ -121,7 +159,7 @@
         if (Number.isNaN(new_sort_index) && input.trim() !== '') { toast('Please enter a number'); return; }
         const r = await api('POST', '/api/drawers/move', { id, new_sort_index });
         if (r.ok) location.reload();
-        else toast(r.json?.error || 'Failed to move drawer');
+        else toast(r.message || humanizeApiError(r.error));
     }
 
     // ---- Event delegation ----

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from app.errors import NotFoundError, ValidationError
+
 
 class PartsRepo(Protocol):
     def get_part(self, design_id: str) -> Mapping[str, Any] | None: ...
@@ -17,4 +19,10 @@ class PartsService:
         self._parts = parts
 
     def get_part(self, *, design_id: str):
-        return self._parts.get_part(design_id)
+        design_id = (design_id or "").strip()
+        if not design_id:
+            raise ValidationError("design_id is required")
+        part = self._parts.get_part(design_id)
+        if not part:
+            raise NotFoundError("Part not found", details={"design_id": design_id})
+        return part

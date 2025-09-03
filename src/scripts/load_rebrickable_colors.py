@@ -13,7 +13,7 @@ Usage:
 from __future__ import annotations
 
 from app.settings import get_settings
-from core.services.rebrickable_api import paginate
+from integrations.rebrickable_api import paginate
 from infra.db import inventory_db as db
 
 

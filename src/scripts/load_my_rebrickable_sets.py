@@ -15,7 +15,7 @@ if str(_ROOT) not in sys.path:
 
 from app.settings import get_settings  # noqa: E402
 from core.enums import Status  # noqa: E402
-from core.services.rebrickable_api import get_json  # noqa: E402
+from integrations.rebrickable_api import get_json  # noqa: E402
 from scripts.load_my_rebrickable_parts import fetch_owned_sets  # noqa: E402
 
 # Centralized settings (cached)

@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from app.settings import get_settings
-from core.services.rebrickable_api import bulk_parts_by_bricklink, get_json
+from integrations.rebrickable_api import bulk_parts_by_bricklink, get_json
 from infra.db import inventory_db as db
 from infra.db.inventory_db import resolve_color, resolve_part
 

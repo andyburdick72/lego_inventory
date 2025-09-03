@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Mapping
 from typing import Any, cast
 
+from app.errors import DuplicateError
 from app.settings import get_settings
 from core.services.export_service import ExportService
 
@@ -16,6 +17,7 @@ from core.services.set_parts_service import SetPartsService
 
 # Concrete repos (your implementations)
 from infra.db.repositories.drawers_repo import DrawersRepo as DrawersRepoImpl
+from infra.db.repositories.drawers_repo import DuplicateLabelError as _DBDuplicateLabelError
 from infra.db.repositories.inventory_repo import InventoryRepo as InventoryRepoImpl
 from infra.db.repositories.parts_repo import PartsRepo as PartsRepoImpl
 from infra.db.repositories.sets_repo import SetsRepo as SetsRepoImpl
@@ -44,9 +46,33 @@ def _get_conn() -> sqlite3.Connection:
             "Database path not found in settings (expected 'db_path' or 'database_path')."
         )
 
-    conn = sqlite3.connect(db_path)
+    # Enable WAL + busy timeout and autocommit to avoid long-held write locks in tests
+    conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None)  # autocommit mode
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")  # wait up to 5s if the DB is locked
+        conn.execute("PRAGMA synchronous=NORMAL;")  # reasonable durability for WAL
+        conn.execute("PRAGMA foreign_keys=ON;")  # safety
+    except Exception:
+        # Best-effort in case PRAGMAs aren't supported
+        pass
     return conn
+
+
+# Normalize various row-like objects (sqlite3.Row, dict-like, etc.) to Mapping[str, Any]
+def _as_mapping(row: Any) -> Mapping[str, Any]:
+    if isinstance(row, Mapping):
+        return cast(Mapping[str, Any], row)
+    # If DB returns a bare integer id, normalize to {"id": id}
+    if isinstance(row, int):
+        return {"id": row}
+    # sqlite3.Row supports .keys() and index access by column name
+    try:
+        keys = row.keys()  # type: ignore[attr-defined]
+        return {k: row[k] for k in keys}  # type: ignore[index]
+    except Exception:
+        return {"value": row}
 
 
 # -----------------------------
@@ -91,16 +117,47 @@ class _DrawersRepoAdapter:
         return normalized
 
     # Protocol: def create(self, *, label: str) -> Mapping[str, Any]
-    def create(self, *, label: str):
-        raise NotImplementedError("Drawer create not wired yet in skeleton services layer")
+    def create(self, *, label: str, description: str | None = None) -> Mapping[str, Any]:
+        """Create a drawer via the concrete repo, tolerating different kw names/signatures."""
+        impl = self._impl
+        try:
+            # Call concrete impl, accepting different kw signatures
+            try:
+                row = impl.create_drawer(name=label, description=description)  # type: ignore[call-arg]
+            except TypeError:
+                try:
+                    row = impl.create_drawer(label=label, description=description)  # type: ignore[call-arg]
+                except TypeError:
+                    try:
+                        row = impl.create_drawer(name=label)  # type: ignore[call-arg]
+                    except TypeError:
+                        row = impl.create_drawer(label=label)  # type: ignore[call-arg]
+            return _as_mapping(row)
+        except _DBDuplicateLabelError as e:
+            # Normalize to app-level DuplicateError so HTTP layer maps to 409
+            raise DuplicateError(str(e) or "Duplicate drawer name") from e
 
     # Protocol: def soft_delete(self, drawer_id: int) -> None
     def soft_delete(self, drawer_id: int) -> None:
-        raise NotImplementedError("Drawer soft_delete not wired yet in skeleton services layer")
+        impl = self._impl
+        if hasattr(impl, "soft_delete_drawer"):
+            impl.soft_delete_drawer(drawer_id)  # type: ignore[attr-defined]
+            return
+        if hasattr(impl, "delete_drawer"):
+            impl.delete_drawer(drawer_id)  # type: ignore[attr-defined]
+            return
+        raise NotImplementedError("No soft_delete/delete method for drawers on implementation")
 
     # Protocol: def restore(self, drawer_id: int) -> None
     def restore(self, drawer_id: int) -> None:
-        raise NotImplementedError("Drawer restore not wired yet in skeleton services layer")
+        impl = self._impl
+        if hasattr(impl, "restore_drawer"):
+            impl.restore_drawer(drawer_id)  # type: ignore[attr-defined]
+            return
+        if hasattr(impl, "undelete_drawer"):
+            impl.undelete_drawer(drawer_id)  # type: ignore[attr-defined]
+            return
+        raise NotImplementedError("No restore/undelete method for drawers on implementation")
 
 
 class _ContainersRepoAdapter:
@@ -118,16 +175,51 @@ class _ContainersRepoAdapter:
         return self._impl.list_containers_with_counts(int(drawer_id))
 
     # Protocol: def create(self, *, label: str, drawer_id: int | None = None) -> Mapping[str, Any]
-    def create(self, *, label: str, drawer_id: int | None = None):
-        raise NotImplementedError("Container create not wired yet in skeleton services layer")
+    def create(self, *, label: str, drawer_id: int | None = None) -> Mapping[str, Any]:
+        impl = self._impl
+        if drawer_id is None:
+            raise ValueError("drawer_id is required to create a container")
+        try:
+            # Try common signatures
+            if hasattr(impl, "create_container"):
+                try:
+                    row = impl.create_container(drawer_id=drawer_id, name=label)  # type: ignore[call-arg]
+                except TypeError:
+                    try:
+                        row = impl.create_container(drawer_id=drawer_id, label=label)  # type: ignore[call-arg]
+                    except TypeError:
+                        # Some implementations may expect positional args (drawer_id, name)
+                        row = impl.create_container(drawer_id, label)  # type: ignore[misc]
+            else:
+                raise NotImplementedError(
+                    "create_container not available on DrawersRepo implementation"
+                )
+            return _as_mapping(row)
+        except _DBDuplicateLabelError as e:
+            # Normalize to app-level DuplicateError so HTTP layer maps to 409
+            raise DuplicateError(str(e) or "Duplicate label in this drawer") from e
 
     # Protocol: def soft_delete(self, container_id: int) -> None
     def soft_delete(self, container_id: int) -> None:
-        raise NotImplementedError("Container soft_delete not wired yet in skeleton services layer")
+        impl = self._impl
+        if hasattr(impl, "soft_delete_container"):
+            impl.soft_delete_container(container_id)  # type: ignore[attr-defined]
+            return
+        if hasattr(impl, "delete_container"):
+            impl.delete_container(container_id)  # type: ignore[attr-defined]
+            return
+        raise NotImplementedError("No soft_delete/delete method for containers on implementation")
 
     # Protocol: def restore(self, container_id: int) -> None
     def restore(self, container_id: int) -> None:
-        raise NotImplementedError("Container restore not wired yet in skeleton services layer")
+        impl = self._impl
+        if hasattr(impl, "restore_container"):
+            impl.restore_container(container_id)  # type: ignore[attr-defined]
+            return
+        if hasattr(impl, "undelete_container"):
+            impl.undelete_container(container_id)  # type: ignore[attr-defined]
+            return
+        raise NotImplementedError("No restore/undelete method for containers on implementation")
 
 
 class _InventoryRepoAdapter:

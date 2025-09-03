@@ -27,7 +27,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from app.settings import get_settings  # noqa: E402
-from core.services.rebrickable_api import paginate  # noqa: E402
+from integrations.rebrickable_api import paginate  # noqa: E402
 from infra.db.inventory_db import _connect, insert_set_part  # noqa: E402
 
 # Centralized settings (cached by get_settings via lru_cache)

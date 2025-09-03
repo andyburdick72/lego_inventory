@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
+from app.errors import NotFoundError, ValidationError
+
 
 class SetPartsRepo(Protocol):
     def list_for_set(self, *, set_number: str) -> Iterable[Mapping[str, Any]]: ...
@@ -25,12 +27,24 @@ class SetPartsService:
         self._set_parts = set_parts
 
     def get_set(self, *, set_number: str):
-        return self._sets.get(set_number=set_number)
+        set_number = (set_number or "").strip()
+        if not set_number:
+            raise ValidationError("set_number is required")
+        s = self._sets.get(set_number=set_number)
+        if not s:
+            raise NotFoundError("Set not found", details={"set_number": set_number})
+        return s
 
     def list_parts(self, *, set_number: str):
+        set_number = (set_number or "").strip()
+        if not set_number:
+            raise ValidationError("set_number is required")
         return self._set_parts.list_for_set(set_number=set_number)
 
     def upsert_parts(self, *, set_number: str, parts: Iterable[Mapping[str, Any]]):
+        set_number = (set_number or "").strip()
+        if not set_number:
+            raise ValidationError("set_number is required")
         return self._set_parts.upsert_for_set(set_number=set_number, parts=parts)
 
     def sets_for_part(self, *, design_id: str):

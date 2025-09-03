@@ -16,6 +16,7 @@ from typing import Any
 
 import requests
 
+from app.errors import AppError, ExternalServiceError, RateLimitError, ValidationError
 from app.settings import get_settings
 
 RB_API_BASE = "https://rebrickable.com/api/v3/lego"
@@ -32,7 +33,7 @@ def _api_key() -> str:
     """
     key = get_settings().rebrickable_api_key
     if not key:
-        raise RuntimeError("Missing APP_REBRICKABLE_API_KEY in data/.env or environment")
+        raise AppError("Missing APP_REBRICKABLE_API_KEY in data/.env or environment")
     return key
 
 
@@ -45,13 +46,26 @@ def get_json(
 ) -> dict[str, Any]:
     """GET *endpoint* (relative to RB_API_BASE) and return decoded JSON.
 
-    Retries the usual transient errors (429, 502, 503, 504) **up to MAX_RETRIES**
-    using exponential back‑off (1 s, 2 s, 4 s, …) plus a small random jitter.
+    Retries transient errors (timeouts, connection issues, 429, 502, 503, 504) up to MAX_RETRIES
+    with exponential backoff and jitter, and maps final failures into the app error taxonomy.
     """
     url = endpoint if endpoint.startswith("http") else f"{RB_API_BASE}{endpoint}"
 
     for attempt in range(1, MAX_RETRIES + 1):
-        resp = requests.get(url, headers=_headers(), params=params, timeout=timeout)
+        try:
+            resp = requests.get(url, headers=_headers(), params=params, timeout=timeout)
+        except requests.Timeout as e:
+            if attempt < MAX_RETRIES:
+                delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
+                time.sleep(delay)
+                continue
+            raise ExternalServiceError("Rebrickable timeout") from e
+        except requests.ConnectionError as e:
+            if attempt < MAX_RETRIES:
+                delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
+                time.sleep(delay)
+                continue
+            raise ExternalServiceError("Rebrickable connection error") from e
 
         # --- Successful response ---
         if resp.status_code < 400:
@@ -59,8 +73,6 @@ def get_json(
 
         # --- Retryable responses ---
         if resp.status_code in RETRY_STATUS and attempt < MAX_RETRIES:
-            # Rate‑limit 429 honour explicit Retry‑After header, otherwise
-            # exponential back‑off: 1s, 2s, 4s, 8s… plus jitter
             if resp.status_code == 429:
                 delay = int(resp.headers.get("Retry-After", "5"))
             else:
@@ -69,10 +81,31 @@ def get_json(
             time.sleep(delay)
             continue
 
-        # --- Non‑retryable or final failure ---
-        resp.raise_for_status()
+        # --- Map final failure to taxonomy ---
+        # 429: explicit rate limit
+        if resp.status_code == 429:
+            raise RateLimitError(
+                "Rebrickable rate limit", details={"retry_after": resp.headers.get("Retry-After")}
+            )
 
-    raise RuntimeError("Unreachable – retries exhausted")
+        # 4xx: treat as validation-ish errors; include upstream body when possible
+        if 400 <= resp.status_code < 500:
+            try:
+                payload = resp.json()
+            except Exception:
+                payload = {"text": resp.text}
+            details = {"status": resp.status_code, **({"payload": payload} if payload else {})}
+            raise ValidationError(f"Rebrickable 4xx ({resp.status_code})", details=details)
+
+        # 5xx: upstream failure
+        if resp.status_code >= 500:
+            raise ExternalServiceError(
+                "Rebrickable upstream error",
+                details={"status": resp.status_code, "text": resp.text[:500]},
+            )
+
+    # Defensive: loop always returns or raises above
+    raise ExternalServiceError("Rebrickable request retries exhausted")
 
 
 def _single_part_name(part_num: str) -> str | None:
@@ -80,10 +113,11 @@ def _single_part_name(part_num: str) -> str | None:
     try:
         data = get_json(f"/parts/{part_num}/")
         return data["name"]
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 404:
+    except ValidationError as exc:  # rebrickable 4xx
+        details = getattr(exc, "details", {}) or {}
+        if isinstance(details, dict) and details.get("status") == 404:
             return None
-        raise
+        return None
 
 
 # --------------------------------------------------------------------------- pagination helpers
@@ -148,16 +182,13 @@ def bulk_parts(design_ids: list[str]) -> dict[str, str]:
             "/parts/",
             params={"part_nums": ids_param},
         )
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code in RETRY_STATUS:
-            mapping: dict[str, str] = {}
-            for pid in design_ids:
-                name = _single_part_name(pid)
-                if name:
-                    mapping[pid] = name
-            return mapping
-        else:
-            raise
+    except (RateLimitError, ExternalServiceError):
+        mapping: dict[str, str] = {}
+        for pid in design_ids:
+            name = _single_part_name(pid)
+            if name:
+                mapping[pid] = name
+        return mapping
     mapping: dict[str, str] = {}
     for part in data.get("results", []):
         mapping[part["part_num"]] = part["name"]

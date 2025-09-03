@@ -361,14 +361,17 @@ def create_drawer(conn, name, description=None, kind=None, cols=None, rows=None,
         conn.commit()
         return did
 
-    # No record with that name → insert new
-    cur = conn.execute(
-        """
-        INSERT INTO drawers (name, description, kind, cols, rows, sort_index)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (name, description, kind, cols, rows, sort_index),
-    )
+    # No record with that name → insert new (handle race on UNIQUE)
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO drawers (name, description, kind, cols, rows, sort_index)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, description, kind, cols, rows, sort_index),
+        )
+    except sqlite3.IntegrityError:
+        raise DuplicateLabelError(f"Drawer '{name}' already exists") from None
     did = _lastrowid(cur)
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (did,)).fetchone()
     _audit(conn, "drawer", did, "create", None, dict(after))
@@ -383,9 +386,12 @@ def update_drawer(conn, drawer_id, **fields):
     values = list(fields.values())
     values.append(drawer_id)
     before = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
-    conn.execute(
-        f"UPDATE drawers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values
-    )
+    try:
+        conn.execute(
+            f"UPDATE drawers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values
+        )
+    except sqlite3.IntegrityError:
+        raise DuplicateLabelError("Duplicate drawer name") from None
     after = conn.execute("SELECT * FROM drawers WHERE id=?", (drawer_id,)).fetchone()
     _audit(
         conn,
@@ -453,13 +459,16 @@ def create_container(
     name = name.strip()
     if _container_duplicate_exists(conn, drawer_id, name):
         raise DuplicateLabelError("Duplicate label in this drawer")
-    cur = conn.execute(
-        """
-        INSERT INTO containers (drawer_id, name, description, row_index, col_index, sort_index)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (drawer_id, name, description, row_index, col_index, sort_index),
-    )
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO containers (drawer_id, name, description, row_index, col_index, sort_index)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (drawer_id, name, description, row_index, col_index, sort_index),
+        )
+    except sqlite3.IntegrityError:
+        raise DuplicateLabelError("Duplicate label in this drawer") from None
     cid = _lastrowid(cur)
     after = conn.execute("SELECT * FROM containers WHERE id=?", (cid,)).fetchone()
     _audit(conn, "container", cid, "create", None, dict(after))
@@ -494,9 +503,13 @@ def update_container(conn, container_id, **fields):
             conn, int(new_drawer), str(new_name), exclude_id=container_id
         ):
             raise DuplicateLabelError("Duplicate label in this drawer")
-    conn.execute(
-        f"UPDATE containers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values
-    )
+    try:
+        conn.execute(
+            f"UPDATE containers SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            values,
+        )
+    except sqlite3.IntegrityError:
+        raise DuplicateLabelError("Duplicate label in this drawer") from None
     after = conn.execute("SELECT * FROM containers WHERE id=?", (container_id,)).fetchone()
     _audit(conn, "container", container_id, "update", dict(before), dict(after) if after else None)
     conn.commit()
@@ -616,15 +629,26 @@ def upsert_drawer(
         if row:
             return row["id"]
         # Insert new
-        cur = conn.execute(
-            """
-            INSERT INTO drawers(name, description, kind, cols, rows)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (name, description, kind, cols, rows),
-        )
-        conn.commit()
-        return _lastrowid(cur)
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO drawers(name, description, kind, cols, rows)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (name, description, kind, cols, rows),
+            )
+            conn.commit()
+            return _lastrowid(cur)
+        except sqlite3.IntegrityError:
+            row2 = conn.execute("SELECT id FROM drawers WHERE name = ?", (name,)).fetchone()
+            if row2:
+                val = row2["id"] if not isinstance(row2, dict) else row2.get("id")
+                if val is None:
+                    raise RuntimeError(
+                        f"Drawer id for name '{name}' not found or is None"
+                    ) from None
+                return int(val)
+            raise
 
 
 def upsert_container(
@@ -645,15 +669,29 @@ def upsert_container(
         ).fetchone()
         if row:
             return row["id"]
-        cur = conn.execute(
-            """
-            INSERT INTO containers(drawer_id, name, description, row_index, col_index)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (drawer_id, name, description, row_index, col_index),
-        )
-        conn.commit()
-        return _lastrowid(cur)
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO containers(drawer_id, name, description, row_index, col_index)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (drawer_id, name, description, row_index, col_index),
+            )
+            conn.commit()
+            return _lastrowid(cur)
+        except sqlite3.IntegrityError:
+            row2 = conn.execute(
+                "SELECT id FROM containers WHERE drawer_id = ? AND name = ?",
+                (drawer_id, name),
+            ).fetchone()
+            if row2:
+                val2 = row2["id"] if not isinstance(row2, dict) else row2.get("id")
+                if val2 is None:
+                    raise RuntimeError(
+                        f"Container id for drawer_id '{drawer_id}' and name '{name}' not found or is None"
+                    ) from None
+                return int(val2)
+            raise
 
 
 def move_container(container_id: int, new_drawer_id: int) -> None:
@@ -661,10 +699,16 @@ def move_container(container_id: int, new_drawer_id: int) -> None:
     Keeps name/description/indices; only updates drawer_id.
     """
     with _connect() as conn:
-        conn.execute(
-            "UPDATE containers SET drawer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (new_drawer_id, container_id),
-        )
+        try:
+            conn.execute(
+                "UPDATE containers SET drawer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (new_drawer_id, container_id),
+            )
+        except sqlite3.IntegrityError:
+            # Could be name or position (row/col) conflict in target drawer
+            raise DuplicateLabelError(
+                "Duplicate label or position conflict in target drawer"
+            ) from None
         conn.commit()
 
 

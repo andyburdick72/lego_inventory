@@ -3,31 +3,73 @@ document.addEventListener('DOMContentLoaded', function () {
     if (window.__legoActionsInstalled) return;
     window.__legoActionsInstalled = true;
 
-    // Helper for API requests
-    async function api(url, opts = {}) {
-        const resp = await fetch(url, {
-            headers: {
-                ...(opts.headers || {}),
-                ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
-            },
-            ...opts,
-        });
-        if (!resp.ok) {
-            let msg = 'Error';
+    // Centralized API wrapper using AppApi (from src/app/static/js/api.js)
+    const Api = (window.AppApi) || {
+        async api(method, path, body) {
+            const res = await fetch(path, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: body != null ? JSON.stringify(body) : undefined,
+            });
+            let json = null; try { json = await res.json(); } catch (_) { }
+            const ok = res.ok;
+            const error = json && json.error ? json.error : { code: 'unknown', message: res.statusText };
+            const message = (json && json.error && json.error.message) ? json.error.message : (ok ? '' : (res.statusText || 'Request failed'));
+            return { ok, status: res.status, json, error, message };
+        },
+        toast(msg) {
             try {
-                const err = await resp.json();
-                msg = err.message || JSON.stringify(err);
-            } catch (e) {
-                msg = resp.statusText;
+                let c = document.getElementById('toast-container');
+                if (!c) {
+                    c = document.createElement('div');
+                    c.id = 'toast-container';
+                    c.style.position = 'fixed';
+                    c.style.bottom = '16px';
+                    c.style.right = '16px';
+                    c.style.zIndex = '9999';
+                    c.style.display = 'flex';
+                    c.style.flexDirection = 'column';
+                    c.style.gap = '8px';
+                    document.body.appendChild(c);
+                }
+                const t = document.createElement('div');
+                t.textContent = String(msg ?? '');
+                t.style.padding = '10px 12px';
+                t.style.background = '#333';
+                t.style.color = '#fff';
+                t.style.borderRadius = '4px';
+                t.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+                t.style.maxWidth = '320px';
+                t.style.fontSize = '14px';
+                c.appendChild(t);
+                setTimeout(() => {
+                    t.style.transition = 'opacity .3s';
+                    t.style.opacity = '0';
+                    setTimeout(() => t.remove(), 300);
+                }, 3000);
+            } catch (_) { console.warn(msg); }
+        },
+        humanizeApiError(err) { return (err && err.message) || 'Unexpected error'; },
+    };
+
+    // Keep function name `api` for existing call sites; convert opts to AppApi signature
+    async function api(url, opts = {}) {
+        const method = opts.method || 'GET';
+        let payload = undefined;
+        if (opts.body != null) {
+            // Convert stringified JSON bodies back to objects for AppApi.api
+            if (typeof opts.body === 'string') {
+                try { payload = JSON.parse(opts.body); } catch { payload = opts.body; }
+            } else {
+                payload = opts.body;
             }
-            throw new Error(msg);
         }
-        // Try to parse JSON, fallback to text
-        try {
-            return await resp.json();
-        } catch {
-            return await resp.text();
+        const r = await Api.api(method, url, payload);
+        if (!r.ok) {
+            // Throw the normalized error object so callers can humanize
+            throw (r.error || { code: 'unknown', message: r.message || 'Request failed' });
         }
+        return r.json;
     }
 
     // Event delegation for buttons with data-action
@@ -104,11 +146,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 const description = findInput('input[name="description"]')?.value || '';
                 const drawerId = btn.dataset.drawerId || (row && row.dataset.drawerId);
                 if (!drawerId) {
-                    alert('Drawer ID missing!');
+                    Api.toast('Drawer ID missing!');
                     return;
                 }
                 if (!name) {
-                    alert('Container name required!');
+                    Api.toast('Container name required!');
                     return;
                 }
                 await api('/api/containers', {
@@ -123,7 +165,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 location.reload();
             }
         } catch (err) {
-            alert('Error: ' + err.message);
+            const { humanizeApiError, toast } = Api;
+            toast(humanizeApiError(err));
         }
     });
 });
