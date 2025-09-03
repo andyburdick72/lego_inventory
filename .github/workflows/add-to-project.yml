@@ -7,12 +7,22 @@ on:
 permissions:
   contents: read
   issues: write
-  projects: write
+  repository-projects: write
 
 jobs:
   add:
+    if: ${{ github.event_name == 'issues' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Ensure PROJECT_ID is configured
+        env:
+          PROJECT_ID: ${{ vars.LEGO_PROJECT_ID }}
+        run: |
+          if [ -z "${PROJECT_ID:-}" ]; then
+            echo "LEGO_PROJECT_ID repository variable is not set."
+            echo "Set it under Settings → Secrets and variables → Variables → LEGO_PROJECT_ID (ProjectV2 node id)."
+            exit 1
+          fi
       - name: Add to project
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
