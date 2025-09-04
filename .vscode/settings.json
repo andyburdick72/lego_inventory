@@ -39,6 +39,9 @@
     "python.analysis.typeCheckingMode": "basic",
     // Helpful: auto-imports in suggestions
     "python.analysis.autoImportCompletions": true,
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/src"
+    ],
     "python.defaultInterpreterPath": ".venv/bin/python",
     "python.testing.pytestEnvVars": {
         "ALLOW_SMOKE_TESTS": "0"
@@ -70,5 +73,8 @@
             ]
         }
     },
-    "terminal.integrated.defaultProfile.osx": "venv"
+    "terminal.integrated.defaultProfile.osx": "venv",
+    "terminal.integrated.env.osx": {
+        "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
+    }
 }

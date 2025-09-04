@@ -2271,3 +2271,99 @@ class Handler(BaseHTTPRequestHandler):
 
         # If we reached here, the key is unknown.
         raise ValueError(f"Unknown export key: {table_key}")
+
+
+# --- BEGIN: bootstrap helpers for dev.sh and direct execution ---
+
+# If a FastAPI app named `app` exists, add a simple /health route for readiness checks.
+try:
+    from fastapi import FastAPI  # type: ignore[attr-defined]
+
+    if isinstance(globals().get("app"), FastAPI):  # noqa: SIM401
+        _fastapi_app = globals()["app"]
+
+        @_fastapi_app.get("/health")
+        def _health() -> dict[str, str]:
+            return {"status": "ok"}
+
+except Exception:
+    # If FastAPI isn't in use here, just ignore.
+    pass
+
+
+def _bootstrap_start() -> None:
+    """
+    Try to start the server in a forgiving way for local dev:
+    - If there's a FastAPI app, run it with uvicorn.
+    - Else if there is a callable named run/serve/start/main, call it.
+    - Else if there's a Handler class, spin up a basic HTTPServer with it.
+    """
+    import os
+    import sys
+
+    port = int(os.environ.get("PORT", "8000"))
+    host = os.environ.get("HOST", "0.0.0.0")  # allow LAN access by default
+
+    # 1) FastAPI app + uvicorn
+    try:
+        from fastapi import FastAPI  # type: ignore
+
+        app_obj = globals().get("app")
+        if isinstance(app_obj, FastAPI):
+            try:
+                import uvicorn  # type: ignore
+            except Exception:
+                print("uvicorn is not installed; cannot run FastAPI app.", file=sys.stderr)
+            else:
+                print(f"🔌 Starting FastAPI app on http://{host}:{port}")
+                uvicorn.run(app_obj, host=host, port=port, log_level="info")
+                return
+    except Exception:
+        # Not a FastAPI setup or import error; continue to other strategies.
+        pass
+
+    # 2) Conventional entrypoints: run/serve/start/main
+    for name in ("run", "serve", "start", "main"):
+        fn = globals().get(name)
+        if callable(fn):
+            print(f"🔌 Starting via `{name}()` on http://127.0.0.1:{port}")
+            try:
+                # If the function accepts a port, pass it; otherwise call without args.
+                import inspect
+
+                sig = inspect.signature(fn)
+                if any(
+                    p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) and p.name == "port"
+                    for p in sig.parameters.values()
+                ):
+                    fn(port=port)  # type: ignore[call-arg]
+                else:
+                    fn()  # type: ignore[misc]
+            except TypeError:
+                # Some servers expect (host, port)
+                try:
+                    fn("127.0.0.1", port)  # type: ignore[misc]
+                except Exception:
+                    fn()  # type: ignore[misc]
+            return
+
+    # 3) Barebones HTTPServer if a `Handler` is defined in this module
+    try:
+        from http.server import HTTPServer  # type: ignore
+
+        Handler = globals().get("Handler")
+        if Handler is not None:
+            print(f"🔌 Starting basic HTTPServer on http://{host}:{port}")
+            httpd = HTTPServer((host, port), Handler)  # type: ignore[arg-type]
+            httpd.serve_forever()
+            return
+    except Exception as e:  # pragma: no cover
+        print(f"Failed to start basic HTTPServer: {e}", file=sys.stderr)
+
+    print("No known server entrypoint found. Nothing to run.", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    _bootstrap_start()
+
+# --- END: bootstrap helpers for dev.sh and direct execution ---
