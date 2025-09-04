@@ -165,26 +165,59 @@
                 var api = this.api();
                 addFilterRow($table, api, nonSearchable);
 
-                // Export CSV button next to global filter
-                var btn = $('<button type="button" class="export-csv" style="margin: 8px 8px 8px 0;">Export CSV</button>');
+                // Export CSV button placement: prefer an existing button (from export_button.html),
+                // otherwise create one next to the global filter.
                 var wrapper = $table.closest('.dataTables_wrapper');
-                var filter = wrapper.find('.dataTables_filter');
-                if (filter.length) { filter.prepend(btn); } else { $table.before(btn); }
+                var existingBtn = wrapper.find('button.export-csv').first();
+                if (!existingBtn.length) {
+                    existingBtn = $table.closest('section,div,body').find('button.export-csv').first();
+                }
+                var btn;
+                if (existingBtn.length) {
+                    btn = existingBtn;
+                } else {
+                    btn = $('<button type="button" class="export-csv" style="margin: 8px 8px 8px 0;">Export CSV</button>');
+                    var filter = wrapper.find('.dataTables_filter');
+                    if (filter.length) { filter.prepend(btn); } else { $table.before(btn); }
+                }
 
-                btn.on('click', function () {
-                    var columns = api.settings()[0].aoColumns.map(function (col) {
+                function getColumnKeysInOrder(apiInstance) {
+                    try {
+                        var srcs = apiInstance.columns().dataSrc().toArray();
+                        return srcs.filter(function (s) { return typeof s === 'string' && s.trim().length > 0; });
+                    } catch (e) {
+                        return [];
+                    }
+                }
+
+                btn.off('click.export').on('click.export', function () {
+                    // Build a compact state for server-side filters/sorts (backward-compatible)
+                    var columnsState = api.settings()[0].aoColumns.map(function (col) {
                         var idx = col.idx;
-                        return { data: col.mData || col.sName || col.sTitle || idx, name: col.sName || null, search: { value: api.column(idx).search() || '' } };
+                        return {
+                            data: col.mData || col.sName || col.sTitle || idx,
+                            name: col.sName || null,
+                            search: { value: api.column(idx).search() || '' }
+                        };
                     });
                     var order = (api.order() || []).map(function (pair) { return { column: pair[0], dir: pair[1] }; });
-                    var state = { columns: columns, search: { value: api.search() || '' }, order: order };
+                    var state = { columns: columnsState, search: { value: api.search() || '' }, order: order };
+
                     var tableKey = $table.attr('data-tablekey') || '';
                     var contextJson = $table.attr('data-context') || '{}';
+
                     var url = new URL('/export', window.location.origin);
                     url.searchParams.set('table', tableKey);
                     url.searchParams.set('dt', JSON.stringify(state));
                     url.searchParams.set('ctx', contextJson);
-                    window.location.href = url.toString();
+
+                    // Also pass an explicit columns order for the new generic export (if supported by server)
+                    var orderedKeys = getColumnKeysInOrder(api);
+                    if (orderedKeys.length) {
+                        url.searchParams.set('columns', orderedKeys.join(','));
+                    }
+
+                    window.location.assign(url.toString());
                 });
 
                 // Add draw event handler to compute and render column totals in tfoot

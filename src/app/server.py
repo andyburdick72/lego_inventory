@@ -40,7 +40,7 @@ import sys
 import traceback
 import uuid
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from pathlib import Path as _Path
 from typing import Any, cast
@@ -1031,6 +1031,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html_bytes)
 
+    def _not_found(self):
+        """Send a simple 404 response."""
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        try:
+            self.wfile.write(b"Not Found")
+        except Exception:
+            # If client closed connection early, just ignore
+            pass
+
     def _serve_location_counts(self):
         with db._connect() as conn:  # pylint: disable=protected-access
             rows = conn.execute(
@@ -1856,95 +1867,214 @@ class Handler(BaseHTTPRequestHandler):
         return rows
 
     def _get_rows_for_table(self, table_key: str, ctx: dict):
+        """
+        Return (rows, columns) for the provided export key.
+
+        rows: list[dict[str, Any]] with plain-text (non-HTML) values
+        columns: list[str] header order to preserve in the CSV
+        """
+        # ----- Sets index -----
         if table_key == "sets":
-            with db._connect() as conn:
+            with db._connect() as conn:  # pylint: disable=protected-access
                 rs = conn.execute(
                     """
-                    SELECT set_num, name, year, status, rebrickable_url, image_url
-                    FROM sets
-                    ORDER BY added_at DESC
+                    SELECT
+                        s.set_num,
+                        s.name,
+                        s.year,
+                        s.status,
+                        s.rebrickable_url,
+                        s.image_url,
+                        (
+                          SELECT COALESCE(SUM(sp.quantity), 0)
+                          FROM set_parts sp
+                          WHERE sp.set_num = s.set_num
+                        ) AS total_parts
+                    FROM sets s
+                    ORDER BY s.added_at DESC
                     """
                 ).fetchall()
+
             rows = [
                 {
                     "Set Number": r["set_num"],
                     "Name": r["name"],
-                    "Year": r["year"],
-                    "Status": _display_status(r["status"]),
+                    "Year": int(r["year"] or 0),
+                    "Total Parts": int(r["total_parts"] or 0),
+                    "Status": _display_status(r["status"]) if r["status"] else "",
                     "Rebrickable Link": r["rebrickable_url"],
                     "Image": r["image_url"],
                 }
                 for r in rs
             ]
-            columns = ["Set Number", "Name", "Year", "Status", "Rebrickable Link", "Image"]
-            return rows, columns
-
-        elif table_key == "drawers":
-            rows = []
-            for r in db.list_drawers():
-                rows.append(
-                    {
-                        "Name": r.get("name", ""),
-                        "Description": r.get("description") or "",
-                        "Containers": r.get("container_count", 0),
-                        "Total Pieces": r.get("part_count", 0),
-                    }
-                )
-            columns = ["Name", "Description", "Containers", "Total Pieces"]
-            return rows, columns
-
-        elif table_key == "container_parts":
-            container_id = int(ctx.get("container_id", 0))
-            parts = db.list_parts_in_container(container_id)
-            rows = []
-            for p in parts:
-                part_meta = db.get_part(p.get("design_id", "")) or {}
-                rows.append(
-                    {
-                        "Part ID": p.get("design_id", ""),
-                        "Part Name": p.get("part_name", ""),
-                        "Color": p.get("color_name", ""),
-                        "Qty": p.get("qty", 0),
-                        "Rebrickable Link": f"https://rebrickable.com/parts/{p.get('design_id','')}/",
-                        "Image": part_meta.get("part_img_url")
-                        or "https://rebrickable.com/static/img/nil.png",
-                    }
-                )
-            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
-            return rows, columns
-
-        elif table_key == "inventory_master":
-            rows_raw = _query_master_rows()
-            rows = []
-            for r in rows_raw:
-                rows.append(
-                    {
-                        "Part ID": r["design_id"],
-                        "Name": r["part_name"],
-                        "Color": r["color_name"],
-                        "Drawer": r.get("drawer") or "",
-                        "Container": r.get("container") or "",
-                        "Qty": r["qty"],
-                        "Rebrickable Link": r.get("part_url")
-                        or f"https://rebrickable.com/parts/{r['design_id']}/",
-                        "Image": r.get("part_img_url")
-                        or "https://rebrickable.com/static/img/nil.png",
-                    }
-                )
             columns = [
-                "Part ID",
+                "Set Number",
                 "Name",
-                "Color",
-                "Drawer",
-                "Container",
-                "Qty",
+                "Year",
+                "Total Parts",
+                "Status",
                 "Rebrickable Link",
                 "Image",
             ]
             return rows, columns
 
-        elif table_key == "part_counts":
-            with db._connect() as conn:
+        # ----- Drawers index -----
+        if table_key == "drawers":
+            rows = []
+            for r in db.list_drawers():
+                rows.append(
+                    {
+                        "Name": r.get("name", "") or "",
+                        "Description": r.get("description") or "",
+                        "Containers": int(r.get("container_count", 0) or 0),
+                        "Total Pieces": int(r.get("part_count", 0) or 0),
+                        "Rows": r.get("rows"),
+                        "Cols": r.get("cols"),
+                    }
+                )
+            columns = ["Name", "Description", "Containers", "Total Pieces", "Rows", "Cols"]
+            return rows, columns
+
+        # ----- Containers within a drawer (drawer detail page) -----
+        if table_key == "containers_in_drawer":
+            drawer_id = int(ctx.get("drawer_id", 0) or ctx.get("id", 0))
+            if not drawer_id:
+                raise ValueError("drawer_id required")
+
+            svc = get_inventory_service()
+            containers = list(svc.list_containers(filters={"drawer_id": drawer_id}))
+
+            rows = []
+            for c in containers:
+                row_index = c.get("row_index")
+                col_index = c.get("col_index")
+                pos = ""
+                if row_index is not None and col_index is not None:
+                    pos = f"r{int(row_index)} c{int(col_index)}"
+
+                unique_parts = c.get("unique_parts")
+                total_pieces = c.get("part_count")
+                if unique_parts is None or total_pieces is None:
+                    parts = db.list_parts_in_container(int(c["id"]))
+                    unique_parts = len(parts)
+                    total_pieces = sum(int(p.get("qty") or p.get("quantity") or 0) for p in parts)
+
+                rows.append(
+                    {
+                        "Position": pos,
+                        "Container": c.get("name") or "",
+                        "Description": c.get("description") or "",
+                        "Unique Parts": int(unique_parts or 0),
+                        "Total Pieces": int(total_pieces or 0),
+                    }
+                )
+            columns = ["Position", "Container", "Description", "Unique Parts", "Total Pieces"]
+            return rows, columns
+
+        # ----- Parts inside a specific container (container detail page) -----
+        if table_key == "container_parts":
+            container_id = int(ctx.get("container_id", 0) or ctx.get("id", 0))
+            if not container_id:
+                raise ValueError("container_id required")
+
+            parts = db.list_parts_in_container(container_id)
+            rows = []
+            for p in parts:
+                raw_design_id = str(p.get("design_id", "") or "")
+                # Prefer row values, then part meta
+                part_meta = db.get_part(raw_design_id) or {}
+                color_name = str(p.get("color_name", "") or "")
+                qty = int(p.get("qty", 0) or p.get("quantity", 0) or 0)
+
+                link = (
+                    p.get("rebrickable_url")
+                    or p.get("part_url")
+                    or (f"https://rebrickable.com/parts/{raw_design_id}/" if raw_design_id else "")
+                )
+                img = (
+                    p.get("image_url")
+                    or p.get("img_url")
+                    or p.get("part_img_url")
+                    or part_meta.get("part_img_url")
+                    or part_meta.get("image_url")
+                    or ""
+                )
+
+                rows.append(
+                    {
+                        "Design ID": raw_design_id,
+                        "Part Name": str(p.get("part_name", "") or part_meta.get("name") or ""),
+                        "Color": color_name,
+                        "Qty": qty,
+                        "Link": link,
+                        "Image": img,
+                    }
+                )
+            columns = ["Design ID", "Part Name", "Color", "Qty", "Link", "Image"]
+            return rows, columns
+
+        # ----- Master (loose parts) index -----
+        if table_key == "inventory_master":
+            rows_raw = _query_master_rows()
+            rows = []
+            for r in rows_raw:
+                rows.append(
+                    {
+                        "Design ID": str(r.get("design_id", "")),
+                        "Part Name": str(r.get("part_name", "")),
+                        "Color": str(r.get("color_name", "")),
+                        "Drawer": str(r.get("drawer", "")),
+                        "Container": str(r.get("container", "")),
+                        "Qty": int(r.get("qty", 0) or 0),
+                        "Link": r.get("part_url")
+                        or (
+                            f"https://rebrickable.com/parts/{r.get('design_id','')}/"
+                            if r.get("design_id")
+                            else ""
+                        ),
+                        "Image": r.get("part_img_url") or "",
+                    }
+                )
+            columns = [
+                "Design ID",
+                "Part Name",
+                "Color",
+                "Drawer",
+                "Container",
+                "Qty",
+                "Link",
+                "Image",
+            ]
+            return rows, columns
+
+        # ----- Parts for a specific set (set detail page) -----
+        if table_key == "set_parts":
+            set_number = str(ctx.get("set_number") or ctx.get("set_num") or ctx.get("id") or "")
+            if not set_number:
+                raise ValueError("set_number required")
+
+            svc = get_set_parts_service()
+            parts = list(svc.list_parts(set_number=set_number))
+            rows = []
+            for part in parts:
+                design_id = str(part.get("design_id", "") or "")
+                rows.append(
+                    {
+                        "Design ID": design_id,
+                        "Part Name": str(part.get("name", "")),
+                        "Color": str(part.get("color_name", "")),
+                        "Qty": int(part.get("quantity", 0) or 0),
+                        "Link": part.get("part_url")
+                        or f"https://rebrickable.com/parts/{design_id}/",
+                        "Image": part.get("part_img_url") or "",
+                    }
+                )
+            columns = ["Design ID", "Part Name", "Color", "Qty", "Link", "Image"]
+            return rows, columns
+
+        # ----- Part counts across site -----
+        if table_key == "part_counts":
+            with db._connect() as conn:  # pylint: disable=protected-access
                 rs = conn.execute(
                     """
                     SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
@@ -1978,83 +2108,99 @@ class Handler(BaseHTTPRequestHandler):
                     ORDER BY total_qty DESC
                     """
                 ).fetchall()
+
             rows = [
                 {
-                    "Part ID": r["design_id"],
-                    "Name": r["part_name"],
-                    "Total Quantity": r["total_qty"],
-                    "Rebrickable Link": r["part_url"]
-                    or f"https://rebrickable.com/parts/{r['design_id']}/",
-                    "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
+                    "Design ID": str(r["design_id"]) if r["design_id"] is not None else "",
+                    "Part Name": r["part_name"] or "",
+                    "Total Qty": int(r["total_qty"] or 0),
+                    "Link": r["part_url"]
+                    or (
+                        f"https://rebrickable.com/parts/{r['design_id']}/"
+                        if r["design_id"] is not None
+                        else ""
+                    ),
+                    "Image": r["part_img_url"] or "",
                 }
                 for r in rs
             ]
-            columns = ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
+            columns = ["Design ID", "Part Name", "Total Qty", "Link", "Image"]
             return rows, columns
 
-        elif table_key == "part_color_counts":
-            with db._connect() as conn:
+        # ----- Part+Color counts across site -----
+        if table_key == "part_color_counts":
+            with db._connect() as conn:  # pylint: disable=protected-access
                 rs = conn.execute(
                     """
-                    SELECT design_id, part_name, part_url, part_img_url, color_name, hex, SUM(total_qty) AS total_qty
+                    SELECT
+                        pc.design_id,
+                        p.name         AS part_name,
+                        pc.color_id,
+                        c.name         AS color_name,
+                        c.hex          AS color_hex,
+                        p.part_url     AS part_url,
+                        p.part_img_url AS part_img_url,
+                        SUM(pc.total_qty) AS total_qty
                     FROM (
-                        -- Loose parts
-                        SELECT i.design_id,
-                               p.name AS part_name,
-                               p.part_url AS part_url,
-                               p.part_img_url AS part_img_url,
-                               c.name AS color_name,
-                               c.hex  AS hex,
-                               SUM(i.quantity) AS total_qty
+                        SELECT i.design_id, i.color_id, SUM(i.quantity) AS total_qty
                         FROM inventory i
-                        JOIN parts  p ON i.design_id = p.design_id
-                        JOIN colors c ON i.color_id  = c.id
                         WHERE i.status = 'loose'
-                        GROUP BY i.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
+                        GROUP BY i.design_id, i.color_id
 
                         UNION ALL
 
-                        -- Parts in sets
-                        SELECT sp.design_id,
-                               p.name AS part_name,
-                               p.part_url AS part_url,
-                               p.part_img_url AS part_img_url,
-                               c.name AS color_name,
-                               c.hex  AS hex,
-                               SUM(sp.quantity) AS total_qty
+                        SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
                         FROM set_parts sp
-                        JOIN parts  p ON sp.design_id = p.design_id
-                        JOIN colors c ON sp.color_id  = c.id
-                        JOIN sets  s  ON s.set_num    = sp.set_num
+                        JOIN parts p ON sp.design_id = p.design_id
+                        JOIN sets s  ON s.set_num   = sp.set_num
                         WHERE s.status IN ('built','wip','in_box','teardown')
-                        GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url, c.name, c.hex
-                    ) q
-                    GROUP BY design_id, part_name, part_url, part_img_url, color_name, hex
+                        GROUP BY sp.design_id, sp.color_id
+                    ) pc
+                    JOIN parts  p ON p.design_id = pc.design_id
+                    LEFT JOIN colors c ON c.id = pc.color_id
+                    GROUP BY pc.design_id, p.name, pc.color_id, c.name, c.hex, p.part_url, p.part_img_url
                     ORDER BY total_qty DESC
                     """
                 ).fetchall()
-            rows = [
-                {
-                    "Part ID": r["design_id"],
-                    "Name": r["part_name"],
-                    "Color": r["color_name"],
-                    "Total Quantity": r["total_qty"],
-                    "Rebrickable Link": r["part_url"]
-                    or f"https://rebrickable.com/parts/{r['design_id']}/",
-                    "Image": r["part_img_url"] or "https://rebrickable.com/static/img/nil.png",
-                }
-                for r in rs
-            ]
-            columns = ["Part ID", "Name", "Color", "Total Quantity", "Rebrickable Link", "Image"]
+
+            def color_hex_to_css(h: str | None) -> str:
+                return (h or "").lstrip("#")
+
+            rows = []
+            for r in rs:
+                design_id = str(r["design_id"]) if r["design_id"] is not None else ""
+                color_id = r["color_id"]
+                rb_color_url = (
+                    f"https://rebrickable.com/parts/{design_id}/{int(color_id)}/"
+                    if design_id and (color_id is not None)
+                    else (
+                        r["part_url"]
+                        or (f"https://rebrickable.com/parts/{design_id}/" if design_id else "")
+                    )
+                )
+                rows.append(
+                    {
+                        "Design ID": design_id,
+                        "Part Name": r["part_name"] or "",
+                        "Color": r["color_name"] or "(unknown)",
+                        "Hex": color_hex_to_css(r["color_hex"]),
+                        "Total Qty": int(r["total_qty"] or 0),
+                        "Link": rb_color_url,
+                        "Image": r["part_img_url"] or "",
+                    }
+                )
+            columns = ["Design ID", "Part Name", "Color", "Hex", "Total Qty", "Link", "Image"]
             return rows, columns
 
-        elif table_key == "location_counts":
+        # ----- Storage location counts -----
+        if table_key == "location_counts":
             with db._connect() as conn:  # pylint: disable=protected-access
-                rows = conn.execute(
+                rs = conn.execute(
                     """
                     SELECT
                         COALESCE(d.name, i.drawer)     AS drawer,
                         COALESCE(c2.name, i.container) AS container,
+                        c2.id                          AS container_id,
                         SUM(i.quantity)                AS total_qty
                     FROM inventory i
                     LEFT JOIN containers c2 ON c2.id = i.container_id
@@ -2063,8 +2209,9 @@ class Handler(BaseHTTPRequestHandler):
                     GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container)
                     """
                 ).fetchall()
-            out = []
-            for r in rows:
+
+            rows = []
+            for r in rs:
                 drawer = r["drawer"] or ""
                 container = r["container"] or ""
                 if drawer and container:
@@ -2075,335 +2222,52 @@ class Handler(BaseHTTPRequestHandler):
                     loc = container
                 else:
                     loc = "(unknown)"
-                out.append({"Location": loc, "Total Quantity": int(r["total_qty"] or 0)})
-            # Sort by quantity desc to match page view
-            out.sort(key=lambda x: x["Total Quantity"], reverse=True)
-            return out, ["Location", "Total Quantity"]
-
-        elif table_key == "part_counts":
-            with db._connect() as conn:  # pylint: disable=protected-access
-                rows = conn.execute(
-                    """
-                    SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
-                    FROM (
-                        -- Loose parts
-                        SELECT i.design_id,
-                            p.name AS part_name,
-                            p.part_url AS part_url,
-                            p.part_img_url AS part_img_url,
-                            SUM(i.quantity) AS total_qty
-                        FROM inventory i
-                        JOIN parts p ON i.design_id = p.design_id
-                        WHERE i.status = 'loose'
-                        GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
-
-                        UNION ALL
-
-                        -- Parts in sets (exclude sets marked as loose)
-                        SELECT sp.design_id,
-                            p.name AS part_name,
-                            p.part_url AS part_url,
-                            p.part_img_url AS part_img_url,
-                            SUM(sp.quantity) AS total_qty
-                        FROM set_parts sp
-                        JOIN parts p ON sp.design_id = p.design_id
-                        JOIN sets s  ON s.set_num   = sp.set_num
-                        WHERE s.status IN ('built','wip','in_box','teardown')
-                        GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url
-                    ) q
-                    GROUP BY design_id, part_name, part_url, part_img_url
-                    ORDER BY total_qty DESC
-                    """
-                ).fetchall()
-            out = []
-            for r in rows:
-                design_id = str(r["design_id"]) if r["design_id"] is not None else ""
-                name = r["part_name"] or ""
-                qty = int(r["total_qty"] or 0)
-                link = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
-                img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
-                out.append(
-                    {
-                        "Part ID": design_id,
-                        "Name": name,
-                        "Total Quantity": qty,
-                        "Rebrickable Link": link,
-                        "Image": img,
-                    }
-                )
-            return out, ["Part ID", "Name", "Total Quantity", "Rebrickable Link", "Image"]
-
-        elif table_key == "part_color_counts":
-            with db._connect() as conn:  # pylint: disable=protected-access
-                rows = conn.execute(
-                    """
-                    SELECT
-                        pc.design_id,
-                        p.name        AS part_name,
-                        pc.color_id,
-                        c.name        AS color_name,
-                        SUM(pc.total_qty) AS total_qty
-                    FROM (
-                        SELECT i.design_id, i.color_id, SUM(i.quantity) AS total_qty
-                        FROM inventory i
-                        WHERE i.status = 'loose'
-                        GROUP BY i.design_id, i.color_id
-                        UNION ALL
-                        SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
-                        FROM set_parts sp
-                        JOIN sets s ON s.set_num = sp.set_num
-                        WHERE s.status IN ('built','wip','in_box','teardown')
-                        GROUP BY sp.design_id, sp.color_id
-                    ) pc
-                    JOIN parts  p ON p.design_id = pc.design_id
-                    LEFT JOIN colors c ON c.id = pc.color_id
-                    GROUP BY pc.design_id, p.name, pc.color_id, c.name
-                    ORDER BY total_qty DESC
-                    """
-                ).fetchall()
-            out = []
-            for r in rows:
-                design_id = str(r["design_id"]) if r["design_id"] is not None else ""
-                name = r["part_name"] or ""
-                color_name = r["color_name"] or "(unknown)"
-                qty = int(r["total_qty"] or 0)
-                out.append(
-                    {
-                        "Part ID": design_id,
-                        "Name": name,
-                        "Color": color_name,
-                        "Total Quantity": qty,
-                    }
-                )
-            return out, ["Part ID", "Name", "Color", "Total Quantity"]
-
-        elif table_key == "containers_in_drawer":
-            drawer_id = int(ctx.get("drawer_id") or 0)
-            if not drawer_id:
-                raise ValueError("drawer_id is required for containers_in_drawer export")
-
-            rows: list[dict] = []
-            containers = db.list_containers_for_drawer(drawer_id)
-
-            for c in containers:
-                c_id = int(c["id"])  # id not used in CSV row
-                name = str(c.get("name") or "")
-                desc = str(c.get("description") or "")
-                row_idx = c.get("row_index")
-                col_idx = c.get("col_index")
-                pos = ""
-                if row_idx is not None and col_idx is not None:
-                    pos = f"r{int(row_idx)} c{int(col_idx)}"
-
-                # Prefer precomputed counts if available; otherwise compute from parts
-                unique_parts = c.get("unique_parts")
-                total_pieces = c.get("part_count")
-                if unique_parts is None or total_pieces is None:
-                    parts = db.list_parts_in_container(c_id)
-                    unique_parts = len(parts)
-                    total_pieces = sum(int(p.get("qty") or p.get("quantity") or 0) for p in parts)
-
                 rows.append(
                     {
-                        "Pos": pos,
-                        "Name": name,
-                        "Description": desc,
-                        "Unique Parts": int(unique_parts or 0),
-                        "Total Pieces": int(total_pieces or 0),
+                        "Location": loc,
+                        "Total Qty": int(r["total_qty"] or 0),
                     }
                 )
-
-            columns = ["Pos", "Name", "Description", "Unique Parts", "Total Pieces"]
+            columns = ["Location", "Total Qty"]
             return rows, columns
 
-        elif table_key == "container_parts":
-            container_id = int((ctx or {}).get("container_id") or 0)
-            if not container_id:
-                raise ValueError("container_id is required for container_parts export")
-
-            parts = db.list_parts_in_container(container_id)
-
-            rows: list[dict] = []
-            for p in parts:
-                design_id = str(p.get("design_id", ""))
-                part_name = str(p.get("part_name", ""))
-                color_name = str(p.get("color_name", ""))
-                qty = int(p.get("qty", 0) or 0)
-                link = p.get("part_url") or (
-                    f"https://rebrickable.com/parts/{design_id}/" if design_id else ""
-                )
-                img = p.get("part_img_url") or ""
-
+        # ----- Per-part loose inventory (part detail: Loose Parts table) -----
+        if table_key == "part_in_loose":
+            design_id = str(ctx.get("design_id") or ctx.get("part_id") or ctx.get("id") or "")
+            if not design_id:
+                raise ValueError("design_id required")
+            rows_src = get_inventory_service().loose_inventory_for_part(design_id)
+            rows = []
+            for r in rows_src:
                 rows.append(
                     {
-                        "Part ID": design_id,
-                        "Part Name": part_name,
-                        "Color": color_name,
-                        "Qty": qty,
-                        "Rebrickable Link": link,
-                        "Image": img,
-                    }
-                )
-
-            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
-            return rows, columns
-
-        elif table_key == "part_in_loose":
-            design_id = (ctx or {}).get("design_id")
-            if not design_id:
-                raise ValueError("design_id is required for part_in_loose export")
-            with db._connect() as conn:  # pylint: disable=protected-access
-                rows = conn.execute(
-                    """
-                    SELECT
-                        COALESCE(d.name, i.drawer)     AS drawer,
-                        COALESCE(c2.name, i.container) AS container,
-                        col.name AS color_name,
-                        SUM(i.quantity) AS qty
-                    FROM inventory i
-                    JOIN colors col ON col.id = i.color_id
-                    LEFT JOIN containers c2 ON c2.id = i.container_id
-                    LEFT JOIN drawers    d  ON d.id  = c2.drawer_id
-                    WHERE i.status = 'loose' AND i.design_id = ?
-                    GROUP BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
-                    ORDER BY COALESCE(d.name, i.drawer), COALESCE(c2.name, i.container), col.id
-                    """,
-                    (design_id,),
-                ).fetchall()
-            out_rows: list[dict] = []
-            for r in rows:
-                out_rows.append(
-                    {
-                        "Drawer": r["drawer"] or "",
-                        "Container": r["container"] or "",
-                        "Color": r["color_name"] or "",
-                        "Qty": int(r["qty"] or 0),
-                    }
-                )
-            return out_rows, ["Drawer", "Container", "Color", "Qty"]
-
-        elif table_key == "part_in_sets":
-            design_id = (ctx or {}).get("design_id")
-            if not design_id:
-                raise ValueError("design_id is required for part_in_sets export")
-            rows = db.sets_for_part(design_id)
-            out_rows: list[dict] = []
-            for r in rows:
-                set_num = str(r.get("set_num", ""))
-                set_name = str(r.get("set_name", ""))
-                out_rows.append(
-                    {
-                        "Set": (
-                            (f"{set_num} – {set_name}").removeprefix(" – ")
-                            if f"{set_num} – {set_name}".startswith(" – ")
-                            else f"{set_num} – {set_name}"
-                        ),
-                        "Color": str(r.get("color_name", "")),
+                        "Drawer": str(r.get("drawer", "") or ""),
+                        "Container": str(r.get("container", "") or ""),
+                        "Color": str(r.get("color_name", "") or ""),
                         "Qty": int(r.get("quantity", 0) or 0),
                     }
                 )
-            return out_rows, ["Set", "Color", "Qty"]
-
-        elif table_key == "set_parts":
-            set_num = (ctx or {}).get("set_num")
-            if not set_num:
-                raise ValueError("set_num is required for set_parts export")
-
-            # Load parts for the set (prefer helper; fallback to SQL with the expected fields)
-            try:
-                if hasattr(db, "get_parts_for_set"):
-                    parts = db.get_parts_for_set(set_num)
-                else:
-                    with db._connect() as conn:  # pylint: disable=protected-access
-                        rows = conn.execute(
-                            """
-                            SELECT
-                                p.design_id,
-                                p.name              AS part_name,
-                                c.name              AS color_name,
-                                c.hex               AS hex,
-                                sp.quantity         AS quantity,
-                                p.part_url          AS part_url,
-                                p.part_img_url      AS part_img_url
-                            FROM set_parts sp
-                            JOIN parts  p ON p.design_id = sp.design_id
-                            JOIN colors c ON c.id        = sp.color_id
-                            WHERE sp.set_num = ?
-                            ORDER BY p.design_id, c.id
-                            """,
-                            (set_num,),
-                        ).fetchall()
-                        parts = [dict(r) for r in rows]
-            except Exception as e:
-                raise ValueError(f"Failed to fetch parts for set {set_num}: {e}") from e
-
-            rows: list[dict] = []
-            for p in parts:
-                design_id = str(p.get("design_id") or p.get("part_id") or "")
-                part_name = str(p.get("part_name") or p.get("name") or "")
-                color = str(p.get("color_name") or p.get("color") or "")
-                qty = int(p.get("quantity") or p.get("qty") or 0)
-
-                link = p.get("part_url") or (
-                    f"https://rebrickable.com/parts/{design_id}/" if design_id else ""
-                )
-                img = (
-                    p.get("part_img_url")
-                    or p.get("image_url")
-                    or "https://rebrickable.com/static/img/nil.png"
-                )
-
-                rows.append(
-                    {
-                        "Part ID": design_id,
-                        "Part Name": part_name,
-                        "Color": color,
-                        "Qty": qty,
-                        "Rebrickable Link": link,
-                        "Image": img,
-                    }
-                )
-
-            columns = ["Part ID", "Part Name", "Color", "Qty", "Rebrickable Link", "Image"]
+            columns = ["Drawer", "Container", "Color", "Qty"]
             return rows, columns
 
-        raise ValueError(f"Unsupported table key: {table_key}")
+        # ----- Per-part in-sets inventory (part detail: In Sets table) -----
+        if table_key == "part_in_sets":
+            design_id = str(ctx.get("design_id") or ctx.get("part_id") or ctx.get("id") or "")
+            if not design_id:
+                raise ValueError("design_id required")
+            rows_src = get_set_parts_service().sets_for_part_with_colors(design_id=design_id)
+            rows = []
+            for r in rows_src:
+                rows.append(
+                    {
+                        "Set Number": str(r.get("set_num", "") or ""),
+                        "Set Name": str(r.get("set_name", "") or ""),
+                        "Color": str(r.get("color_name", "") or ""),
+                        "Qty": int(r.get("quantity", 0) or 0),
+                    }
+                )
+            columns = ["Set Number", "Set Name", "Color", "Qty"]
+            return rows, columns
 
-    def _not_found(self):
-        self.send_response(404)
-        self.end_headers()
-        self.wfile.write(b"Not Found")
-
-    def _send_ok(self, html_doc: str):
-        html_bytes = html_doc.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(html_bytes)))
-        self.end_headers()
-        self.wfile.write(html_bytes)
-
-
-# --------------------------------------------------------------------------- bootstrap
-def main():
-    host, port = "0.0.0.0", int(os.environ.get("PORT", 8000))
-    # Auto-detect and print the local IP address for user convenience
-    import socket
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("10.255.255.255", 1))
-        local_ip = s.getsockname()[0]
-    except Exception:
-        local_ip = "localhost"
-    finally:
-        s.close()
-    httpd = HTTPServer((host, port), Handler)
-    print(f"Serving on http://{local_ip}:{port}  – Ctrl+C to quit")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopping…")
-
-
-if __name__ == "__main__":
-    main()
+        # If we reached here, the key is unknown.
+        raise ValueError(f"Unknown export key: {table_key}")
