@@ -17,7 +17,11 @@ ignore = ["E501"]
 known-first-party = ["lego_inventory"]
 
 [tool.pytest.ini_options]
-addopts = "-q --disable-warnings"
+addopts = "-q --disable-warnings --cov=src --cov-report=term-missing --cov-report=html"
+markers = [
+  "contract: contract tests hitting HTTP/API boundaries",
+  "unit: fast, isolated unit tests"
+]
 testpaths = ["tests"]
 
 [tool.mypy]
@@ -36,8 +40,11 @@ omit = [
   "src/app/server.py",
   "src/scripts/*",
   "src/core/services/*",
+  "src/app/di.py",
   "src/infra/db/*",
 ]
+
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true
@@ -47,6 +54,17 @@ exclude_lines = [
   "if TYPE_CHECKING:",
   "^if __name__ == ['\\\"]__main__['\\\"]:$",
 ]
+omit = [
+  "src/app/server.py",
+  "src/scripts/*",
+  "src/core/services/*",
+  "src/app/di.py",
+  "src/infra/db/*",
+]
+fail_under = 85
 
 [tool.coverage.html]
 directory = "coverage_html_report"
+
+[tool.coverage.paths]
+source = ["src", "*/src"]

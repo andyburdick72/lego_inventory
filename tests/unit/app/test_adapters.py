@@ -3,7 +3,32 @@ from typing import Any, cast
 import pytest
 
 from app import adapters as adapters_mod
+
+# --- Direct-import coverage tests (suffixed _cov to avoid collisions) ---
+from app.adapters import (
+    row_to_container as _row_to_container_cov,
+)
+from app.adapters import (
+    row_to_container_summary as _row_to_container_summary_cov,
+)
+from app.adapters import (
+    row_to_drawer as _row_to_drawer_cov,
+)
+from app.adapters import (
+    row_to_drawer_summary as _row_to_drawer_summary_cov,
+)
+from app.adapters import (
+    row_to_inventory_item as _row_to_inventory_item_cov,
+)
+from app.adapters import (
+    row_to_set as _row_to_set_cov,
+)
+from app.adapters import (
+    rows_to as _rows_to_cov,
+)
 from core import dtos as dtos_mod
+
+pytestmark = pytest.mark.unit
 
 
 def _call_rows_to(rows_to, rows, conv):
@@ -248,3 +273,193 @@ def test_row_to_container_summary_defaults_coercions():
     assert getattr(dto, "sort_index", None) == 0
     assert getattr(dto, "part_count", None) == 0
     assert getattr(dto, "unique_parts", None) == 0
+
+
+def test_row_to_inventory_item_happy_path_quantity_and_locations():
+    fn = getattr(adapters_mod, "row_to_inventory_item", None)
+    if not callable(fn):
+        pytest.skip("row_to_inventory_item not present in app.adapters")
+
+    row = {
+        "part_id": "3001",
+        "color_id": 1,
+        "color_name": "White",
+        "quantity": 4,  # preferred key over `qty`
+        "status": "loose_parts",
+        "drawer_id": 10,
+        "drawer_name": "D-010",
+        "container_id": 20,
+        "container_label": "C-020",
+        "set_number": "10783",
+        "set_name": "Spider-Man at Doc Ock's Lab",
+        "part_name": "Brick 2 x 4",
+        "image_url": "https://img.example/3001.jpg",
+        "rebrickable_url": "https://rebrickable.com/parts/3001/",
+    }
+    dto = fn(row)
+    dto_any = cast(Any, dto)
+
+    assert dto_any.part_id == "3001"
+    assert getattr(dto, "color_id", None) == 1
+    assert getattr(dto, "quantity", None) == 4
+    # status may be enum or string depending on adapter; normalize expectation
+    status_val = getattr(dto, "status", None)
+    status_name = getattr(status_val, "name", None)
+    if status_name is not None:
+        assert status_name.lower() in ("loose", "loose_parts")
+    else:
+        assert str(status_val).lower() in ("loose", "loose_parts")
+
+    assert getattr(dto, "drawer_id", None) == 10
+    assert getattr(dto, "container_id", None) == 20
+    assert "3001" in (getattr(dto, "image_url", "") or "")
+    assert "rebrickable" in (getattr(dto, "rebrickable_url", "") or "")
+
+
+def test_row_to_set_includes_optional_urls():
+    fn = getattr(adapters_mod, "row_to_set", None)
+    if not callable(fn):
+        pytest.skip("row_to_set not present in app.adapters (sets CRUD not implemented yet)")
+
+    SetDTO = getattr(dtos_mod, "SetDTO", None)
+    if SetDTO is None:
+        pytest.skip("SetDTO not present in core.dtos")
+
+    row = {
+        "id": 12,
+        "set_num": "10783-1",
+        "name": "Spider-Man at Doc Ock's Lab",
+        "status": "in_box",
+        "image_url": "https://img.example/sets/10783-1.jpg",
+        "rebrickable_url": "https://rebrickable.com/sets/10783-1/",
+        "year": 2022,
+        "theme": "Marvel Super Heroes",
+        "total_parts": 131,
+    }
+    dto = fn(row)
+    dto_any = cast(Any, dto)
+
+    assert isinstance(dto, SetDTO)
+    assert (dto_any.id, getattr(dto, "set_num", None)) == (12, "10783-1")
+    name = getattr(dto, "name", None)
+    assert name is not None and name.startswith("Spider-Man")
+    assert getattr(dto, "year", None) == 2022
+    assert getattr(dto, "theme", None) == "Marvel Super Heroes"
+    assert getattr(dto, "total_parts", None) == 131
+    assert "10783-1" in (getattr(dto, "image_url", "") or "")
+    assert "rebrickable" in (getattr(dto, "rebrickable_url", "") or "")
+
+
+def test_row_to_drawer_defaults_when_missing_fields():
+    fn = getattr(adapters_mod, "row_to_drawer", None)
+    if not callable(fn):
+        pytest.skip("row_to_drawer not present")
+    row = {"id": None}  # minimal row with missing name, deleted, container_count
+    dto = fn(row)
+    dto_any = cast(Any, dto)
+    assert dto_any.id == 0
+    assert getattr(dto, "name", "") in (None, "")
+    assert getattr(dto, "deleted", None) is False
+    assert getattr(dto, "container_count", None) in (None, 0)
+
+
+def test_row_to_container_defaults_when_missing_fields():
+    fn = getattr(adapters_mod, "row_to_container", None)
+    if not callable(fn):
+        pytest.skip("row_to_container not present")
+    row = {"id": None, "drawer_id": None}  # label, drawer_name, deleted, parts_count missing
+    dto = fn(row)
+    dto_any = cast(Any, dto)
+    assert dto_any.id == 0
+    assert getattr(dto, "label", None) in (None, "")
+    assert getattr(dto, "drawer_id", None) == 0
+    assert getattr(dto, "drawer_name", None) in (None, "")
+    assert getattr(dto, "deleted", None) is False
+    assert getattr(dto, "parts_count", None) in (None, 0)
+
+
+def test_row_to_set_accepts_legacy_in_box():
+    fn = getattr(adapters_mod, "row_to_set", None)
+    if not callable(fn):
+        pytest.skip("row_to_set not present")
+    row = {"id": 99, "set_num": "9999-1", "name": "Legacy Map", "status": "in box"}
+    dto = fn(row)
+    status_val = getattr(dto, "status", None)
+    if status_val is not None and hasattr(status_val, "name"):
+        assert status_val.name.lower() == "in_box"
+    else:
+        assert str(status_val).lower() == "in_box"
+
+
+def test_row_to_inventory_item_status_and_qty_fallback():
+    fn = getattr(adapters_mod, "row_to_inventory_item", None)
+    if not callable(fn):
+        pytest.skip("row_to_inventory_item not present")
+    row = {"part_id": "3024", "color_id": 5, "qty": 2, "status": "loose"}
+    dto = fn(row)
+    dto_any = cast(Any, dto)
+    # Fallback qty should be used, and status should default to LOOSE
+    assert dto_any.quantity == 2
+    status_val = getattr(dto, "status", None)
+    if status_val is not None and hasattr(status_val, "name"):
+        assert status_val.name.lower() in ("loose", "loose_parts")
+    else:
+        assert str(status_val).lower() in ("loose", "loose_parts")
+
+
+def test_rows_to_handles_empty_list():
+    fn = getattr(adapters_mod, "rows_to", None)
+    if not callable(fn):
+        pytest.skip("rows_to not present")
+
+    def conv(r):
+        return 123
+
+    assert fn(conv, []) == []
+
+
+def test_row_to_drawer_return_line_executed_cov():
+    dto = _row_to_drawer_cov({"id": None})  # minimal to trigger defaults
+    assert getattr(dto, "id", None) == 0
+
+
+def test_row_to_container_return_line_executed_cov():
+    dto = _row_to_container_cov({"id": None, "drawer_id": None})
+    assert getattr(dto, "id", None) == 0 and getattr(dto, "drawer_id", None) == 0
+
+
+def test_row_to_set_return_line_and_status_fallback_cov():
+    dto = _row_to_set_cov(
+        {"set_number": "", "name": "X", "status": "in box"}
+    )  # no status -> fallback
+    status = getattr(dto, "status", None)
+    assert (getattr(status, "name", "").lower() == "in_box") or (str(status).lower() == "in_box")
+
+
+def test_row_to_inventory_item_return_line_and_fallbacks_cov():
+    dto = _row_to_inventory_item_cov(
+        {"part_id": "p", "color_id": 1, "qty": 3, "status": "loose"}
+    )  # qty + status fallback
+    assert getattr(dto, "quantity", None) == 3
+    st = getattr(dto, "status", None)
+    assert (getattr(st, "name", "").lower() in ("loose", "loose_parts")) or (
+        str(st).lower() in ("loose", "loose_parts")
+    )
+
+
+def test_row_to_drawer_summary_return_line_executed_cov():
+    dto = _row_to_drawer_summary_cov({"id": None, "name": None})
+    assert getattr(dto, "id", None) == 0
+
+
+def test_row_to_container_summary_return_line_executed_cov():
+    dto = _row_to_container_summary_cov({"id": None, "name": None})
+    assert getattr(dto, "id", None) == 0
+
+
+def test_rows_to_return_line_with_empty_and_generator_cov():
+    # empty iterable
+    assert _rows_to_cov(lambda r: r, []) == []
+    # generator iterable
+    gen = ({"x": i} for i in range(3))
+    assert _rows_to_cov(lambda r: r["x"] + 10, gen) == [10, 11, 12]

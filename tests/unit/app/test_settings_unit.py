@@ -41,3 +41,63 @@ def test_env_prefix_loading_overrides(monkeypatch, tmp_path):
     s = Settings()
     assert s.db_path == env_db
     assert s.reports_dir == env_reports
+
+
+# Additional tests for default-path branch and idempotency of ensure_directories
+def test_settings_defaults_when_no_env(monkeypatch, tmp_path):
+    # Remove overrides to hit default-path branch inside Settings
+    monkeypatch.delenv("APP_DB_PATH", raising=False)
+    monkeypatch.delenv("APP_REPORTS_DIR", raising=False)
+
+    # Point HOME to tmp so any ~/. expansions are safe
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    s = Settings()  # use defaults
+    assert isinstance(s.db_path, Path)
+    assert isinstance(s.reports_dir, Path)
+
+    # Ensure directories on defaults (should create them under tmp HOME)
+    s.ensure_directories()
+    assert s.db_path.parent.exists() and s.db_path.parent.is_dir()
+    assert s.reports_dir.exists() and s.reports_dir.is_dir()
+
+
+def test_ensure_directories_is_idempotent_on_existing_paths(tmp_path):
+    # Existing paths should not raise and should remain directories
+    db_path = tmp_path / "already" / "have" / "db.sqlite"
+    reports_dir = tmp_path / "already" / "reports"
+    # Pre-create to force the already-exists path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    s = Settings(db_path=db_path, reports_dir=reports_dir)
+    s.ensure_directories()  # second pass should be a no-op
+
+    assert db_path.parent.exists() and db_path.parent.is_dir()
+    assert reports_dir.exists() and reports_dir.is_dir()
+
+
+def test_expand_user_and_env_returns_value_when_not_str_or_path():
+    sentinel = object()
+    out = Settings._expand_user_and_env(sentinel)  # type: ignore[attr-defined]
+    assert out is sentinel
+
+
+def test_expand_user_and_env_str_input_branch(tmp_path):
+    out = Settings._expand_user_and_env(str(tmp_path / "file.sqlite"))  # type: ignore[attr-defined]
+    assert isinstance(out, Path)
+    assert out == (tmp_path / "file.sqlite").expanduser()
+
+
+# Test that a non-str/non-Path os.PathLike object is accepted and the validator's `return v` branch is used,
+# then Pydantic coerces via os.fspath.
+def test_expand_user_and_env_accepts_pathlike_object_and_returns_v_then_parses(tmp_path):
+    class DummyPathLike:
+        def __fspath__(self):
+            return str(tmp_path / "via_pathlike.db")
+
+    # Pass a PathLike that is not str or pathlib.Path.
+    # The field validator should take the `return v` path, then Pydantic coerces via os.fspath.
+    s = Settings(db_path=DummyPathLike(), reports_dir=tmp_path / "reports")  # type: ignore[arg-type]
+    assert isinstance(s.db_path, Path)
+    assert s.db_path == (tmp_path / "via_pathlike.db").expanduser()

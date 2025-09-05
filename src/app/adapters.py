@@ -13,16 +13,17 @@ from core.enums import Status
 
 
 def row_to_drawer(row: Mapping) -> DrawerDTO:
-    return DrawerDTO(
+    dto = DrawerDTO(
         id=int(row.get("id") or 0),
         name=row.get("name") or "",
         deleted=bool(row.get("deleted", 0)),
         container_count=row.get("container_count"),
     )
+    return dto
 
 
 def row_to_container(row: Mapping) -> ContainerDTO:
-    return ContainerDTO(
+    dto = ContainerDTO(
         id=int(row.get("id") or 0),
         label=row.get("label") or "",
         drawer_id=int(row.get("drawer_id") or 0),
@@ -30,10 +31,11 @@ def row_to_container(row: Mapping) -> ContainerDTO:
         deleted=bool(row.get("deleted", 0)),
         parts_count=row.get("parts_count"),
     )
+    return dto
 
 
 def row_to_set(row: Mapping) -> LEGOSetDTO:
-    return LEGOSetDTO(
+    dto = LEGOSetDTO(
         set_number=str(row.get("set_number") or ""),
         name=str(row.get("name") or ""),
         year=row.get("year"),
@@ -43,11 +45,12 @@ def row_to_set(row: Mapping) -> LEGOSetDTO:
         image_url=row.get("image_url"),
         rebrickable_url=row.get("rebrickable_url"),
     )
+    return dto
 
 
 def row_to_inventory_item(row: Mapping) -> InventoryItemDTO:
     status = Status.from_any(row.get("status")) or Status.LOOSE
-    return InventoryItemDTO(
+    dto = InventoryItemDTO(
         part_id=str(row.get("part_id") or ""),
         color_id=int(row.get("color_id") or 0),
         color_name=row.get("color_name"),
@@ -63,10 +66,11 @@ def row_to_inventory_item(row: Mapping) -> InventoryItemDTO:
         image_url=row.get("image_url"),
         rebrickable_url=row.get("rebrickable_url"),
     )
+    return dto
 
 
 def row_to_drawer_summary(row: Mapping) -> DrawerSummaryDTO:
-    return DrawerSummaryDTO(
+    dto = DrawerSummaryDTO(
         id=int(row.get("id") or 0),
         name=row.get("name") or "",
         description=row.get("description"),
@@ -77,10 +81,11 @@ def row_to_drawer_summary(row: Mapping) -> DrawerSummaryDTO:
         container_count=int(row.get("container_count") or 0),
         part_count=int(row.get("part_count") or 0),
     )
+    return dto
 
 
 def row_to_container_summary(row: Mapping) -> ContainerSummaryDTO:
-    return ContainerSummaryDTO(
+    dto = ContainerSummaryDTO(
         id=int(row.get("id") or 0),
         name=row.get("name") or "",
         description=row.get("description"),
@@ -90,6 +95,7 @@ def row_to_container_summary(row: Mapping) -> ContainerSummaryDTO:
         part_count=int(row.get("part_count") or 0),
         unique_parts=int(row.get("unique_parts") or 0),
     )
+    return dto
 
 
 K = TypeVar("K", bound=Hashable)
@@ -98,4 +104,5 @@ T = TypeVar("T")
 
 
 def rows_to(dto_fn: Callable[[Mapping[K, V]], T], rows: Iterable[Mapping[K, V]]) -> list[T]:
-    return [dto_fn(row) for row in rows]
+    out = [dto_fn(row) for row in rows]
+    return out
