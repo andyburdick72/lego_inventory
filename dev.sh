@@ -5,6 +5,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+# Coverage flag (when first arg is "cov" we merge unit + contract coverage)
+DO_COV=0
+if [ "${1:-}" = "cov" ]; then
+  DO_COV=1
+fi
+
 # Activate venv if not already active
 if [ -z "${VIRTUAL_ENV:-}" ]; then
   if [ -d "${REPO_ROOT}/.venv" ]; then
@@ -25,6 +31,17 @@ python -m pip install -r "${REPO_ROOT}/requirements.txt"
 if [ -f "${REPO_ROOT}/requirements-dev.txt" ]; then
   echo "📦 Installing/updating dev dependencies..."
   python -m pip install -r "${REPO_ROOT}/requirements-dev.txt"
+fi
+
+# If running in coverage mode, run unit tests with coverage FIRST so we can append contract coverage later
+if [ "$DO_COV" -eq 1 ]; then
+  echo "🧪 Running unit tests with coverage (phase 1)..."
+  # clean prior coverage artifacts to avoid accidental merges
+  rm -f .coverage .coverage.* coverage.xml
+  rm -rf coverage_html_report htmlcov
+  ALLOW_SMOKE_TESTS=1 pytest -q -m "unit and not contract" \
+    --cov=src --cov-config=pyproject.toml \
+    --cov-report=term-missing:skip-covered --cov-report=html --cov-report=xml
 fi
 
 echo "🛠️ Running smoke tests..."
@@ -81,15 +98,26 @@ if [ "$STARTED" -ne 1 ]; then
 fi
 
 echo "📜 Running contract tests..."
-# Fast contract sanity for error taxonomy (run the file; it's small/quick)
-if ! pytest --no-cov -q tests/contract/api/test_errors_normalized.py; then
+# Base args for contract tests
+if [ "$DO_COV" -eq 1 ]; then
+  CONTR_ARGS=(--cov=src --cov-config=pyproject.toml --cov-append \
+              --cov-report=term-missing:skip-covered --cov-report=html --cov-report=xml)
+else
+  CONTR_ARGS=(--no-cov -q)
+fi
+
+# Ensure API_BASE points at the server we just started (if not already set)
+export API_BASE="${API_BASE:-http://127.0.0.1:8000}"
+
+# Fast contract sanity for error taxonomy
+if ! pytest ${CONTR_ARGS[@]} tests/contract/api/test_errors_normalized.py; then
   echo "❌ Error-normalization contract sanity failed"
   kill ${SERVER_PID} >/dev/null 2>&1 || true
   exit 1
 fi
 
 # Full contract suite
-if ! pytest -m contract --no-cov -q; then
+if ! pytest -m contract ${CONTR_ARGS[@]}; then
   echo "❌ Contract tests failed"
   kill ${SERVER_PID} >/dev/null 2>&1 || true
   exit 1
@@ -99,11 +127,6 @@ fi
 kill ${SERVER_PID} >/dev/null 2>&1 || true
 trap - EXIT
 wait ${SERVER_PID} 2>/dev/null || true
-
-if [ "${1:-}" = "cov" ]; then
-  echo "🧪 Running tests with coverage..."
-  ALLOW_SMOKE_TESTS=1 pytest --cov=src --cov-report=term-missing --cov-branch
-fi
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
