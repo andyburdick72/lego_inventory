@@ -1,4 +1,4 @@
-"""Load Rebrickable colours (plus BrickLink aliases) into the configured sqlite database (see app.settings).
+"""Load Rebrickable colors (plus BrickLink aliases) into the configured sqlite database (see app.settings).
 
 Configuration:
 * Credentials are resolved centrally via `app.settings` (pydantic-settings).
@@ -13,8 +13,8 @@ Usage:
 from __future__ import annotations
 
 from app.settings import get_settings
-from integrations.rebrickable_api import paginate
 from infra.db import inventory_db as db
+from integrations.rebrickable_api import paginate
 
 
 def _rgb_split(hex_code: str) -> tuple[int, int, int]:

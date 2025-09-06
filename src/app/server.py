@@ -69,6 +69,15 @@ from app.errors import (  # noqa: E402
     ValidationError,
 )
 from core.enums import Status  # noqa: E402
+from utils.routes import (  # noqa: E402
+    container_url,
+    drawer_url,
+    part_url,
+    rebrickable_part_color_url,
+    rebrickable_part_url,
+    rebrickable_set_url,
+    set_url,
+)
 
 _BASE_DIR = _Path(__file__).resolve().parent
 _TEMPLATE_DIR = (_BASE_DIR / "templates").resolve()
@@ -135,6 +144,8 @@ def _query_master_rows() -> list[dict]:
                     COALESCE(i.set_number, '') AS set_number,
                     COALESCE(d.name, i.drawer)    AS drawer,
                     COALESCE(c2.name, i.container)   AS container,
+                    d.id               AS drawer_id,
+                    c2.id              AS container_id,
                     SUM(i.quantity)   AS qty
             FROM inventory i
             JOIN parts  p ON p.design_id = i.design_id
@@ -165,6 +176,8 @@ def _query_master_rows() -> list[dict]:
                 location=location,
                 drawer=r["drawer"],
                 container=r["container"],
+                drawer_id=r["drawer_id"],
+                container_id=r["container_id"],
                 qty=r["qty"],
             )
         )
@@ -885,9 +898,9 @@ class Handler(BaseHTTPRequestHandler):
             status = _display_status(r["status"]) if r["status"] else ""
             total_parts = int(r["total_parts"] or 0)
             img = r["image_url"] or "https://rebrickable.com/static/img/nil.png"
-            rb_url = r["rebrickable_url"] or f"https://rebrickable.com/sets/{set_num}/"
+            rb_url = r["rebrickable_url"] or rebrickable_set_url(set_num)
 
-            cell_set = f"<a href='/sets/{html.escape(set_num)}'>{html.escape(set_num)}</a>"
+            cell_set = f"<a href='{html.escape(set_url(set_num))}'>{html.escape(set_num)}</a>"
             cell_name = html.escape(name)
             cell_year = str(year) if year else ""
             cell_total = f"{total_parts:,}"
@@ -960,7 +973,7 @@ class Handler(BaseHTTPRequestHandler):
             qty = int(part.get("quantity", 0) or 0)
 
             # Part ID links to part detail
-            cell_id = f"<a href='/parts/{design_id}'>{design_id}</a>"
+            cell_id = f"<a href='{html.escape(part_url(design_id))}'>{design_id}</a>"
             cell_name = name
 
             # Color cell as full-cell background via td_style
@@ -975,7 +988,7 @@ class Handler(BaseHTTPRequestHandler):
 
             cell_qty = f"{qty:,}"
 
-            link = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+            link = part.get("part_url") or rebrickable_part_url(design_id)
             img = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
             cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
             cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
@@ -985,10 +998,10 @@ class Handler(BaseHTTPRequestHandler):
         # Header context
         set_img_url = set_info.get("image_url") or set_info.get("set_img_url") or ""
         set_name = set_info.get("name", set_num)
-        set_url = (
+        rb_set_url = (
             set_info.get("rebrickable_url")
             or set_info.get("set_url")
-            or f"https://rebrickable.com/sets/{set_num}/"
+            or rebrickable_set_url(set_num)
         )
 
         # Overall site totals for the header
@@ -1011,7 +1024,7 @@ class Handler(BaseHTTPRequestHandler):
             title=f"EB's Bricks - Set {set_num}",
             set_num=set_num,
             set_name=set_name,
-            set_url=set_url,
+            set_url=rb_set_url,
             set_img_url=set_img_url,
             total_qty=total_qty,
             total_qty_str=total_qty_str,
@@ -1076,7 +1089,7 @@ class Handler(BaseHTTPRequestHandler):
 
             # Link to container detail when we have a real container id
             if container_id:
-                loc_html = f"<a href='/containers/{int(container_id)}'>{html.escape(loc_label)}</a>"
+                loc_html = f"<a href='{html.escape(container_url(int(container_id)))}'>{html.escape(loc_label)}</a>"
             else:
                 loc_html = html.escape(loc_label)
 
@@ -1143,11 +1156,13 @@ class Handler(BaseHTTPRequestHandler):
             hex_code = (r.get("hex") or "").lstrip("#")
             drawer = r.get("drawer") or ""
             container = r.get("container") or ""
+            drawer_id = r.get("drawer_id")
+            container_id = r.get("container_id")
             qty = int(r.get("qty", 0) or 0)
             total_qty += qty
 
             # Cells
-            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_id = f"<a href='{html.escape(part_url(design_id))}'>{html.escape(design_id)}</a>"
             cell_name = html.escape(part_name)
 
             # Color cell as full-cell background via td_style (consumed by table macro + tables.js)
@@ -1160,11 +1175,21 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 cell_color = html.escape(color_name)
 
-            cell_drawer = html.escape(drawer)
-            cell_container = html.escape(container)
+            if drawer and drawer_id:
+                cell_drawer = (
+                    f"<a href='{html.escape(drawer_url(int(drawer_id)))}'>{html.escape(drawer)}</a>"
+                )
+            else:
+                cell_drawer = html.escape(drawer)
+
+            if container and container_id:
+                cell_container = f"<a href='{html.escape(container_url(int(container_id)))}'>{html.escape(container)}</a>"
+            else:
+                cell_container = html.escape(container)
+
             cell_qty = f"{qty:,}"
 
-            link = r.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+            link = r.get("part_url") or rebrickable_part_url(design_id)
             img = r.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
             cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
             cell_img = f"<img src='{html.escape(img)}' alt='Part image' style='height: 32px;'>"
@@ -1234,6 +1259,32 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 return "#000"
 
+        # Cache for resolving IDs by names (drawer_name, container_name) -> (drawer_id, container_id)
+        _name_to_ids_cache: dict[tuple[str, str], tuple[int | None, int | None]] = {}
+
+        def _resolve_ids(drawer_name: str, container_name: str) -> tuple[int | None, int | None]:
+            key = (drawer_name or "", container_name or "")
+            if key in _name_to_ids_cache:
+                return _name_to_ids_cache[key]
+            try:
+                with db._connect() as conn:  # pylint: disable=protected-access
+                    # Resolve drawer by name
+                    drow = conn.execute(
+                        "SELECT id FROM drawers WHERE name = ? LIMIT 1", (drawer_name,)
+                    ).fetchone()
+                    did = int(drow["id"]) if drow and drow["id"] is not None else None
+                    cid = None
+                    if did is not None and container_name:
+                        crow = conn.execute(
+                            "SELECT id FROM containers WHERE name = ? AND drawer_id = ? LIMIT 1",
+                            (container_name, did),
+                        ).fetchone()
+                        cid = int(crow["id"]) if crow and crow["id"] is not None else None
+            except Exception:
+                did, cid = None, None
+            _name_to_ids_cache[key] = (did, cid)
+            return did, cid
+
         # Build rows for the two tables used by part_detail.html
         # Loose Parts: Drawer, Container, Color(td_style), Qty
         rows_loose_tbl: list[list] = []
@@ -1242,6 +1293,11 @@ class Handler(BaseHTTPRequestHandler):
             container_txt = str(r.get("container", ""))
             drawer_id = r.get("drawer_id")
             container_id = r.get("container_id")
+            # Fallback: resolve IDs by name if missing and names are present
+            if (drawer_id is None or container_id is None) and (drawer_txt or container_txt):
+                rid, cid = _resolve_ids(drawer_txt, container_txt)
+                drawer_id = drawer_id or rid
+                container_id = container_id or cid
             color_name = str(r.get("color_name", ""))
             hex_code = (r.get("hex") or "").lstrip("#")
             qty = int(r.get("quantity", 0) or 0)
@@ -1281,7 +1337,8 @@ class Handler(BaseHTTPRequestHandler):
             hex_code = (r.get("hex") or "").lstrip("#")
             qty = int(r.get("quantity", 0) or 0)
 
-            set_cell = f"<a href='/sets/{html.escape(set_num)}'>{html.escape(set_num)}</a> – {html.escape(set_name)}"
+            set_id_cell = f"<a href='{html.escape(set_url(set_num))}'>{html.escape(set_num)}</a>"
+            set_name_cell = html.escape(set_name)
             if hex_code:
                 fg = _fg_for_hex(hex_code)
                 color_cell = {
@@ -1291,7 +1348,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 color_cell = html.escape(color_name)
 
-            rows_sets_tbl.append([set_cell, color_cell, f"{qty:,}"])
+            rows_sets_tbl.append([set_id_cell, set_name_cell, color_cell, f"{qty:,}"])
 
         # Per-part total quantity (raw sums, not formatted strings)
         part_total = sum(int(r.get("quantity", 0) or 0) for r in loose_rows) + sum(
@@ -1314,7 +1371,7 @@ class Handler(BaseHTTPRequestHandler):
         site_title = os.getenv("SITE_TITLE") or "Ervin-Burdick's Bricks"
 
         # Part meta for header
-        part_url = part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/"
+        rb_part_url = part.get("part_url") or rebrickable_part_url(design_id)
         part_img_url = part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png"
         part_name = part.get("name", "")
 
@@ -1324,7 +1381,7 @@ class Handler(BaseHTTPRequestHandler):
             design_id=design_id,
             part_id=design_id,
             part_name=part_name,
-            part_url=part_url,
+            part_url=rb_part_url,
             part_img_url=part_img_url,
             total_qty=part_total,
             total_qty_str=f"{part_total:,}",
@@ -1364,7 +1421,9 @@ class Handler(BaseHTTPRequestHandler):
         # Build rows for the shared table macro: [Drawer(link), Containers, Actions]
         rows_for_table = []
         for d in drawers:
-            drawer_link = f"<a href='/drawers/{d['id']}'>{html.escape(d['name'])}</a>"
+            drawer_link = (
+                f"<a href='{html.escape(drawer_url(int(d['id'])))}'>{html.escape(d['name'])}</a>"
+            )
             actions = (
                 f"<button type='button' data-action=\"rename-drawer\" "
                 f"data-drawer-id=\"{d['id']}\" data-name=\"{html.escape(d['name'])}\" "
@@ -1436,7 +1495,7 @@ class Handler(BaseHTTPRequestHandler):
                 unique_parts = len(parts)
                 total_pieces = sum(int(p.get("qty") or p.get("quantity") or 0) for p in parts)
 
-            name_link = f"<a href='/containers/{c_id}'>{html.escape(c_name)}</a>"
+            name_link = f"<a href='{html.escape(container_url(c_id))}'>{html.escape(c_name)}</a>"
             total_pieces_str = f"{int(total_pieces or 0):,}"
 
             actions_html = (
@@ -1516,7 +1575,7 @@ class Handler(BaseHTTPRequestHandler):
             hex_code = (p.get("hex") or "").lstrip("#")
             qty = int(p.get("qty", 0) or 0)
 
-            cell_id = f"<a href='/parts/{design_id}'>{design_id}</a>"
+            cell_id = f"<a href='{html.escape(part_url(design_id))}'>{design_id}</a>"
             cell_name = part_name
 
             if hex_code:
@@ -1534,7 +1593,7 @@ class Handler(BaseHTTPRequestHandler):
             link = (
                 p.get("rebrickable_url")
                 or p.get("part_url")
-                or (f"https://rebrickable.com/parts/{raw_design_id}/" if raw_design_id else "")
+                or (rebrickable_part_url(raw_design_id) if raw_design_id else "")
             )
 
             # Image: try row fields, then look up part meta as a fallback
@@ -1630,10 +1689,10 @@ class Handler(BaseHTTPRequestHandler):
             design_id = str(r["design_id"]) if r["design_id"] is not None else ""
             name = r["part_name"] or ""
             qty = int(r["total_qty"] or 0)
-            link = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
+            link = r["part_url"] or rebrickable_part_url(design_id)
             img = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
 
-            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_id = f"<a href='{html.escape(part_url(design_id))}'>{html.escape(design_id)}</a>"
             cell_name = html.escape(name)
             cell_qty = f"{qty:,}"  # display formatted; DT will still sort correctly via num/num-fmt
             cell_link = f"<a href='{html.escape(link)}' target='_blank'>View</a>"
@@ -1714,16 +1773,11 @@ class Handler(BaseHTTPRequestHandler):
             qty = int(r["total_qty"] or 0)
 
             # Rebrickable URLs
-            part_url = r["part_url"] or f"https://rebrickable.com/parts/{design_id}/"
-            rb_color_url = (
-                f"https://rebrickable.com/parts/{design_id}/{int(color_id)}/"
-                if color_id is not None
-                else part_url
-            )
+            rb_color_url = rebrickable_part_color_url(design_id, color_id)
             img_url = r["part_img_url"] or "https://rebrickable.com/static/img/nil.png"
 
             # Cells
-            cell_id = f"<a href='/parts/{html.escape(design_id)}'>{html.escape(design_id)}</a>"
+            cell_id = f"<a href='{html.escape(part_url(design_id))}'>{html.escape(design_id)}</a>"
             cell_name = html.escape(name)
 
             # Color cell: full-cell background via td_style (consumed by table macro + tables.js)

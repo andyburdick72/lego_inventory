@@ -8,13 +8,13 @@ Schema
 ------
 
 colors
-    id INTEGER PRIMARY KEY          – Rebrickable colour id
+    id INTEGER PRIMARY KEY          – Rebrickable color id
     name TEXT
     hex  TEXT
     r, g, b INTEGER                 – pre‑split RGB (convenience)
 
 color_aliases
-    alias_id INTEGER PRIMARY KEY    – BrickLink colour id
+    alias_id INTEGER PRIMARY KEY    – BrickLink color id
     color_id INTEGER REFERENCES colors(id)
 
 parts
