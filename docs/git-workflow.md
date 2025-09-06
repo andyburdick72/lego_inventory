@@ -60,6 +60,13 @@ git branch -d your-feature-branch
 **VS Code Equivalent**  
 Use the Branch menu in the bottom-left corner of VS Code to switch to `main`, then select your feature branch name and choose "Delete Branch…".
 
+## 5b. Delete the Remote Branch (Optional)
+```sh
+git push origin --delete your-feature-branch
+```
+**VS Code Equivalent**  
+Open the Command Palette (⇧⌘P), run `Git: Delete Branch...`, and select the remote branch you want to delete.
+
 ## 6. Move GitHub Issue to Done
 ```sh
 gh issue develop ISSUE_NUMBER --move "Done"
