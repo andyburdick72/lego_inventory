@@ -113,6 +113,9 @@ if [ "$COPILOT" -eq 1 ]; then
   LABELS+=("copilot")
 fi
 
+# Build JSON array for labels for gh api
+LABELS_JSON=$(printf '%s\n' "${LABELS[@]}" | jq -R . | jq -s .)
+
 ensure_label() {
   local label="$1"
   if ! gh label list --repo "$REPO" --json name --jq '.[].name' | grep -Fxq "$label"; then
@@ -141,12 +144,18 @@ for L in "${LABELS[@]}"; do
   ensure_label "$L"
 done
 
+
 # Create issue via REST (returns JSON)
+# Use repeated labels[] fields because GitHub expects an array for form bodies.
+LABEL_FLAGS=()
+for L in "${LABELS[@]}"; do
+  LABEL_FLAGS+=( -f "labels[]=$L" )
+done
 ISSUE_JSON=$(gh api \
   "repos/$REPO/issues" \
   -f "title=$TITLE" \
   -f "body=@$BODY_PATH" \
-  -f "labels=$(printf '["%s"]' "$(IFS='","'; echo "${LABELS[*]}")")")
+  "${LABEL_FLAGS[@]}")
 
 ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.html_url')
 ISSUE_NUM=$(printf '%s' "$ISSUE_JSON" | jq -r '.number')
