@@ -6,25 +6,25 @@ def drawer_url(drawer_id: int | str) -> str:
     """
     Build a canonical URL for a drawer details page.
     """
-    return f"/drawers/{quote(str(drawer_id))}"
+    return f"/drawers/{quote(str(drawer_id), safe='')}"
 
 
 def container_url(container_id: int | str) -> str:
     """
     Build a canonical URL for a container details page.
     """
-    return f"/containers/{quote(str(container_id))}"
+    return f"/containers/{quote(str(container_id), safe='')}"
 
 
 # Additional URL builder functions
 def part_url(design_id: int | str) -> str:
     """Canonical local URL for a part detail page."""
-    return f"/parts/{quote(str(design_id))}"
+    return f"/parts/{quote(str(design_id), safe='')}"
 
 
 def set_url(set_num: int | str) -> str:
     """Canonical local URL for a set detail page."""
-    return f"/sets/{quote(str(set_num))}"
+    return f"/sets/{quote(str(set_num), safe='')}"
 
 
 def rebrickable_part_url(design_id: int | str) -> str:

@@ -44,6 +44,16 @@ if [ "$DO_COV" -eq 1 ]; then
     --cov-report=term-missing:skip-covered --cov-report=html --cov-report=xml
 fi
 
+echo "🧪 Running UI tests..."
+if ! pytest -q -m ui; then
+  code=$?
+  if [ "$code" -eq 5 ]; then
+    echo "ℹ️ No UI tests collected; continuing..."
+  else
+    echo "❌ UI tests failed (exit $code)"
+    exit "$code"
+  fi
+fi
 echo "🛠️ Running smoke tests..."
 if ! ALLOW_SMOKE_TESTS=1 pytest -q --no-cov tests/smoke/test_drawers_containers_smoke.py; then
   code=$?

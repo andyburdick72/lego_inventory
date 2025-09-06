@@ -1,8 +1,10 @@
 # src/app/settings.py
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,10 +52,38 @@ class Settings(BaseSettings):
     # --- Validators / normalizers ---
     @field_validator("db_path", "reports_dir", mode="before")
     @classmethod
-    def _expand_user_and_env(cls, v):
-        if isinstance(v, str | Path):
-            return Path(str(v)).expanduser()
-        return v
+    def _normalize_pathlike_and_expand(cls, v: Any):
+        """Accept str/Path/PathLike; expand ~ and $VARS; let Pydantic coerce to Path.
+        - If v is a non-str PathLike, coerce via os.fspath.
+        - Expand env vars and user home on strings.
+        - Return a string so the field type Path gets final coercion.
+        """
+        if v is None:
+            return v
+        # Coerce arbitrary PathLike to str early so we can expand
+        if not isinstance(v, str | Path):
+            try:
+                v = os.fspath(v)  # PathLike -> str
+            except TypeError:
+                return v  # let Pydantic raise if truly invalid
+        s = str(v)
+        s = os.path.expandvars(os.path.expanduser(s))
+        return s
+
+    # --- Backwards compatibility for older tests ---
+    @classmethod
+    def _expand_user_and_env(cls, v: Any):
+        """Shim retained for tests that call the old validator name.
+        Delegates to `_normalize_pathlike_and_expand`, then coerces to `Path`
+        when appropriate so legacy tests expecting a `Path` still pass.
+        """
+        res = cls._normalize_pathlike_and_expand(v)
+        try:
+            # If res is a str or PathLike, coerce to Path for backward compat
+            return Path(os.fspath(res))
+        except (TypeError, ValueError):
+            # If not pathlike, return as-is (legacy tests cover this branch)
+            return res
 
     # --- Helpers ---
     def ensure_directories(self) -> None:
