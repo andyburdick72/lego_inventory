@@ -223,3 +223,7 @@ data/*.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# Ignore generated icon and apps
+lego.icns
+*.app

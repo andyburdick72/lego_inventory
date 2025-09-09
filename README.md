@@ -92,6 +92,24 @@ To use `dev.sh`:
 ```
 This will install dependencies, initialize the database if needed, and start the web UI server.
 
+### macOS Launcher (optional)
+
+For convenience, you can generate a macOS app bundle that starts the LEGO server
+in a Terminal window with one click.
+
+From the repo root:
+```bash
+./scripts/mac/create_lego_app.sh
+```
+
+This will create **Start LEGO Server.app** in your `~/Applications/` folder
+(using `lego.png` in the repo root as its icon). Drag it to your Dock for quick access.
+
+If the Dock icon does not update after regeneration, run:
+```bash
+killall Dock
+```
+
 ### 4. Initialize database schema (manual alternative)
 ```bash
 python3 src/inventory_db.py
