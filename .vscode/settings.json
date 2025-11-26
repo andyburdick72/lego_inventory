@@ -76,5 +76,10 @@
     "terminal.integrated.defaultProfile.osx": "venv",
     "terminal.integrated.env.osx": {
         "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
-    }
+    },
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.extraPaths": [
+        "${workspaceFolder}/src"
+    ],
+    "cursorpyright.analysis.typeCheckingMode": "basic"
 }
