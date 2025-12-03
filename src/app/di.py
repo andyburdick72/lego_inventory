@@ -60,6 +60,11 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+def get_db_connection() -> sqlite3.Connection:
+    """FastAPI dependency to get a database connection."""
+    return _get_conn()
+
+
 # Normalize various row-like objects (sqlite3.Row, dict-like, etc.) to Mapping[str, Any]
 def _as_mapping(row: Any) -> Mapping[str, Any]:
     if isinstance(row, Mapping):
