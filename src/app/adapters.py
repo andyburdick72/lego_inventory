@@ -50,10 +50,15 @@ def row_to_set(row: Mapping) -> LEGOSetDTO:
 
 def row_to_inventory_item(row: Mapping) -> InventoryItemDTO:
     status = Status.from_any(row.get("status")) or Status.LOOSE
+    color_hex = row.get("color_hex")
+    # Remove # if present
+    if color_hex and isinstance(color_hex, str):
+        color_hex = color_hex.lstrip("#")
     dto = InventoryItemDTO(
         part_id=str(row.get("part_id") or ""),
         color_id=int(row.get("color_id") or 0),
         color_name=row.get("color_name"),
+        color_hex=color_hex,
         quantity=row.get("quantity", row.get("qty", 0)),
         status=status,
         drawer_id=row.get("drawer_id"),

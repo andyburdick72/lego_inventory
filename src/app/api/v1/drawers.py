@@ -1,6 +1,7 @@
 """FastAPI router for drawers endpoints."""
 
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -21,17 +22,22 @@ router = APIRouter(prefix="/drawers", tags=["drawers"])
 # Request models
 class CreateDrawerRequest(BaseModel):
     name: str
-    description: str | None = None
+    description: Optional[str] = None
+    rows: Optional[int] = None
+    cols: Optional[int] = None
 
 
 class RenameDrawerRequest(BaseModel):
     id: int
     new_name: str
+    description: Optional[str] = None
+    rows: Optional[int] = None
+    cols: Optional[int] = None
 
 
 class MoveDrawerRequest(BaseModel):
     id: int
-    new_sort_index: int | None = None
+    new_sort_index: Optional[int] = None
 
 
 class DeleteDrawerRequest(BaseModel):
@@ -59,50 +65,44 @@ def list_drawers(service: InventoryService = Depends(get_inventory_service)):
     return [d.model_dump() for d in items]
 
 
+@router.get("/{drawer_id}", response_model=DrawerSummaryDTO)
+def get_drawer(
+    drawer_id: int,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Get a single drawer by ID with its container and part counts."""
+    rows = service.list_drawers()
+    items = rows_to(row_to_drawer_summary, rows)
+    drawer = next((d for d in items if d.id == drawer_id), None)
+    if not drawer:
+        raise HTTPException(status_code=404, detail="Drawer not found")
+    return drawer.model_dump()
+
+
 @router.post("/create", response_model=DrawerIdResponse, status_code=status.HTTP_201_CREATED)
 def create_drawer(
     request: CreateDrawerRequest,
-    service: InventoryService = Depends(get_inventory_service),
+    conn: sqlite3.Connection = Depends(get_db_connection),
 ):
     """Create a new drawer."""
     try:
-        result = service.create_drawer(label=request.name, description=request.description)
-        # Extract ID from result (could be dict, int, or row-like)
-        drawer_id = None
-        if isinstance(result, dict):
-            drawer_id = result.get("id") or result.get("drawer_id") or result.get("value")
-        elif isinstance(result, int):
-            drawer_id = result
-        else:
-            # Try to get id attribute
-            try:
-                drawer_id = result["id"]  # type: ignore[index]
-            except (KeyError, TypeError):
-                try:
-                    drawer_id = result["drawer_id"]  # type: ignore[index]
-                except (KeyError, TypeError):
-                    pass
-
-        if drawer_id is None:
-            # Fallback: try to convert to dict
-            try:
-                as_dict = dict(result)  # type: ignore[arg-type]
-                drawer_id = as_dict.get("id") or as_dict.get("drawer_id")
-            except Exception:
-                raise HTTPException(
-                    status_code=500, detail="Created drawer but could not extract ID"
-                )
-
-        return DrawerIdResponse(id=int(drawer_id))
+        repo = DrawersRepo(conn)
+        drawer_id = repo.create_drawer(
+            name=request.name,
+            description=request.description,
+            rows=request.rows,
+            cols=request.cols,
+        )
+        return DrawerIdResponse(id=drawer_id)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    except DuplicateError as e:
+    except DuplicateLabelError as e:
         raise HTTPException(
             status_code=409,
             detail={
-                "message": str(e),
+                "message": str(e) or "Duplicate drawer name",
                 "code": "duplicate",
-                "details": getattr(e, "details", None),
+                "details": {"field": "name", "value": request.name},
             },
         )
 
@@ -112,14 +112,25 @@ def rename_drawer(
     request: RenameDrawerRequest,
     conn: sqlite3.Connection = Depends(get_db_connection),
 ):
-    """Rename a drawer."""
+    """Update a drawer's name and optionally description."""
     new_name = request.new_name.strip()
     if not new_name:
         raise HTTPException(status_code=422, detail="new_name is required")
 
     try:
         repo = DrawersRepo(conn)
-        repo.rename_drawer(drawer_id=request.id, new_name=new_name)
+        # Always use update_drawer since it properly excludes the current drawer from duplicate check
+        # and supports updating both name and description
+        description = None
+        if request.description is not None:
+            description = request.description.strip() or None
+        repo.update_drawer(
+            drawer_id=request.id,
+            new_name=new_name,
+            description=description,
+            rows=request.rows,
+            cols=request.cols,
+        )
         return DrawerUpdatedResponse(updated=request.id)
     except DuplicateLabelError as e:
         raise HTTPException(

@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar
+from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -17,10 +17,10 @@ class DTOBase(BaseModel):
 class DrawerSummaryDTO(DTOBase):
     id: int
     name: str
-    description: str | None = ""
-    kind: str | None = None
-    cols: int | None = None
-    rows: int | None = None
+    description: Optional[str] = ""
+    kind: Optional[str] = None
+    cols: Optional[int] = None
+    rows: Optional[int] = None
     sort_index: int  # required per snapshot
     container_count: int  # required per snapshot
     part_count: int  # required per snapshot
@@ -29,9 +29,9 @@ class DrawerSummaryDTO(DTOBase):
 class ContainerSummaryDTO(DTOBase):
     id: int
     name: str
-    description: str | None = None
-    row_index: int | None = None
-    col_index: int | None = None
+    description: Optional[str] = None
+    row_index: Optional[int] = None
+    col_index: Optional[int] = None
     sort_index: int  # required per snapshot
     part_count: int  # required per snapshot
     unique_parts: int  # required per snapshot
@@ -41,44 +41,45 @@ class DrawerDTO(DTOBase):
     id: int
     name: str
     deleted: bool = False
-    container_count: int | None = None
+    container_count: Optional[int] = None
 
 
 class ContainerDTO(DTOBase):
     id: int
     label: str
     drawer_id: int
-    drawer_name: str | None = None
+    drawer_name: Optional[str] = None
     deleted: bool = False
-    parts_count: int | None = None
+    parts_count: Optional[int] = None
 
 
 class LEGOSetDTO(DTOBase):
     set_number: str
     name: str
-    year: int | None = None
-    theme: str | None = None
+    year: Optional[int] = None
+    theme: Optional[str] = None
     status: Status = Status.IN_BOX
-    total_parts: int | None = None
-    image_url: str | None = None
-    rebrickable_url: str | None = None
+    total_parts: Optional[int] = None
+    image_url: Optional[str] = None
+    rebrickable_url: Optional[str] = None
 
 
 class InventoryItemDTO(DTOBase):
     part_id: str
     color_id: int
-    color_name: str | None = None
+    color_name: Optional[str] = None
+    color_hex: Optional[str] = None
     quantity: int
     status: Status
-    drawer_id: int | None = None
-    drawer_name: str | None = None
-    container_id: int | None = None
-    container_label: str | None = None
-    set_number: str | None = None
-    set_name: str | None = None
-    part_name: str | None = None
-    image_url: str | None = None
-    rebrickable_url: str | None = None
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_id: Optional[int] = None
+    container_label: Optional[str] = None
+    set_number: Optional[str] = None
+    set_name: Optional[str] = None
+    part_name: Optional[str] = None
+    image_url: Optional[str] = None
+    rebrickable_url: Optional[str] = None
 
 
 class PageMeta(DTOBase):
@@ -88,11 +89,11 @@ class PageMeta(DTOBase):
 
 
 class InventoryFilters(DTOBase):
-    set_number: str | None = None
-    status: Status | None = None
-    drawer_id: int | None = None
-    container_id: int | None = None
-    color_id: int | None = None
+    set_number: Optional[str] = None
+    status: Optional[Status] = None
+    drawer_id: Optional[int] = None
+    container_id: Optional[int] = None
+    color_id: Optional[int] = None
 
 
 class PaginatedResponse(DTOBase, Generic[T]):

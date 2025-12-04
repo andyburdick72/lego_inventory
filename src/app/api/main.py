@@ -24,12 +24,13 @@ app.add_middleware(
 )
 
 # Import routers (we'll create these step by step)
-from app.api.v1 import containers, drawers, parts, sets
+from app.api.v1 import containers, drawers, inventory, parts, sets
 
 app.include_router(drawers.router, prefix="/api/v1")
 app.include_router(containers.router, prefix="/api/v1")
 app.include_router(sets.router, prefix="/api/v1")
 app.include_router(parts.router, prefix="/api/v1")
+app.include_router(inventory.router, prefix="/api/v1")
 
 
 @app.get("/")

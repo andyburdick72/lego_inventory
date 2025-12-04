@@ -149,7 +149,7 @@ class _DrawersRepoAdapter:
             impl.soft_delete_drawer(drawer_id)  # type: ignore[attr-defined]
             return
         if hasattr(impl, "delete_drawer"):
-            impl.delete_drawer(drawer_id)  # type: ignore[attr-defined]
+            impl.delete_drawer(drawer_id=drawer_id)  # type: ignore[attr-defined]
             return
         raise NotImplementedError("No soft_delete/delete method for drawers on implementation")
 

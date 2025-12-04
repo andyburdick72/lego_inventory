@@ -1,5 +1,7 @@
 """FastAPI router for parts endpoints."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -31,7 +33,7 @@ class PartInSetDTO(DTOBase):
     set_name: str
     color_id: int
     color_name: str
-    hex: str | None = None
+    hex: Optional[str] = None
     quantity: int
 
 

@@ -150,8 +150,11 @@ class DrawersRepo(BaseRepo):
     # ----------------------------
     # Write operations: Drawers
     # ----------------------------
-    def create_drawer(self, *, name: str, description: str | None = None) -> int:
-        dup = self._one(
+    def create_drawer(
+        self, *, name: str, description: str | None = None, rows: int | None = None, cols: int | None = None
+    ) -> int:
+        # Check for active drawer with same name
+        active_dup = self._one(
             """
             SELECT 1
             FROM drawers
@@ -160,16 +163,44 @@ class DrawersRepo(BaseRepo):
             """,
             [name],
         )
-        if dup:
+        if active_dup:
             raise DuplicateLabelError(f"Drawer '{name}' already exists")
 
+        # Check for soft-deleted drawer with same name - restore it instead of creating new
+        soft_deleted = self._one(
+            """
+            SELECT id
+            FROM drawers
+            WHERE name = ? COLLATE NOCASE
+            AND deleted_at IS NOT NULL
+            """,
+            [name],
+        )
+        if soft_deleted:
+            drawer_id = soft_deleted["id"] if isinstance(soft_deleted, dict) else soft_deleted[0]
+            # Restore the soft-deleted drawer with new values
+            self._one(
+                """
+                UPDATE drawers
+                SET deleted_at = NULL,
+                    description = ?,
+                    rows = ?,
+                    cols = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                [description, rows, cols, drawer_id],
+            )
+            return int(drawer_id)
+
+        # No existing drawer (active or deleted) - create new one
         row = self._one(
             """
-            INSERT INTO drawers (name, description)
-            VALUES (?, ?)
+            INSERT INTO drawers (name, description, rows, cols)
+            VALUES (?, ?, ?, ?)
             RETURNING id
             """,
-            [name, description],
+            [name, description, rows, cols],
         )
         if row is None:
             raise RuntimeError("Failed to create drawer: no ID returned")
@@ -195,6 +226,38 @@ class DrawersRepo(BaseRepo):
             WHERE id = ?
             """,
             [new_name, drawer_id],
+        )
+
+    def update_drawer(
+        self,
+        *,
+        drawer_id: int,
+        new_name: str,
+        description: Optional[str] = None,
+        rows: Optional[int] = None,
+        cols: Optional[int] = None,
+    ) -> None:
+        """Update drawer name, description, rows, and cols."""
+        dup = self._one(
+            """
+            SELECT 1
+            FROM drawers
+            WHERE name = ? COLLATE NOCASE
+            AND deleted_at IS NULL
+            AND id != ?
+            """,
+            [new_name, drawer_id],
+        )
+        if dup:
+            raise DuplicateLabelError(f"Drawer '{new_name}' already exists")
+
+        self._one(
+            """
+            UPDATE drawers
+            SET name = ?, description = ?, rows = ?, cols = ?
+            WHERE id = ?
+            """,
+            [new_name, description, rows, cols, drawer_id],
         )
 
     def move_drawer(self, *, drawer_id: int, new_sort_index: int | None) -> None:

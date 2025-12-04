@@ -1,6 +1,7 @@
 """FastAPI router for containers endpoints."""
 
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -21,10 +22,10 @@ router = APIRouter(prefix="/containers", tags=["containers"])
 class CreateContainerRequest(BaseModel):
     drawer_id: int
     name: str
-    description: str | None = None
-    row_index: int | None = None
-    col_index: int | None = None
-    sort_index: int | None = None
+    description: Optional[str] = None
+    row_index: Optional[int] = None
+    col_index: Optional[int] = None
+    sort_index: Optional[int] = None
 
 
 class RenameContainerRequest(BaseModel):
@@ -34,10 +35,18 @@ class RenameContainerRequest(BaseModel):
 
 class MoveContainerRequest(BaseModel):
     id: int
-    new_drawer_id: int | None = None
-    row_index: int | None = None
-    col_index: int | None = None
-    sort_index: int | None = None
+    new_drawer_id: Optional[int] = None
+    row_index: Optional[int] = None
+    col_index: Optional[int] = None
+    sort_index: Optional[int] = None
+
+
+class UpdateContainerRequest(BaseModel):
+    id: int
+    name: Optional[str] = None
+    description: Optional[str] = None
+    row_index: Optional[int] = None
+    col_index: Optional[int] = None
 
 
 class DeleteContainerRequest(BaseModel):
@@ -172,6 +181,54 @@ def move_container(
         raise HTTPException(status_code=500, detail=f"Failed to move container: {str(e)}")
 
 
+@router.post("/update", response_model=ContainerUpdatedResponse)
+def update_container(
+    request: UpdateContainerRequest,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Update a container (name, description, row_index, col_index)."""
+    # Check if at least one field is provided
+    if all(
+        [
+            request.name is None,
+            request.description is None,
+            request.row_index is None,
+            request.col_index is None,
+        ]
+    ):
+        raise HTTPException(
+            status_code=400, detail="At least one field must be provided to update"
+        )
+
+    try:
+        # Use inventory_db.update_container which can update any fields
+        fields = {}
+        if request.name is not None:
+            fields["name"] = request.name.strip()
+        if request.description is not None:
+            # Allow clearing description by sending empty string (which becomes None)
+            # or explicitly sending None
+            desc_value = request.description.strip() if request.description else None
+            fields["description"] = desc_value
+        if request.row_index is not None:
+            fields["row_index"] = request.row_index
+        if request.col_index is not None:
+            fields["col_index"] = request.col_index
+
+        inventory_db.update_container(conn, request.id, **fields)
+        return ContainerUpdatedResponse(updated=request.id)
+    except DuplicateLabelError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e) or "Duplicate label in this drawer",
+                "code": "duplicate",
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update container: {str(e)}")
+
+
 @router.post("/delete", response_model=ContainerDeletedResponse)
 def delete_container(
     request: DeleteContainerRequest,
@@ -217,4 +274,63 @@ def delete_container(
                 "details": getattr(e, "details", None),
             },
         )
+
+
+@router.get("/{container_id}")
+def get_container(
+    container_id: int,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Get container details including drawer information."""
+    container = inventory_db.get_container(container_id)
+    if not container:
+        raise HTTPException(status_code=404, detail="Container not found")
+    return container
+
+
+@router.get("/{container_id}/parts")
+def get_container_parts(
+    container_id: int,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Get all parts in a container with full details."""
+    parts = inventory_db.list_parts_in_container(container_id)
+    
+    # Enhance parts with URLs and images from parts table
+    result = []
+    for part in parts:
+        design_id = part.get("design_id")
+        if design_id:
+            # Get part metadata for URLs and images
+            part_row = conn.execute(
+                "SELECT part_url, part_img_url FROM parts WHERE design_id = ?",
+                (design_id,),
+            ).fetchone()
+            
+            part_url = None
+            part_img_url = None
+            if part_row:
+                part_url = part_row.get("part_url") if isinstance(part_row, dict) else part_row[0] if part_row else None
+                part_img_url = part_row.get("part_img_url") if isinstance(part_row, dict) else part_row[1] if part_row else None
+            
+            # Fallback to Rebrickable URL if not in DB
+            if not part_url and design_id:
+                part_url = f"https://rebrickable.com/parts/{design_id}/"
+            
+            # Fallback to default image if not in DB
+            if not part_img_url:
+                part_img_url = "https://rebrickable.com/static/img/nil.png"
+        
+        result.append({
+            "design_id": design_id,
+            "part_name": part.get("part_name"),
+            "color_id": part.get("color_id"),
+            "color_name": part.get("color_name"),
+            "hex": part.get("hex"),
+            "quantity": part.get("qty") or part.get("quantity") or 0,
+            "part_url": part_url,
+            "part_img_url": part_img_url,
+        })
+    
+    return result
 

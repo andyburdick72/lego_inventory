@@ -1,6 +1,7 @@
 """FastAPI router for sets endpoints."""
 
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -22,10 +23,18 @@ class SetPartDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: str | None = None
+    hex: Optional[str] = None
     quantity: int
-    part_url: str | None = None
-    part_img_url: str | None = None
+    part_url: Optional[str] = None
+    part_img_url: Optional[str] = None
+
+
+@router.get("/count")
+def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):
+    """Get the total count of sets."""
+    row = conn.execute("SELECT COUNT(*) AS count FROM sets").fetchone()
+    count = row["count"] if isinstance(row, dict) else row[0] if row else 0
+    return {"count": count}
 
 
 @router.get("", response_model=list[LEGOSetDTO])
