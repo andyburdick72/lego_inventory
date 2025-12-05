@@ -162,3 +162,18 @@ class SetsRepo(BaseRepo):
             statuses,
         )
         return int(row["q"]) if row and row["q"] is not None else 0
+
+    def update_set_by_num(self, set_num: str, **fields) -> None:
+        """
+        Update a set by set_num with the provided fields.
+        """
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values())
+        values.append(set_num)
+        self.conn.execute(
+            f"UPDATE sets SET {set_clause} WHERE set_num = ?",
+            values,
+        )
+        self.conn.commit()

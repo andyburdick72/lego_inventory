@@ -60,7 +60,7 @@ export default function DrawersPage() {
   const totalPages = Math.ceil((drawers?.length || 0) / cardPageSize);
 
   const handleRowClick = (drawer: DrawerSummary) => {
-    router.push(`/drawers/${drawer.id}`);
+    router.push(`/drawers/${drawer.id}?from=drawers`);
   };
 
   const handleEdit = (drawer: DrawerSummary, e: React.MouseEvent) => {
@@ -83,7 +83,7 @@ export default function DrawersPage() {
         const drawer = row.original;
         return (
           <Link
-            href={`/drawers/${drawer.id}`}
+            href={`/drawers/${drawer.id}?from=drawers`}
             className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -170,9 +170,26 @@ export default function DrawersPage() {
 
   return (
     <div className="container mx-auto py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Drawers</h1>
-        <div className="flex items-center gap-2">
+      <div className="mb-6">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/">← Back to Home</Link>
+        </Button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Drawers</h1>
+            {!isLoading && drawers && (
+              <div className="flex gap-4 mt-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Total Drawers: </span>
+                  <span className="font-medium">{formatNumber(drawers.length)}</span>
+                </div>
+              </div>
+            )}
+            {isLoading && (
+              <p className="text-muted-foreground mt-1">Loading...</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
           <div className="flex items-center border rounded-md">
             <Button
               variant={viewMode === 'table' ? 'default' : 'ghost'}
@@ -203,6 +220,7 @@ export default function DrawersPage() {
             <Plus className="h-4 w-4 mr-2" />
             Add Drawer
           </Button>
+        </div>
         </div>
       </div>
 

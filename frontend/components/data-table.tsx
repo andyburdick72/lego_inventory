@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Download, ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn, formatNumber } from '@/lib/utils';
+import { cn, formatNumber, getStatusLabel } from '@/lib/utils';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -104,7 +104,14 @@ export function DataTable<TData, TValue>({
         if (value === null || value === undefined) return false;
         
         // Handle different value types
-        const stringValue = String(value).toLowerCase();
+        let stringValue = String(value).toLowerCase();
+        
+        // Special handling for status field: also search by status label
+        if (key === 'status' && typeof value === 'string') {
+          const statusLabel = getStatusLabel(value).toLowerCase();
+          stringValue = `${stringValue} ${statusLabel}`;
+        }
+        
         return stringValue.includes(searchTerm);
       });
     },

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import { useDrawer } from '@/lib/hooks/use-drawers';
 import { useContainers, ContainerSummary } from '@/lib/hooks/use-containers';
@@ -34,8 +34,54 @@ type ViewMode = 'cards' | 'table';
 export default function DrawerDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const drawerId = parseInt(params.id as string, 10);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [backLink, setBackLink] = useState<{ href: string; label: string }>({
+    href: '/drawers',
+    label: 'Drawers',
+  });
+
+  // Determine back navigation based on referrer or query param
+  useEffect(() => {
+    // Check for explicit 'from' query parameter first
+    const fromParam = searchParams.get('from');
+    if (fromParam) {
+      const fromMap: Record<string, { href: string; label: string }> = {
+        'drawers': { href: '/drawers', label: 'Drawers' },
+        'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
+        'location-counts': { href: '/location-counts', label: 'Location Counts' },
+        'containers': { href: `/containers/${searchParams.get('container_id') || ''}`, label: 'Container' },
+      };
+      if (fromMap[fromParam]) {
+        setBackLink(fromMap[fromParam]);
+        return;
+      }
+    }
+
+    // Fall back to checking document.referrer
+    if (typeof window !== 'undefined' && document.referrer) {
+      const referrer = new URL(document.referrer);
+      const pathname = referrer.pathname;
+
+      if (pathname.includes('/containers/')) {
+        // Extract container ID from referrer if possible
+        const containerMatch = pathname.match(/\/containers\/(\d+)/);
+        if (containerMatch) {
+          setBackLink({ href: `/containers/${containerMatch[1]}`, label: 'Container' });
+        } else {
+          setBackLink({ href: '/drawers', label: 'Drawers' });
+        }
+      } else if (pathname.includes('/location-counts')) {
+        setBackLink({ href: '/location-counts', label: 'Location Counts' });
+      } else if (pathname.includes('/loose-parts')) {
+        setBackLink({ href: '/loose-parts', label: 'Loose Parts' });
+      } else if (pathname.includes('/drawers')) {
+        setBackLink({ href: '/drawers', label: 'Drawers' });
+      }
+      // Default is already set to drawers
+    }
+  }, [searchParams]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -47,7 +93,7 @@ export default function DrawerDetailPage() {
     useContainers(drawerId);
 
   const handleRowClick = (container: ContainerSummary) => {
-    router.push(`/containers/${container.id}`);
+    router.push(`/containers/${container.id}?from=drawers`);
   };
 
   const handleEdit = (container: ContainerSummary, e: React.MouseEvent) => {
@@ -89,7 +135,7 @@ export default function DrawerDetailPage() {
         const container = row.original;
         return (
           <Link
-            href={`/containers/${container.id}`}
+            href={`/containers/${container.id}?from=drawers`}
             className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -179,7 +225,7 @@ export default function DrawerDetailPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href="/drawers">← Back to Drawers</Link>
+          <Link href={backLink.href}>← Back to {backLink.label}</Link>
         </Button>
         <h1 className="text-3xl font-bold">{drawer.name}</h1>
         {drawer.description && (

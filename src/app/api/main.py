@@ -32,6 +32,17 @@ app.include_router(sets.router, prefix="/api/v1")
 app.include_router(parts.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 
+# Import scripts router with error handling in case it fails
+try:
+    from app.api.v1 import scripts
+    app.include_router(scripts.router, prefix="/api/v1")
+    print("✅ Scripts router loaded successfully")
+except Exception as e:
+    # Log the error but don't crash the API
+    import traceback
+    print(f"❌ Failed to load scripts router: {e}")
+    traceback.print_exc()
+
 
 @app.get("/")
 def root():

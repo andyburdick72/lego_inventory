@@ -29,6 +29,11 @@ class SetPartDTO(BaseModel):
     part_img_url: Optional[str] = None
 
 
+# Request models
+class UpdateSetStatusRequest(BaseModel):
+    status: str
+
+
 @router.get("/count")
 def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):
     """Get the total count of sets."""
@@ -143,6 +148,51 @@ def get_set_parts(
                 "message": str(e),
                 "code": "not_found",
                 "details": getattr(e, "details", None),
+            },
+        )
+
+
+@router.patch("/{set_number}/status")
+def update_set_status(
+    set_number: str,
+    request: UpdateSetStatusRequest,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Update the status of a set."""
+    try:
+        # Validate status
+        status_enum = Status.from_any(request.status)
+        
+        # Check if set exists
+        sets_repo = SetsRepo(conn)
+        existing_set = sets_repo.get_set_by_num(set_number)
+        if not existing_set:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": f"Set {set_number} not found",
+                    "code": "not_found",
+                },
+            )
+        
+        # Update status
+        sets_repo.update_set_by_num(set_number, status=status_enum.value)
+        
+        return {"updated": set_number, "status": status_enum.value}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Invalid status: {str(e)}",
+                "code": "validation_error",
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Error updating set status: {str(e)}",
+                "code": "internal_error",
             },
         )
 

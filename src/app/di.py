@@ -4,6 +4,8 @@ import sqlite3
 from collections.abc import Mapping
 from typing import Any, cast
 
+from fastapi import Depends
+
 from app.errors import DuplicateError
 from app.settings import get_settings
 from core.services.export_service import ExportService
@@ -304,8 +306,8 @@ class _ExportRepoAdapter:
 # -----------------------------
 
 
-def get_inventory_service() -> InventoryService:
-    conn = _get_conn()
+def get_inventory_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> InventoryService:
+    """Get InventoryService with a connection from the current request context."""
     drawers_impl = DrawersRepoImpl(conn)
     inventory_impl = InventoryRepoImpl(conn)
 
@@ -327,8 +329,8 @@ def inventory_service_for_conn(conn: sqlite3.Connection) -> InventoryService:
     return InventoryService(drawers=drawers, containers=containers, inventory=inventory)
 
 
-def get_set_parts_service() -> SetPartsService:
-    conn = _get_conn()
+def get_set_parts_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> SetPartsService:
+    """Get SetPartsService with a connection from the current request context."""
     sets_impl = SetsRepoImpl(conn)
     sets = _SetsRepoAdapter(sets_impl)
     set_parts = _SetPartsRepoAdapter(sets_impl)
@@ -345,7 +347,7 @@ def get_export_service() -> ExportService:
 # -----------------------------
 
 
-def get_parts_service() -> PartsService:
-    conn = _get_conn()
+def get_parts_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> PartsService:
+    """Get PartsService with a connection from the current request context."""
     parts_impl = PartsRepoImpl(conn)
     return PartsService(parts=parts_impl)

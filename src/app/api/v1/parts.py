@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.adapters import row_to_inventory_item, rows_to
-from app.di import get_inventory_service, get_parts_service, get_set_parts_service
+from app.di import get_db_connection, get_inventory_service, get_parts_service, get_set_parts_service
 from app.errors import NotFoundError, ValidationError
 from core.dtos import DTOBase, InventoryItemDTO
 from core.services.inventory_service import InventoryService

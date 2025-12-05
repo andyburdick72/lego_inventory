@@ -37,6 +37,10 @@ class PartColorCountDTO(BaseModel):
 class LocationCountDTO(BaseModel):
     location: str
     total_qty: int
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_id: Optional[int] = None
+    container_name: Optional[str] = None
 
 
 class TotalPartCountDTO(BaseModel):
@@ -45,21 +49,17 @@ class TotalPartCountDTO(BaseModel):
 
 @router.get("/total-count", response_model=TotalPartCountDTO)
 def get_total_part_count(conn: sqlite3.Connection = Depends(get_db_connection)):
-    """Get total part count across all inventory (loose parts + parts in sets)."""
+    """Get total part count across all sets (all set parts, regardless of set status)."""
+    # Match the calculation used by the Sets API: sum total_parts for each set
     row = conn.execute(
         """
         SELECT 
-            COALESCE((
-                SELECT SUM(i.quantity)
-                FROM inventory i
-                WHERE i.status = 'loose'
-            ), 0) +
-            COALESCE((
-                SELECT SUM(sp.quantity)
-                FROM set_parts sp
-                JOIN sets s ON s.set_num = sp.set_num
-                WHERE s.status IN ('built','wip','in_box','teardown')
+            COALESCE(SUM(
+                (SELECT COALESCE(SUM(sp.quantity), 0)
+                 FROM set_parts sp
+                 WHERE sp.set_num = s.set_num)
             ), 0) AS total_count
+        FROM sets s
         """
     ).fetchone()
 
@@ -104,56 +104,42 @@ def list_loose_inventory(conn: sqlite3.Connection = Depends(get_db_connection)):
 
 @router.get("/part-counts", response_model=list[PartCountDTO])
 def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
-    """Get total part counts across all inventory."""
+    """Get total part counts across all sets (all set parts, regardless of set status).
+    
+    This matches the calculation used by the Part Detail page: join with sets table.
+    """
     rows = conn.execute(
         """
-        SELECT design_id, part_name, part_url, part_img_url, SUM(total_qty) AS total_qty
-        FROM (
-            -- Loose parts
-            SELECT i.design_id,
-                   p.name AS part_name,
-                   p.part_url AS part_url,
-                   p.part_img_url AS part_img_url,
-                   SUM(i.quantity) AS total_qty
-            FROM inventory i
-            JOIN parts p ON i.design_id = p.design_id
-            WHERE i.status = 'loose'
-            GROUP BY i.design_id, p.name, p.part_url, p.part_img_url
-
-            UNION ALL
-
-            -- Parts in sets
-            SELECT sp.design_id,
-                   p.name AS part_name,
-                   p.part_url AS part_url,
-                   p.part_img_url AS part_img_url,
-                   SUM(sp.quantity) AS total_qty
-            FROM set_parts sp
-            JOIN parts p ON sp.design_id = p.design_id
-            JOIN sets s  ON s.set_num   = sp.set_num
-            WHERE s.status IN ('built','wip','in_box','teardown')
-            GROUP BY sp.design_id, p.name, p.part_url, p.part_img_url
-        ) q
-        GROUP BY design_id, part_name, part_url, part_img_url
+        SELECT sp.design_id,
+               MAX(p.name) AS part_name,
+               MAX(p.part_url) AS part_url,
+               MAX(p.part_img_url) AS part_img_url,
+               SUM(sp.quantity) AS total_qty
+        FROM set_parts sp
+        JOIN sets s ON s.set_num = sp.set_num
+        LEFT JOIN parts p ON sp.design_id = p.design_id
+        GROUP BY sp.design_id
         ORDER BY total_qty DESC
         """
     ).fetchall()
 
     result = []
     for r in rows:
-        part_url = r.get("part_url")
-        if not part_url and r.get("design_id"):
-            part_url = f"https://rebrickable.com/parts/{r['design_id']}/"
+        # Convert Row to dict for easier access
+        row_dict = dict(r)
+        part_url = row_dict.get("part_url")
+        if not part_url and row_dict.get("design_id"):
+            part_url = f"https://rebrickable.com/parts/{row_dict['design_id']}/"
 
-        part_img_url = r.get("part_img_url")
+        part_img_url = row_dict.get("part_img_url")
         if not part_img_url:
             part_img_url = "https://rebrickable.com/static/img/nil.png"
 
         result.append(
             PartCountDTO(
-                design_id=str(r.get("design_id", "")),
-                part_name=str(r.get("part_name", "")),
-                total_qty=int(r.get("total_qty", 0)),
+                design_id=str(row_dict.get("design_id", "")),
+                part_name=str(row_dict.get("part_name", "")),
+                total_qty=int(row_dict.get("total_qty", 0)),
                 part_url=part_url,
                 part_img_url=part_img_url,
             )
@@ -163,65 +149,57 @@ def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
 
 @router.get("/part-color-counts", response_model=list[PartColorCountDTO])
 def get_part_color_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
-    """Get part counts grouped by part and color."""
+    """Get part counts grouped by part and color across all sets (all set parts, regardless of set status).
+    
+    This matches the calculation used by the Part Counts page: join with sets table.
+    """
     rows = conn.execute(
         """
-        SELECT
-            pc.design_id,
-            p.name         AS part_name,
-            pc.color_id,
-            c.name         AS color_name,
-            c.hex          AS color_hex,
-            p.part_url     AS part_url,
-            p.part_img_url AS part_img_url,
-            SUM(pc.total_qty) AS total_qty
-        FROM (
-            SELECT i.design_id, i.color_id, SUM(i.quantity) AS total_qty
-            FROM inventory i
-            WHERE i.status = 'loose'
-            GROUP BY i.design_id, i.color_id
-
-            UNION ALL
-
-            SELECT sp.design_id, sp.color_id, SUM(sp.quantity) AS total_qty
-            FROM set_parts sp
-            JOIN sets s  ON s.set_num   = sp.set_num
-            WHERE s.status IN ('built','wip','in_box','teardown')
-            GROUP BY sp.design_id, sp.color_id
-        ) pc
-        JOIN parts  p ON p.design_id = pc.design_id
-        LEFT JOIN colors c ON c.id = pc.color_id
-        GROUP BY pc.design_id, p.name, pc.color_id, c.name, c.hex, p.part_url, p.part_img_url
+        SELECT sp.design_id,
+               MAX(p.name) AS part_name,
+               sp.color_id,
+               MAX(c.name) AS color_name,
+               MAX(c.hex) AS color_hex,
+               MAX(p.part_url) AS part_url,
+               MAX(p.part_img_url) AS part_img_url,
+               SUM(sp.quantity) AS total_qty
+        FROM set_parts sp
+        JOIN sets s ON s.set_num = sp.set_num
+        LEFT JOIN parts p ON sp.design_id = p.design_id
+        LEFT JOIN colors c ON c.id = sp.color_id
+        GROUP BY sp.design_id, sp.color_id
         ORDER BY total_qty DESC
         """
     ).fetchall()
 
     result = []
     for r in rows:
-        design_id = str(r.get("design_id", ""))
-        color_id = r.get("color_id")
-        hex_value = r.get("color_hex")
+        # Convert Row to dict for easier access
+        row_dict = dict(r)
+        design_id = str(row_dict.get("design_id", ""))
+        color_id = row_dict.get("color_id")
+        hex_value = row_dict.get("color_hex")
         if hex_value:
             hex_value = hex_value.lstrip("#")
 
-        part_url = r.get("part_url")
+        part_url = row_dict.get("part_url")
         if not part_url and design_id and color_id:
             part_url = f"https://rebrickable.com/parts/{design_id}/{int(color_id)}/"
         elif not part_url and design_id:
             part_url = f"https://rebrickable.com/parts/{design_id}/"
 
-        part_img_url = r.get("part_img_url")
+        part_img_url = row_dict.get("part_img_url")
         if not part_img_url:
             part_img_url = "https://rebrickable.com/static/img/nil.png"
 
         result.append(
             PartColorCountDTO(
                 design_id=design_id,
-                part_name=str(r.get("part_name", "")),
+                part_name=str(row_dict.get("part_name", "")),
                 color_id=int(color_id or 0),
-                color_name=str(r.get("color_name", "") or "(unknown)"),
+                color_name=str(row_dict.get("color_name", "") or "(unknown)"),
                 hex=hex_value,
-                total_qty=int(r.get("total_qty", 0)),
+                total_qty=int(row_dict.get("total_qty", 0)),
                 part_url=part_url,
                 part_img_url=part_img_url,
             )
@@ -230,28 +208,52 @@ def get_part_color_counts(conn: sqlite3.Connection = Depends(get_db_connection))
 
 
 @router.get("/location-counts", response_model=list[LocationCountDTO])
-def get_location_counts(
-    service: InventoryService = Depends(get_inventory_service),
-):
-    """Get inventory totals grouped by storage location."""
-    rows = service.storage_location_counts()
+def get_location_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
+    """Get inventory totals grouped by storage location, sorted by quantity descending."""
+    rows = conn.execute(
+        """
+        SELECT
+            d.id AS drawer_id,
+            d.name AS drawer_name,
+            c.id AS container_id,
+            c.name AS container_name,
+            SUM(i.quantity) AS total_quantity
+        FROM inventory i
+        LEFT JOIN containers c ON c.id = i.container_id
+        LEFT JOIN drawers d ON d.id = c.drawer_id
+        WHERE i.status = 'loose'
+            AND (c.deleted_at IS NULL OR c.id IS NULL)
+            AND (d.deleted_at IS NULL OR d.id IS NULL)
+        GROUP BY d.id, d.name, c.id, c.name
+        ORDER BY total_quantity DESC
+        """
+    ).fetchall()
+
     result = []
     for r in rows:
-        drawer = r.get("drawer_name") or ""
-        container = r.get("container_name") or ""
-        if drawer and container:
-            location = f"{drawer} / {container}"
-        elif drawer:
-            location = drawer
-        elif container:
-            location = container
+        row_dict = dict(r)
+        drawer_id = row_dict.get("drawer_id")
+        drawer_name = row_dict.get("drawer_name") or ""
+        container_id = row_dict.get("container_id")
+        container_name = row_dict.get("container_name") or ""
+        
+        if drawer_name and container_name:
+            location = f"{drawer_name} / {container_name}"
+        elif drawer_name:
+            location = drawer_name
+        elif container_name:
+            location = container_name
         else:
             location = "(unknown)"
 
         result.append(
             LocationCountDTO(
                 location=location,
-                total_qty=int(r.get("total_quantity", r.get("total_qty", 0)) or 0),
+                total_qty=int(row_dict.get("total_quantity", 0) or 0),
+                drawer_id=int(drawer_id) if drawer_id else None,
+                drawer_name=drawer_name if drawer_name else None,
+                container_id=int(container_id) if container_id else None,
+                container_name=container_name if container_name else None,
             )
         )
     return result

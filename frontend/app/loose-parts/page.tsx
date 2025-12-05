@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -31,6 +31,15 @@ export default function LoosePartsPage() {
   const [cardPageSize, setCardPageSize] = useState(20);
 
   const { data: parts, isLoading } = useLooseParts();
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    if (!parts) return { uniqueParts: 0, uniquePartColors: 0, total: 0 };
+    const uniqueParts = new Set(parts.map(p => p.part_id)).size;
+    const uniquePartColors = parts.length;
+    const total = parts.reduce((sum, p) => sum + p.quantity, 0);
+    return { uniqueParts, uniquePartColors, total };
+  }, [parts]);
 
   // Sort parts by quantity descending for card view
   const sortedParts = useMemo(() => {
@@ -55,7 +64,7 @@ export default function LoosePartsPage() {
         const part = row.original;
         return (
           <Link
-            href={`/parts/${part.part_id}`}
+            href={`/parts/${part.part_id}?from=loose-parts`}
             className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -99,7 +108,7 @@ export default function LoosePartsPage() {
         }
         return (
           <Link
-            href={`/drawers/${part.drawer_id}`}
+            href={`/drawers/${part.drawer_id}?from=loose-parts`}
             className="text-blue-600 hover:text-blue-800 hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
@@ -118,7 +127,7 @@ export default function LoosePartsPage() {
         }
         return (
           <Link
-            href={`/containers/${part.container_id}`}
+            href={`/containers/${part.container_id}?from=loose-parts`}
             className="text-blue-600 hover:text-blue-800 hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
@@ -138,25 +147,25 @@ export default function LoosePartsPage() {
         );
       },
     },
-    {
-      id: 'rebrickable_link',
-      header: 'Rebrickable',
-      cell: ({ row }) => {
-        const part = row.original;
-        if (!part.rebrickable_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <a
-            href={part.rebrickable_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 hover:underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            View
-          </a>
-        );
+      {
+        id: 'rebrickable_link',
+        header: 'Rebrickable',
+        cell: ({ row }) => {
+          const part = row.original;
+          if (!part.rebrickable_url) return <span className="text-muted-foreground">—</span>;
+          return (
+            <a
+              href={part.rebrickable_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View <ExternalLink className="h-3 w-3" />
+            </a>
+          );
+        },
       },
-    },
     {
       id: 'image',
       header: 'Image',
@@ -178,13 +187,34 @@ export default function LoosePartsPage() {
   return (
     <div className="container mx-auto py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">Loose Parts</h1>
-      </div>
-
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold">All Parts</h2>
-          <div className="flex items-center border rounded-md">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/">← Back to Home</Link>
+        </Button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Loose Parts</h1>
+            {!isLoading && parts && (
+              <div className="flex gap-4 mt-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Unique Parts: </span>
+                  <span className="font-medium">{formatNumber(stats.uniqueParts)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Unique Part + Colors: </span>
+                  <span className="font-medium">{formatNumber(stats.uniquePartColors)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Total Quantity: </span>
+                  <span className="font-medium">{formatNumber(stats.total)}</span>
+                </div>
+              </div>
+            )}
+            {isLoading && (
+              <p className="text-muted-foreground mt-1">Loading...</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center border rounded-md">
             <Button
               variant={viewMode === 'table' ? 'default' : 'ghost'}
               size="sm"
@@ -209,15 +239,18 @@ export default function LoosePartsPage() {
               <LayoutGrid className="h-4 w-4 mr-2" />
               Cards
             </Button>
+            </div>
           </div>
         </div>
-        {isLoading ? (
-          <div className="text-muted-foreground">Loading parts...</div>
-        ) : parts && parts.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No loose parts found.
-          </div>
-        ) : viewMode === 'table' ? (
+      </div>
+
+      {isLoading ? (
+        <div className="text-muted-foreground">Loading parts...</div>
+      ) : parts && parts.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No loose parts found.
+        </div>
+      ) : viewMode === 'table' ? (
           <DataTable
             columns={columns}
             data={parts || []}
@@ -236,7 +269,7 @@ export default function LoosePartsPage() {
                   <CardHeader>
                     <CardTitle className="text-sm">
                       <Link
-                        href={`/parts/${part.part_id}`}
+                        href={`/parts/${part.part_id}?from=loose-parts`}
                         className="text-blue-600 hover:text-blue-800 hover:underline"
                       >
                         {part.part_id}
@@ -272,7 +305,7 @@ export default function LoosePartsPage() {
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Drawer:</span>
                             <Link
-                              href={`/drawers/${part.drawer_id}`}
+                              href={`/drawers/${part.drawer_id}?from=loose-parts`}
                               className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
                             >
                               {part.drawer_name}
@@ -283,7 +316,7 @@ export default function LoosePartsPage() {
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Container:</span>
                             <Link
-                              href={`/containers/${part.container_id}`}
+                              href={`/containers/${part.container_id}?from=loose-parts`}
                               className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
                             >
                               {part.container_label}
@@ -305,8 +338,9 @@ export default function LoosePartsPage() {
                               href={part.rebrickable_url}
                               target="_blank"
                               rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1"
                             >
-                              View on Rebrickable
+                              View on Rebrickable <ExternalLink className="h-3 w-3" />
                             </a>
                           </Button>
                         )}
@@ -373,10 +407,9 @@ export default function LoosePartsPage() {
                   </Button>
                 </div>
               </div>
-            </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

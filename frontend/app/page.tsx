@@ -58,12 +58,9 @@ export default function HomePage() {
             <CardDescription>Total parts across inventory</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline" disabled>
-              <Link href="/part-counts">Coming Soon</Link>
+            <Button asChild>
+              <Link href="/part-counts">View Part Counts</Link>
             </Button>
-            <p className="text-xs text-muted-foreground mt-2">
-              API endpoint needed
-            </p>
           </CardContent>
         </Card>
 
@@ -73,12 +70,9 @@ export default function HomePage() {
             <CardDescription>Parts by color totals</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline" disabled>
-              <Link href="/part-color-counts">Coming Soon</Link>
+            <Button asChild>
+              <Link href="/part-color-counts">View Part + Color Counts</Link>
             </Button>
-            <p className="text-xs text-muted-foreground mt-2">
-              API endpoint needed
-            </p>
           </CardContent>
         </Card>
 
@@ -88,12 +82,9 @@ export default function HomePage() {
             <CardDescription>Inventory by storage location</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline" disabled>
-              <Link href="/location-counts">Coming Soon</Link>
+            <Button asChild>
+              <Link href="/location-counts">View Location Counts</Link>
             </Button>
-            <p className="text-xs text-muted-foreground mt-2">
-              API endpoint needed
-            </p>
           </CardContent>
         </Card>
       </div>

@@ -141,19 +141,34 @@ class InventoryRepo(BaseRepo):
 
     def loose_inventory_for_part(self, design_id: str) -> list[dict]:
         """
-        Return only 'loose' inventory rows for a given design_id,
-        matching the legacy shape used by inventory_db.loose_inventory_for_part.
-        Columns: color_name, hex, color_id, quantity, drawer, container
+        Return only 'loose' inventory rows for a given design_id.
+        Returns: part_id, color_id, color_name, color_hex, quantity, status,
+                 drawer_id, drawer_name, container_id, container_label,
+                 part_name, image_url, rebrickable_url
         """
         return self._all(
             """
-            SELECT c.name AS color_name, c.hex,
-                i.color_id, i.quantity,
-                i.drawer, i.container
+            SELECT 
+                i.design_id AS part_id,
+                i.color_id,
+                col.name AS color_name,
+                col.hex AS color_hex,
+                i.quantity,
+                i.status,
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_label,
+                p.name AS part_name,
+                p.part_img_url AS image_url,
+                p.part_url AS rebrickable_url
             FROM inventory i
-            JOIN colors c ON c.id = i.color_id
+            JOIN colors col ON col.id = i.color_id
+            LEFT JOIN parts p ON p.design_id = i.design_id
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
             WHERE i.design_id = ? AND i.status = 'loose'
-            ORDER BY i.drawer, i.container, i.color_id
+            ORDER BY d.name, c.name, i.color_id
             """,
             [design_id],
         )

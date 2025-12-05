@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import { useContainer, useContainerParts, ContainerPart } from '@/lib/hooks/use-containers';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -29,13 +29,55 @@ type ViewMode = 'cards' | 'table';
 export default function ContainerDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const containerId = parseInt(params.id as string, 10);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
+  const [backLink, setBackLink] = useState<{ href: string; label: string }>({
+    href: '/drawers',
+    label: 'Drawer',
+  });
 
   const { data: container, isLoading: containerLoading } = useContainer(containerId);
   const { data: parts, isLoading: partsLoading } = useContainerParts(containerId);
+
+  // Determine back navigation based on referrer or query param
+  useEffect(() => {
+    if (!container) return;
+
+    // Check for explicit 'from' query parameter first
+    const fromParam = searchParams.get('from');
+    if (fromParam) {
+      const fromMap: Record<string, { href: string; label: string }> = {
+        'drawers': { href: `/drawers/${container.drawer_id}`, label: 'Drawer' },
+        'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
+        'location-counts': { href: '/location-counts', label: 'Location Counts' },
+      };
+      if (fromMap[fromParam]) {
+        setBackLink(fromMap[fromParam]);
+        return;
+      }
+    }
+
+    // Fall back to checking document.referrer
+    if (typeof window !== 'undefined' && document.referrer) {
+      const referrer = new URL(document.referrer);
+      const pathname = referrer.pathname;
+
+      if (pathname.includes('/location-counts')) {
+        setBackLink({ href: '/location-counts', label: 'Location Counts' });
+      } else if (pathname.includes('/loose-parts')) {
+        setBackLink({ href: '/loose-parts', label: 'Loose Parts' });
+      } else if (pathname.includes('/drawers/')) {
+        setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
+      }
+      // Default is already set to drawer
+    } else {
+      // Default to drawer if no referrer
+      setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
+    }
+  }, [container, searchParams]);
 
   // Sort parts by quantity descending for card view
   const sortedParts = useMemo(() => {
@@ -60,7 +102,7 @@ export default function ContainerDetailPage() {
         const part = row.original;
         return (
           <Link
-            href={`/parts/${part.design_id}`}
+            href={`/parts/${part.design_id}?from=containers`}
             className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -116,11 +158,11 @@ export default function ContainerDetailPage() {
             href={part.part_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 hover:underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            View
-          </a>
+            className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View <ExternalLink className="h-3 w-3" />
+            </a>
         );
       },
     },
@@ -162,8 +204,8 @@ export default function ContainerDetailPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href={`/drawers/${container.drawer_id}`}>
-            ← Back to Drawer
+          <Link href={backLink.href}>
+            ← Back to {backLink.label}
           </Link>
         </Button>
         <h1 className="text-3xl font-bold">
@@ -246,7 +288,7 @@ export default function ContainerDetailPage() {
                 <CardHeader>
                   <CardTitle className="text-sm">
                     <Link
-                      href={`/parts/${part.design_id}`}
+                      href={`/parts/${part.design_id}?from=containers`}
                       className="text-blue-600 hover:text-blue-800 hover:underline"
                     >
                       {part.design_id}
@@ -294,7 +336,7 @@ export default function ContainerDetailPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            View on Rebrickable
+                            View on Rebrickable <ExternalLink className="h-3 w-3" />
                           </a>
                         </Button>
                       )}

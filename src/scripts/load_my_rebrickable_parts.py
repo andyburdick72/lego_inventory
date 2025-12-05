@@ -189,9 +189,11 @@ def gather_and_insert_parts(
     insert_only_set_parts: bool = False,
     include_spares: bool = True,
     include_minifig_parts: bool = True,
+    skip_refresh: bool = False,
 ) -> None:
     """
     Fetch all parts from owned sets and insert them into the parts and part_aliases tables.
+    If skip_refresh is False, deletes existing set_parts for each set before inserting new ones.
     """
     start_ts = time.perf_counter()
     new_parts = 0
@@ -215,83 +217,108 @@ def gather_and_insert_parts(
         base_params["include_spare_parts"] = 1
 
     for i, set_num in enumerate(sets, start=1):
-        print(f"[{i}/{total}] Set {set_num}: fetching parts…")
-        sets_processed += 1
-        # Aggregate quantities per (part, color), optionally including spare parts
-        params = dict(base_params)
-        agg: dict[tuple[str, int], int] = {}
-        for item in paginate(f"/sets/{set_num}/parts/", params=params):
-            part = item.get("part", item)
-            rb_id = part["part_num"]
-            name = part["name"]
-            part_url = part.get("part_url")
-            part_img_url = part.get("part_img_url")
-            # Deterministic fallback for part_url if missing (safe canonical URL)
-            if part_url is None:
-                part_url = f"https://rebrickable.com/parts/{rb_id}/"
-            # Opportunistically backfill part metadata
-            cursor.execute(
-                """
-                UPDATE parts
-                SET name = COALESCE(?, name),
-                    part_url = COALESCE(?, part_url),
-                    part_img_url = COALESCE(?, part_img_url)
-                WHERE design_id = ?
-                """,
-                (name, part_url, part_img_url, rb_id),
-            )
-            if not insert_only_set_parts:
-                # Ensure the part exists
-                if rb_id not in seen_parts:
-                    try:
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)",
-                            (rb_id, name),
-                        )
-                        if cursor.rowcount == 1:
-                            new_parts += 1
-                            seen_parts.add(rb_id)
-                    except sqlite3.IntegrityError as e:
-                        print(f"Error inserting part {rb_id}: {e}")
-                # Insert BrickLink aliases if present
-                for bl in part.get("external_ids", {}).get("BrickLink", []):
-                    bl_str = str(bl)
-                    if bl_str not in seen_aliases:
+        try:
+            print(f"[{i}/{total}] Set {set_num}: fetching parts…")
+            
+            # Delete existing parts for this set BEFORE fetching new ones (safer - only delete what we're about to replace)
+            # Note: We delete first, then insert. If insertion fails, we'll have lost data for this set,
+            # but that's better than losing all sets. The connection auto-commits each statement.
+            if not skip_refresh:
+                cursor.execute("DELETE FROM set_parts WHERE set_num = ?", (set_num,))
+                conn.commit()  # Commit deletion immediately
+            
+            # Aggregate quantities per (part, color), optionally including spare parts
+            params = dict(base_params)
+            agg: dict[tuple[str, int], int] = {}
+            for item in paginate(f"/sets/{set_num}/parts/", params=params):
+                part = item.get("part", item)
+                rb_id = part["part_num"]
+                name = part["name"]
+                part_url = part.get("part_url")
+                part_img_url = part.get("part_img_url")
+                # Deterministic fallback for part_url if missing (safe canonical URL)
+                if part_url is None:
+                    part_url = f"https://rebrickable.com/parts/{rb_id}/"
+                # Opportunistically backfill part metadata
+                cursor.execute(
+                    """
+                    UPDATE parts
+                    SET name = COALESCE(?, name),
+                        part_url = COALESCE(?, part_url),
+                        part_img_url = COALESCE(?, part_img_url)
+                    WHERE design_id = ?
+                    """,
+                    (name, part_url, part_img_url, rb_id),
+                )
+                if not insert_only_set_parts:
+                    # Ensure the part exists
+                    if rb_id not in seen_parts:
                         try:
                             cursor.execute(
-                                "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
-                                (bl_str, rb_id),
+                                "INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)",
+                                (rb_id, name),
                             )
                             if cursor.rowcount == 1:
-                                new_aliases += 1
-                                seen_aliases.add(bl_str)
+                                new_parts += 1
+                                seen_parts.add(rb_id)
                         except sqlite3.IntegrityError as e:
-                            print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
+                            print(f"Error inserting part {rb_id}: {e}")
+                    # Insert BrickLink aliases if present
+                    for bl in part.get("external_ids", {}).get("BrickLink", []):
+                        bl_str = str(bl)
+                        if bl_str not in seen_aliases:
+                            try:
+                                cursor.execute(
+                                    "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                                    (bl_str, rb_id),
+                                )
+                                if cursor.rowcount == 1:
+                                    new_aliases += 1
+                                    seen_aliases.add(bl_str)
+                            except sqlite3.IntegrityError as e:
+                                print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
 
-            color_id = item["color"]["id"]
-            qty = int(item["quantity"]) or 0
-            # Skip spares unless included
-            is_spare = bool(item.get("is_spare"))
-            if is_spare and not include_spares:
-                continue
-            key = (rb_id, color_id)
-            agg[key] = agg.get(key, 0) + qty
+                color_id = item["color"]["id"]
+                qty = int(item["quantity"]) or 0
+                # Skip spares unless included
+                is_spare = bool(item.get("is_spare"))
+                if is_spare and not include_spares:
+                    continue
+                key = (rb_id, color_id)
+                agg[key] = agg.get(key, 0) + qty
 
-        # Now write the aggregated quantities to set_parts
-        for (rb_id, color_id), quantity in agg.items():
-            existing = cursor.execute(
-                "SELECT quantity FROM set_parts WHERE set_num = ? AND design_id = ? AND color_id = ?",
-                (set_num, rb_id, color_id),
-            ).fetchone()
-            insert_set_part(set_num, rb_id, color_id, quantity, conn=conn)
-            if existing is None:
-                set_parts_inserted += 1
-            else:
-                if existing[0] != quantity:
-                    set_parts_updated += 1
+            # Now write the aggregated quantities to set_parts
+            for (rb_id, color_id), quantity in agg.items():
+                existing = cursor.execute(
+                    "SELECT quantity FROM set_parts WHERE set_num = ? AND design_id = ? AND color_id = ?",
+                    (set_num, rb_id, color_id),
+                ).fetchone()
+                insert_set_part(set_num, rb_id, color_id, quantity, conn=conn)
+                if existing is None:
+                    set_parts_inserted += 1
                 else:
-                    set_parts_unchanged += 1
-    conn.commit()
+                    if existing[0] != quantity:
+                        set_parts_updated += 1
+                    else:
+                        set_parts_unchanged += 1
+            
+            # Commit after inserting all parts for this set
+            conn.commit()
+            sets_processed += 1
+            print(f"✅ Completed set {set_num}")
+        except Exception as e:
+            # If a set fails, we've already committed the deletion, so we can't rollback
+            # But at least we only lost data for this one set, not all sets
+            import traceback
+            print(f"❌ Error processing set {set_num}: {e}")
+            print(f"   Traceback: {traceback.format_exc()}")
+            print(f"   Continuing with remaining sets...")
+            # Try to commit any partial work (though this set's parts are lost)
+            try:
+                conn.commit()
+            except Exception:
+                pass
+            continue
     elapsed = time.perf_counter() - start_ts
     print("\n===== Rebrickable Load Summary =====")
     print(f"Sets processed: {sets_processed}")
@@ -332,6 +359,11 @@ def main():
         help="Skip deleting existing set_parts for owned sets before reloading.",
     )
     parser.add_argument(
+        "--all-sets",
+        action="store_true",
+        help="Load parts for all sets, even if they already have parts in the database. By default, only processes sets that don't have parts yet.",
+    )
+    parser.add_argument(
         "--backfill-all-parts",
         action="store_true",
         help="Backfill part URLs/images for parts missing metadata and exit.",
@@ -352,26 +384,39 @@ def main():
             return
 
         # Fetch your sets and insert part mappings
-        sets = fetch_owned_sets(user_token)
-        # Always refresh set_parts for owned sets unless explicitly skipped
-        if not args.skip_refresh:
-            with conn:
-                conn.executemany(
-                    "DELETE FROM set_parts WHERE set_num = ?",
-                    [(s,) for s in sets],
-                )
-            print(f"Cleared set_parts for {len(sets)} owned sets; rebuilding…")
-
+        all_sets = fetch_owned_sets(user_token)
+        
+        # Filter to only new sets (sets without parts) unless --all-sets is specified
+        if not args.all_sets:
+            cursor = conn.cursor()
+            sets_with_parts = {
+                row[0]
+                for row in cursor.execute(
+                    "SELECT DISTINCT set_num FROM set_parts"
+                ).fetchall()
+            }
+            sets = [s for s in all_sets if s not in sets_with_parts]
+            print(f"Found {len(sets)} new sets (out of {len(all_sets)} total) that need parts loaded.")
+        else:
+            sets = all_sets
+            print(f"Processing all {len(sets)} sets.")
+        
+        if not sets:
+            print("No sets to process.")
+            return
+        
         insert_only_set_parts = args.only_set_parts
         include_spares = not args.exclude_spares
         include_minifig_parts = not args.exclude_minifig_parts
 
+        # Process sets - deletion happens per-set before insertion to minimize data loss risk
         gather_and_insert_parts(
             sets,
             conn,
             insert_only_set_parts=insert_only_set_parts,
             include_spares=include_spares,
             include_minifig_parts=include_minifig_parts,
+            skip_refresh=args.skip_refresh,
         )
 
 
