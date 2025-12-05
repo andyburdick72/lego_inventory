@@ -214,6 +214,7 @@ coverage_html_report/
 coverage.xml
 
 # Local databases
+*.db
 data/*.db
 
 # macOS cruft

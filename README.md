@@ -86,13 +86,25 @@ pip install requests
 ```
 
 ### 3. Using `dev.sh` for setup and running
-The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, and starts the server with a single command.
+The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, testing, and starts the server.
 
-To use `dev.sh`:
+**Basic usage:**
 ```bash
 ./dev.sh
 ```
-This will install dependencies, initialize the database if needed, and start the web UI server.
+This will:
+- Install/update dependencies
+- Run unit tests with coverage
+- Run contract tests (starts FastAPI server automatically)
+- Start the FastAPI server on port 8001
+
+**With coverage reporting:**
+```bash
+./dev.sh cov
+```
+This runs all tests with coverage reporting and merges unit + contract test coverage.
+
+**Note:** `dev.sh` automatically kills any existing server on port 8001 before starting a new one to ensure fresh code is loaded.
 
 ### macOS Launcher (optional)
 
@@ -163,9 +175,16 @@ Run:
 ```
 
 This will:
-1. Run tests
-2. Start the FastAPI server on port 8001
-3. Start the Next.js frontend on port 3000 (if running `npm run dev` separately)
+1. Install/update dependencies
+2. Run unit tests with coverage
+3. Run contract tests (automatically starts FastAPI server)
+4. Start the FastAPI server on port 8001
+
+**Note:** The Next.js frontend must be started separately:
+```bash
+cd frontend
+npm run dev
+```
 
 **Access:**
 - **Frontend**: http://localhost:3000 (Next.js)
@@ -253,9 +272,15 @@ source .venv/bin/activate
 
 ### 4. Run tests
 
-- **Unit tests** (default):
+- **All tests** (unit + contract):
   ```bash
   pytest
+  ```
+  Or use `./dev.sh` which runs all tests automatically.
+
+- **Unit tests only**:
+  ```bash
+  pytest tests/unit/
   ```
 
 - **Contract tests** (API endpoints, requires FastAPI server running):
@@ -263,13 +288,8 @@ source .venv/bin/activate
   export API_BASE_URL=http://localhost:8001/api/v1
   pytest -m contract
   ```
-
-  Or as a one-liner:
-  ```bash
-  API_BASE_URL=http://localhost:8001/api/v1 pytest -m contract
-  ```
   
-  **Note:** The `./dev.sh` script automatically starts the FastAPI server for contract tests.
+  **Note:** The `./dev.sh` script automatically starts the FastAPI server for contract tests, so you don't need to start it manually.
 
 - **All tests with coverage**:
   ```bash
@@ -277,9 +297,15 @@ source .venv/bin/activate
   ```
 
 ### 5. Test coverage
-Coverage is enabled by default via `pytest.ini`. Simply run:
+Coverage is enabled by default via `pytest.ini`. The project includes:
+- **Unit tests**: Fast, isolated tests for core functionality (adapters, errors, settings, enums, routes)
+- **Comprehensive unit tests**: Additional coverage tests for edge cases and branch coverage
+- **Contract tests**: Integration tests that verify API endpoints work correctly
 
-    pytest
+Run tests with:
+```bash
+pytest
+```
 
 This will:
 - Run all tests
@@ -287,7 +313,12 @@ This will:
 - Print missing lines (skipping fully covered files)
 - Generate XML and HTML coverage reports
 
-Open `htmlcov/index.html` in a browser to view the detailed coverage report.
+Open `coverage_html_report/index.html` in a browser to view the detailed coverage report.
+
+**Test Structure:**
+- `tests/unit/` - Unit tests (fast, isolated)
+- `tests/contract/api/` - Contract tests for API endpoints
+- `tests/smoke/` - Quick sanity checks
 
 ---
 
