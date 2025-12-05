@@ -19,7 +19,13 @@ def _get_first(d, *candidates):
 def test_drawers_basic_shape_optional_empty(api_base_url, skip_if_no_api):
     # skip_if_no_api is handled automatically by the fixture
     base = api_base_url.rstrip("/")
-    base_api = base if base.endswith("/api") else f"{base}/api"
+    # Handle both /api/v1 and /api formats
+    if base.endswith("/api/v1"):
+        base_api = base
+    elif base.endswith("/api"):
+        base_api = f"{base}/v1"
+    else:
+        base_api = f"{base}/api/v1"
     url = f"{base_api}/drawers"
     resp = requests.get(url, timeout=10)
 

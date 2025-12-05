@@ -6,13 +6,17 @@ This project is a SQLite-backed inventory management system for LEGO parts and s
 ## Architecture
 - **Data Layer**: Located in `src/infra/db/`, this layer handles database schema creation and execution.
 - **Business Logic**: Encapsulated in `src/core/` and `src/app/`, including services, DTOs, and enums.
-- **Web UI**: Built using lightweight HTML templates (`src/app/templates/`) and served via `src/app/server.py`.
+- **Backend API**: FastAPI REST API in `src/app/api/` (port 8001) - ✅ **ACTIVE**
+- **Frontend**: Next.js application in `frontend/` (port 3000) - ✅ **ACTIVE**
+- **Legacy UI**: Deprecated HTML templates in `src/app/templates/` served via `src/app/server.py` (port 8000)
 - **Scripts**: Found in `src/scripts/`, these handle data import, alias reconciliation, and inventory validation.
 - **Utilities**: Common helper functions and API clients are in `src/utils/`.
 
 ### Key Data Flows
 1. **Data Import**: Scripts in `src/scripts/` load data from external sources (e.g., Instabrick XML, Rebrickable API) into the SQLite database.
-2. **Web UI**: The server (`src/app/server.py`) serves HTML templates and interacts with the database to display inventory data.
+2. **Web UI**: 
+   - **Modern**: Next.js frontend (port 3000) calls FastAPI backend (port 8001) - ✅ **ACTIVE**
+   - **Legacy**: Deprecated HTML templates served via `src/app/server.py` (port 8000)
 3. **Inventory Validation**: Scripts like `inventory_sanity_checks.py` ensure consistency between loose parts and set inventories.
 
 ## Developer Workflows
@@ -42,10 +46,11 @@ This project is a SQLite-backed inventory management system for LEGO parts and s
   ```bash
   pytest
   ```
-- **Contract Tests** (requires server running):
+- **Contract Tests** (requires FastAPI server running):
   ```bash
-  API_BASE_URL=http://localhost:8000 pytest -m contract
+  API_BASE_URL=http://localhost:8001/api/v1 pytest -m contract
   ```
+  Note: `./dev.sh` automatically starts FastAPI for contract tests.
 - **Coverage**: Generate coverage reports:
   ```bash
   pytest --cov=src --cov-report=term-missing

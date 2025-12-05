@@ -4,11 +4,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-BASE = "http://localhost:8000"
+BASE = "http://localhost:8001/api/v1"
 
 ENDPOINTS = [
-    ("/api/drawers", {}),
-    ("/api/containers", {"drawer_id": 1}),
+    ("/drawers", {}),
+    ("/containers", {"drawer_id": 1}),
     # add more here as needed
 ]
 

@@ -1,7 +1,21 @@
 """
-Custom LEGO inventory management system web UI (lightweight HTTP server + Jinja templates).
+[DEPRECATED] Custom LEGO inventory management system web UI (lightweight HTTP server + Jinja templates).
 
-Routes:
+⚠️  THIS SERVER IS DEPRECATED ⚠️
+
+All functionality has been migrated to:
+- FastAPI backend: src/app/api/main.py (port 8001)
+- Next.js frontend: frontend/ (port 3000)
+
+This file is kept for reference only and will be removed in a future version.
+
+To run the modern stack:
+  ./dev.sh  # Starts FastAPI server (default)
+  
+To run this legacy server (for reference only):
+  SERVER_TYPE=legacy ./dev.sh
+
+Original routes (for reference):
 * "/"                  – Loose Parts (master inventory table: part • color • location • status)
 * "/parts/<design_id>" – Part detail (tabs: Loose Parts, In Sets)
 * "/drawers"           – Drawers index (create/rename/delete)
@@ -24,7 +38,7 @@ Dependencies:
 * Standard library + Jinja2 (see requirements.txt). No Flask/WSGI; runs via BaseHTTPRequestHandler.
 
 Usage:
-    python3 src/app/server.py
+    python3 src/app/server.py  # [DEPRECATED - use FastAPI + Next.js instead]
 """
 
 from __future__ import annotations

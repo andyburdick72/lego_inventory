@@ -59,17 +59,19 @@ def list_drawers(service: InventoryService = Depends(get_inventory_service)):
     return {"drawers": drawers}
 ```
 
-Run FastAPI alongside your existing server:
+Run FastAPI (recommended):
 
 ```bash
-# Terminal 1: Keep your existing server
-python3 src/app/server.py  # Runs on port 8000
+# Run FastAPI server (default)
+./dev.sh
 
-# Terminal 2: Run FastAPI
-uvicorn app.api.main:app --reload --port 8001
+# Or manually:
+python -m uvicorn app.api.main:app --reload --port 8001
 ```
 
 Visit `http://localhost:8001/docs` to see auto-generated API documentation!
+
+**Note:** The old Python server (`src/app/server.py`) is deprecated. Use FastAPI + Next.js instead.
 
 ## Step 2: Create Next.js Frontend
 
@@ -220,7 +222,7 @@ npm run dev
 ```
 
 Visit:
-- **Old UI**: http://localhost:8000
+- **Old UI** (deprecated): http://localhost:8000 (use `SERVER_TYPE=legacy ./dev.sh`)
 - **New UI**: http://localhost:3000
 - **API Docs**: http://localhost:8001/docs
 

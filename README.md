@@ -31,7 +31,9 @@ lego_inventory/
 │   ├── instabrick_inventory.xml          # Sample Instabrick export
 ├── src/
 │   ├── app/
-│   │   ├── server.py                     # Lightweight HTTP server for UI
+│   │   ├── server.py                     # [DEPRECATED] Legacy HTTP server (use FastAPI + Next.js)
+│   │   ├── api/                          # FastAPI REST API
+│   │   │   └── main.py                   # FastAPI application
 │   │   ├── static/
 │   │   │   └── styles.css                # CSS for web UI
 │   │   └── templates/
@@ -152,19 +154,39 @@ python3 src/inventory_db.py
 ---
 
 ## **Web UI**
+
+### FastAPI Backend + Next.js Frontend (Recommended)
+
 Run:
 ```bash
 ./dev.sh
 ```
-Visit:  
-```
-http://localhost:8000
-```
+
+This will:
+1. Run tests
+2. Start the FastAPI server on port 8001
+3. Start the Next.js frontend on port 3000 (if running `npm run dev` separately)
+
+**Access:**
+- **Frontend**: http://localhost:3000 (Next.js)
+- **API**: http://localhost:8001 (FastAPI)
+- **API Docs**: http://localhost:8001/docs (Swagger UI)
 
 **UI Highlights:**
 - **Loose Parts by Location** and **Parts by Set**: collapsible hierarchical views  
 - Column sorting & searching (per table)  
-- CSV export button for every table view  
+- CSV export button for every table view
+- Modern React-based UI with responsive design
+
+### Legacy Python Server (Deprecated)
+
+The old Python server (`src/app/server.py`) is deprecated. To run it:
+```bash
+SERVER_TYPE=legacy ./dev.sh
+```
+Visit: http://localhost:8000
+
+**Note:** The legacy server is maintained for reference only. All new development uses FastAPI + Next.js.  
 
 ---
 
@@ -189,7 +211,7 @@ http://localhost:8000
 | `fix_alias_typos.py` | Correct typos from precheck step |
 | `load_instabrick_inventory.py` | Import Instabrick XML into DB |
 | `inventory_sanity_checks.py` | Compare loose vs set inventories |
-| `server.py` | Run the web UI |
+| `server.py` | [DEPRECATED] Run legacy web UI (use FastAPI + Next.js) |
 
 ---
 
@@ -236,16 +258,18 @@ source .venv/bin/activate
   pytest
   ```
 
-- **Contract tests** (API endpoints, requires server running):
+- **Contract tests** (API endpoints, requires FastAPI server running):
   ```bash
-  export API_BASE_URL=http://localhost:8000
+  export API_BASE_URL=http://localhost:8001/api/v1
   pytest -m contract
   ```
 
   Or as a one-liner:
   ```bash
-  API_BASE_URL=http://localhost:8000 pytest -m contract
+  API_BASE_URL=http://localhost:8001/api/v1 pytest -m contract
   ```
+  
+  **Note:** The `./dev.sh` script automatically starts the FastAPI server for contract tests.
 
 - **All tests with coverage**:
   ```bash

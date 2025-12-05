@@ -54,7 +54,13 @@ def test_contract_containers_list(api_base_url, skip_if_no_api):
     # auto-skip via fixture if no API_BASE_URL
 
     base = api_base_url.rstrip("/")
-    base_api = base if base.endswith("/api") else f"{base}/api"
+    # Handle both /api/v1 and /api formats
+    if base.endswith("/api/v1"):
+        base_api = base
+    elif base.endswith("/api"):
+        base_api = f"{base}/v1"
+    else:
+        base_api = f"{base}/api/v1"
 
     # 1) Try plain list first: GET /containers
     url = f"{base_api}/containers"
@@ -83,13 +89,8 @@ def test_contract_containers_list(api_base_url, skip_if_no_api):
                 _assert_container_shape(data[0])
             return
 
-        # 2b) Try nested route style: /drawers/<id>/containers
-        url_nested = f"{base_api}/drawers/{drawer_id}/containers"
-        nsc, nct, nresp = _get_json(url_nested)
-        data = _assert_json_list(nsc, nct, nresp, url_nested)
-        if data:
-            _assert_container_shape(data[0])
-        return
+        # Note: FastAPI doesn't have nested route /drawers/<id>/containers
+        # Containers are accessed via query param only
 
     # If we got here, surface the original failure
     if sc == 404:
@@ -105,7 +106,13 @@ def test_containers_400_without_drawer_id(api_base_url, skip_if_no_api):
     """
     # auto-skip via fixture
     base = api_base_url.rstrip("/")
-    base_api = base if base.endswith("/api") else f"{base}/api"
+    # Handle both /api/v1 and /api formats
+    if base.endswith("/api/v1"):
+        base_api = base
+    elif base.endswith("/api"):
+        base_api = f"{base}/v1"
+    else:
+        base_api = f"{base}/api/v1"
     url = f"{base_api}/containers"
     status_code, content_type, resp = _get_json(url)
 

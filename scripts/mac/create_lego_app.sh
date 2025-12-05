@@ -78,26 +78,69 @@ PLIST
 # --- icon into bundle ---
 cp "$ICNS_ICON" "$APP_DIR/Contents/Resources/lego.icns"
 
-# --- launcher (opens Terminal and runs your server) ---
+# --- Create startup script for Next.js ---
+STARTUP_SCRIPT="$APP_DIR/Contents/Resources/start-frontend.sh"
+cat > "$STARTUP_SCRIPT" <<'FRONTEND_SCRIPT'
+#!/bin/zsh
+cd "FRONTEND_DIR_PLACEHOLDER"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+echo '🚀 Starting Next.js frontend on port 3000...'
+if [ -f package.json ]; then
+  npm run dev
+else
+  echo '⚠️  package.json not found. Install dependencies: cd frontend && npm install'
+fi
+FRONTEND_SCRIPT
+chmod +x "$STARTUP_SCRIPT"
+# Replace placeholder with actual frontend directory
+/usr/bin/sed -i '' -e "s|FRONTEND_DIR_PLACEHOLDER|$PROJECT_DIR/frontend|g" "$STARTUP_SCRIPT"
+
+# --- launcher (opens Terminal and runs both servers) ---
 cat > "$APP_DIR/Contents/MacOS/$EXEC_NAME" <<'LAUNCHER'
 #!/bin/zsh
-set -euo pipefail
 PROJECT_DIR="$(/usr/bin/osascript -e 'tell application "Finder" to POSIX path of (container of (path to me) as alias)')"
 # ^ "path to me" -> .../Start LEGO Server.app/Contents/MacOS/
 # container twice -> .../Start LEGO Server.app/Contents/
 # We want repo root, so store it during build:
 PROJECT_DIR_PLACEHOLDER
+FRONTEND_SCRIPT_PATH_PLACEHOLDER
+
+# Launch servers asynchronously and exit immediately
+(
 osascript <<EOF
 tell application "Terminal"
   activate
-  do script "cd \"$PROJECT_DIR\"; source .venv/bin/activate; python3 src/app/server.py"
+  
+  # Create or get first window
+  if (count of windows) is 0 then
+    do script ""
+  end if
+  
+  # Start FastAPI backend in first tab
+  set backendTab to do script "cd \"$PROJECT_DIR\"; source .venv/bin/activate; export PYTHONPATH=\"$PROJECT_DIR/src\${PYTHONPATH:+:\$PYTHONPATH}\"; echo '🚀 Starting FastAPI backend on port 8001...'; python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8001" in window 1
+  set custom title of backendTab to "FastAPI Backend"
+  
+  # Wait a moment, then start Next.js frontend in new tab using script
+  delay 1
+  set frontendTab to do script FRONTEND_SCRIPT_PATH_PLACEHOLDER in window 1
+  set custom title of frontendTab to "Next.js Frontend"
+  
+  # Show helpful message in a third tab
+  delay 1
+  set infoTab to do script "echo ''; echo '✅ Servers starting:'; echo '  - FastAPI Backend: http://localhost:8001'; echo '  - Next.js Frontend: http://localhost:3000'; echo '  - API Docs: http://localhost:8001/docs'; echo ''; echo 'Press Cmd+W to close this info tab'; echo ''" in window 1
+  set custom title of infoTab to "Server Info"
 end tell
 EOF
+) &
+
+# Exit immediately - don't wait for AppleScript or servers
+exit 0
 LAUNCHER
 chmod +x "$APP_DIR/Contents/MacOS/$EXEC_NAME"
 
-# Replace placeholder with actual repo root so app works anywhere
-/usr/bin/sed -i '' -e "s|PROJECT_DIR_PLACEHOLDER|PROJECT_DIR=\"$PROJECT_DIR\"|g" "$APP_DIR/Contents/MacOS/$EXEC_NAME"
+# Replace placeholders with actual paths so app works anywhere
+/usr/bin/sed -i '' -e "s|PROJECT_DIR_PLACEHOLDER|PROJECT_DIR=\"$PROJECT_DIR\"|g" -e "s|FRONTEND_SCRIPT_PATH_PLACEHOLDER|\"$STARTUP_SCRIPT\"|g" "$APP_DIR/Contents/MacOS/$EXEC_NAME"
 
 echo "Created: $APP_DIR"
 echo "Tip: drag it to /Applications and your Dock. If the icon doesn't update: killall Dock"

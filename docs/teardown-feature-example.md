@@ -2,9 +2,11 @@
 
 This document shows how to implement the "tear down a set and move parts to storage bins" feature in both the current architecture and the modernized architecture.
 
-## Current Architecture (How to Add Now)
+## Current Architecture (How to Add Now) - [DEPRECATED]
 
-### Backend: Add to `server.py`
+⚠️ **Note:** The old Python server (`server.py`) is deprecated. Use FastAPI + Next.js instead (see "Modernized Architecture" below).
+
+### Backend: Add to `server.py` [DEPRECATED]
 
 ```python
 # In Handler class, add to do_POST method:

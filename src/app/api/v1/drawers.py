@@ -85,15 +85,36 @@ def create_drawer(
     conn: sqlite3.Connection = Depends(get_db_connection),
 ):
     """Create a new drawer."""
+    # Validate name is not blank or whitespace-only
+    if not request.name or not request.name.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Drawer name cannot be blank",
+                "code": "validation_error",
+                "details": {"field": "name", "value": request.name},
+            },
+        )
+    
     try:
         repo = DrawersRepo(conn)
         drawer_id = repo.create_drawer(
-            name=request.name,
+            name=request.name.strip(),
             description=request.description,
             rows=request.rows,
             cols=request.cols,
         )
         return DrawerIdResponse(id=drawer_id)
+    except ValueError as e:
+        # Repository-level validation (e.g., blank name after normalization)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(e),
+                "code": "validation_error",
+                "details": {"field": "name", "value": request.name},
+            },
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except DuplicateLabelError as e:

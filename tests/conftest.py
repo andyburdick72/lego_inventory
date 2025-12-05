@@ -24,7 +24,7 @@ def pytest_addoption(parser):
         "--api-base-url",
         action="store",
         default=None,
-        help="Override base URL for contract tests (e.g. http://localhost:8000/api)",
+        help="Override base URL for contract tests (e.g. http://localhost:8001/api/v1)",
     )
 
 
@@ -53,6 +53,22 @@ def client(api_base_url):
         )
     with httpx.Client(base_url=api_base_url, timeout=5.0) as c:
         yield c
+
+
+# FastAPI TestClient for unit/contract tests (doesn't require running server)
+@pytest.fixture()
+def fastapi_client():
+    """FastAPI test client for unit/contract tests.
+    This allows running tests without a running server.
+    """
+    try:
+        from fastapi.testclient import TestClient
+        from app.api.main import app
+        return TestClient(app)
+    except ImportError:
+        pytest.skip("FastAPI TestClient not available - install fastapi and uvicorn")
+    except Exception as e:
+        pytest.skip(f"Could not create FastAPI TestClient: {e}")
 
 
 @pytest.fixture

@@ -153,6 +153,13 @@ class DrawersRepo(BaseRepo):
     def create_drawer(
         self, *, name: str, description: str | None = None, rows: int | None = None, cols: int | None = None
     ) -> int:
+        # Normalize name (strip whitespace) before checking duplicates
+        # If name is blank after normalization, this should have been caught by API validation
+        # but we'll check here too to be safe
+        normalized_name = name.strip() if name else ""
+        if not normalized_name:
+            raise ValueError("Drawer name cannot be blank")
+        
         # Check for active drawer with same name
         active_dup = self._one(
             """
@@ -161,10 +168,10 @@ class DrawersRepo(BaseRepo):
             WHERE name = ? COLLATE NOCASE
             AND deleted_at IS NULL
             """,
-            [name],
+            [normalized_name],
         )
         if active_dup:
-            raise DuplicateLabelError(f"Drawer '{name}' already exists")
+            raise DuplicateLabelError(f"Drawer '{normalized_name}' already exists")
 
         # Check for soft-deleted drawer with same name - restore it instead of creating new
         soft_deleted = self._one(
@@ -174,7 +181,7 @@ class DrawersRepo(BaseRepo):
             WHERE name = ? COLLATE NOCASE
             AND deleted_at IS NOT NULL
             """,
-            [name],
+            [normalized_name],
         )
         if soft_deleted:
             drawer_id = soft_deleted["id"] if isinstance(soft_deleted, dict) else soft_deleted[0]
@@ -200,7 +207,7 @@ class DrawersRepo(BaseRepo):
             VALUES (?, ?, ?, ?)
             RETURNING id
             """,
-            [name, description, rows, cols],
+            [normalized_name, description, rows, cols],
         )
         if row is None:
             raise RuntimeError("Failed to create drawer: no ID returned")

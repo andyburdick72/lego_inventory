@@ -159,26 +159,9 @@ def update_set_status(
     conn: sqlite3.Connection = Depends(get_db_connection),
 ):
     """Update the status of a set."""
+    # Validate status first
     try:
-        # Validate status
         status_enum = Status.from_any(request.status)
-        
-        # Check if set exists
-        sets_repo = SetsRepo(conn)
-        existing_set = sets_repo.get_set_by_num(set_number)
-        if not existing_set:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "message": f"Set {set_number} not found",
-                    "code": "not_found",
-                },
-            )
-        
-        # Update status
-        sets_repo.update_set_by_num(set_number, status=status_enum.value)
-        
-        return {"updated": set_number, "status": status_enum.value}
     except ValueError as e:
         raise HTTPException(
             status_code=422,
@@ -187,6 +170,52 @@ def update_set_status(
                 "code": "validation_error",
             },
         )
+    
+    # Check if set exists
+    sets_repo = SetsRepo(conn)
+    try:
+        existing_set = sets_repo.get_set_by_num(set_number)
+    except sqlite3.OperationalError as e:
+        # Database schema error (e.g., table doesn't exist) - return 500
+        error_msg = str(e)
+        if "no such table" in error_msg.lower():
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Database schema error: sets table not found",
+                    "code": "internal_error",
+                },
+            )
+        # Other operational errors
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Database error: {error_msg}",
+                "code": "internal_error",
+            },
+        )
+    except Exception as e:
+        # Other database errors - return 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Error checking set existence: {str(e)}",
+                "code": "internal_error",
+            },
+        )
+    
+    if not existing_set:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": f"Set {set_number} not found",
+                "code": "not_found",
+            },
+        )
+    
+    # Update status
+    try:
+        sets_repo.update_set_by_num(set_number, status=status_enum.value)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -195,4 +224,6 @@ def update_set_status(
                 "code": "internal_error",
             },
         )
+    
+    return {"updated": set_number, "status": status_enum.value}
 
