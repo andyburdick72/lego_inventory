@@ -173,6 +173,30 @@ class InventoryRepo(BaseRepo):
             [design_id],
         )
 
+    def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]:
+        """
+        Return only 'loose' inventory rows for a specific part+color combination.
+        Returns: drawer_id, drawer_name, container_id, container_name, quantity
+        """
+        return self._all(
+            """
+            SELECT 
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_name,
+                i.quantity
+            FROM inventory i
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                AND (c.deleted_at IS NULL OR c.id IS NULL)
+                AND (d.deleted_at IS NULL OR d.id IS NULL)
+            ORDER BY d.name, c.name
+            """,
+            [design_id, color_id],
+        )
+
     def locations_rows_new(self) -> list[dict]:
         """
         Rows for the 'new path': inventory linked to containers/drawers (container_id not null).

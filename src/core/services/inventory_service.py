@@ -26,6 +26,8 @@ class InventoryRepo(Protocol):
 
     def loose_inventory_for_part(self, design_id: str) -> list[dict]: ...
 
+    def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]: ...
+
 
 class InventoryService:
     """
@@ -101,6 +103,9 @@ class InventoryService:
     # Per-part loose inventory
     def loose_inventory_for_part(self, design_id: str) -> list[dict]:
         return self._inventory.loose_inventory_for_part(design_id)
+
+    def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]:
+        return self._inventory.loose_inventory_for_part_color(design_id, color_id)
 
 
 # --- Optional convenience helpers for handlers (duck-typed repos) ---

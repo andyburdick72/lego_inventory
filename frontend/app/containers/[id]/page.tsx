@@ -53,6 +53,11 @@ export default function ContainerDetailPage() {
         'drawers': { href: `/drawers/${container.drawer_id}`, label: 'Drawer' },
         'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
         'location-counts': { href: '/location-counts', label: 'Location Counts' },
+        'sets': { href: `/sets/${searchParams.get('set_number') || ''}`, label: 'Set' },
+        'parts': {
+          href: searchParams.get('design_id') ? `/parts/${searchParams.get('design_id')}` : '/loose-parts',
+          label: 'Part',
+        },
       };
       if (fromMap[fromParam]) {
         setBackLink(fromMap[fromParam]);
@@ -69,6 +74,22 @@ export default function ContainerDetailPage() {
         setBackLink({ href: '/location-counts', label: 'Location Counts' });
       } else if (pathname.includes('/loose-parts')) {
         setBackLink({ href: '/loose-parts', label: 'Loose Parts' });
+      } else if (pathname.includes('/parts/')) {
+        // Extract part design_id from referrer if possible
+        const partMatch = pathname.match(/\/parts\/([^/]+)/);
+        if (partMatch) {
+          setBackLink({ href: `/parts/${partMatch[1]}`, label: 'Part' });
+        } else {
+          setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
+        }
+      } else if (pathname.includes('/sets/')) {
+        // Extract set number from referrer if possible
+        const setMatch = pathname.match(/\/sets\/([^/]+)/);
+        if (setMatch) {
+          setBackLink({ href: `/sets/${setMatch[1]}`, label: 'Set' });
+        } else {
+          setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
+        }
       } else if (pathname.includes('/drawers/')) {
         setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
       }
@@ -102,7 +123,7 @@ export default function ContainerDetailPage() {
         const part = row.original;
         return (
           <Link
-            href={`/parts/${part.design_id}?from=containers`}
+            href={`/parts/${part.design_id}?from=containers&container_id=${containerId}`}
             className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -288,7 +309,7 @@ export default function ContainerDetailPage() {
                 <CardHeader>
                   <CardTitle className="text-sm">
                     <Link
-                      href={`/parts/${part.design_id}?from=containers`}
+                      href={`/parts/${part.design_id}?from=containers&container_id=${containerId}`}
                       className="text-blue-600 hover:text-blue-800 hover:underline"
                     >
                       {part.design_id}

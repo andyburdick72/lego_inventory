@@ -156,3 +156,72 @@ def test_update_set_status_404():
         )
         assert r.status_code == 404
 
+
+def test_get_set_parts_locations():
+    """Test getting parts with locations for a set."""
+    _skip_if_no_api()
+    with _client() as c:
+        # First get a list to find a valid set number
+        sets_r = c.get("/sets")
+        if sets_r.status_code != 200 or not sets_r.json():
+            pytest.skip("No sets available for testing")
+        
+        set_number = sets_r.json()[0]["set_number"]
+        r = c.get(f"/sets/{set_number}/parts-locations")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        
+        if data:
+            part = data[0]
+            # Required fields
+            assert "design_id" in part
+            assert "name" in part
+            assert "color_id" in part
+            assert "color_name" in part
+            assert "required_quantity" in part
+            assert "available_quantity" in part
+            assert "locations" in part
+            
+            # Type checks
+            assert isinstance(part["required_quantity"], int)
+            assert isinstance(part["available_quantity"], int)
+            assert isinstance(part["locations"], list)
+            assert part["required_quantity"] > 0
+            assert part["available_quantity"] >= 0
+            
+            # Location structure
+            if part["locations"]:
+                location = part["locations"][0]
+                assert "quantity" in location
+                assert isinstance(location["quantity"], int)
+                assert location["quantity"] > 0
+                # drawer_name and container_name are optional
+                assert "drawer_id" in location or "drawer_name" in location
+                assert "container_id" in location or "container_name" in location
+
+
+def test_get_set_parts_locations_404():
+    """Test 404 for parts-locations with invalid set number."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get("/sets/invalid-set-number-99999/parts-locations")
+        assert r.status_code == 404
+
+
+def test_get_set_parts_locations_empty_set():
+    """Test parts-locations for a set with no parts."""
+    _skip_if_no_api()
+    with _client() as c:
+        # First get a list to find a valid set number
+        sets_r = c.get("/sets")
+        if sets_r.status_code != 200 or not sets_r.json():
+            pytest.skip("No sets available for testing")
+        
+        set_number = sets_r.json()[0]["set_number"]
+        r = c.get(f"/sets/{set_number}/parts-locations")
+        assert r.status_code == 200
+        data = r.json()
+        # Should return empty list if set has no parts, or list of parts
+        assert isinstance(data, list)
+

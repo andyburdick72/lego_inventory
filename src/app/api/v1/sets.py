@@ -1,16 +1,16 @@
 """FastAPI router for sets endpoints."""
 
 import sqlite3
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.adapters import row_to_set, rows_to
-from app.di import get_db_connection, get_set_parts_service
+from app.di import get_db_connection, get_inventory_service, get_set_parts_service
 from app.errors import NotFoundError, ValidationError
 from core.dtos import LEGOSetDTO
 from core.enums import Status
+from core.services.inventory_service import InventoryService
 from core.services.set_parts_service import SetPartsService
 from infra.db.repositories.sets_repo import SetsRepo
 
@@ -23,10 +23,31 @@ class SetPartDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: Optional[str] = None
+    hex: str | None = None
     quantity: int
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    part_url: str | None = None
+    part_img_url: str | None = None
+
+
+class PartLocationDTO(BaseModel):
+    drawer_id: int | None = None
+    drawer_name: str | None = None
+    container_id: int | None = None
+    container_name: str | None = None
+    quantity: int
+
+
+class SetPartWithLocationsDTO(BaseModel):
+    design_id: str
+    name: str
+    color_id: int
+    color_name: str
+    hex: str | None = None
+    required_quantity: int
+    available_quantity: int
+    locations: list[PartLocationDTO]
+    part_url: str | None = None
+    part_img_url: str | None = None
 
 
 # Request models
@@ -170,7 +191,7 @@ def update_set_status(
                 "code": "validation_error",
             },
         )
-    
+
     # Check if set exists
     sets_repo = SetsRepo(conn)
     try:
@@ -203,7 +224,7 @@ def update_set_status(
                 "code": "internal_error",
             },
         )
-    
+
     if not existing_set:
         raise HTTPException(
             status_code=404,
@@ -212,7 +233,7 @@ def update_set_status(
                 "code": "not_found",
             },
         )
-    
+
     # Update status
     try:
         sets_repo.update_set_by_num(set_number, status=status_enum.value)
@@ -224,6 +245,88 @@ def update_set_status(
                 "code": "internal_error",
             },
         )
-    
+
     return {"updated": set_number, "status": status_enum.value}
 
+
+@router.get("/{set_number}/parts-locations", response_model=list[SetPartWithLocationsDTO])
+def get_set_parts_with_locations(
+    set_number: str,
+    set_parts_service: SetPartsService = Depends(get_set_parts_service),
+    inventory_service: InventoryService = Depends(get_inventory_service),
+):
+    """Get all parts for a set with their inventory locations.
+
+    For each part required by the set, returns:
+    - Required quantity (from set_parts)
+    - Available quantity (sum of loose inventory)
+    - List of locations where the part is stored (drawer/container)
+    """
+    try:
+        # Get all parts required by the set
+        parts = list(set_parts_service.list_parts(set_number=set_number))
+
+        result = []
+        for part in parts:
+            design_id = str(part.get("design_id", ""))
+            color_id = int(part.get("color_id", 0))
+            required_qty = int(part.get("quantity", 0))
+
+            # Get inventory locations for this part+color
+            locations = inventory_service.loose_inventory_for_part_color(design_id, color_id)
+
+            # Calculate total available quantity
+            available_qty = sum(loc.get("quantity", 0) for loc in locations)
+
+            # Format locations
+            location_dtos = [
+                PartLocationDTO(
+                    drawer_id=loc.get("drawer_id"),
+                    drawer_name=loc.get("drawer_name"),
+                    container_id=loc.get("container_id"),
+                    container_name=loc.get("container_name"),
+                    quantity=int(loc.get("quantity", 0)),
+                )
+                for loc in locations
+            ]
+
+            # Ensure URLs are present
+            part_url = part.get("part_url")
+            if not part_url:
+                part_url = f"https://rebrickable.com/parts/{design_id}/"
+
+            part_img_url = part.get("part_img_url")
+            if not part_img_url:
+                part_img_url = "https://rebrickable.com/static/img/nil.png"
+
+            hex_value = part.get("hex")
+            if hex_value:
+                hex_value = hex_value.lstrip("#")
+
+            result.append(
+                SetPartWithLocationsDTO(
+                    design_id=design_id,
+                    name=str(part.get("name", "")),
+                    color_id=color_id,
+                    color_name=str(part.get("color_name", "")),
+                    hex=hex_value,
+                    required_quantity=required_qty,
+                    available_quantity=available_qty,
+                    locations=location_dtos,
+                    part_url=part_url,
+                    part_img_url=part_img_url,
+                )
+            )
+
+        return [p.model_dump() for p in result]
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )

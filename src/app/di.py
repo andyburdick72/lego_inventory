@@ -50,7 +50,9 @@ def _get_conn() -> sqlite3.Connection:
 
     # Enable WAL + busy timeout and autocommit to avoid long-held write locks in tests
     # check_same_thread=False allows connections to be used across threads (required for FastAPI async)
-    conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None, check_same_thread=False)  # autocommit mode
+    conn = sqlite3.connect(
+        db_path, timeout=5.0, isolation_level=None, check_same_thread=False
+    )  # autocommit mode
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
@@ -244,6 +246,9 @@ class _InventoryRepoAdapter:
     def loose_inventory_for_part(self, design_id: str) -> list[dict]:
         return self._impl.loose_inventory_for_part(design_id)
 
+    def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]:
+        return self._impl.loose_inventory_for_part_color(design_id, color_id)
+
 
 class _SetsRepoAdapter:
     """
@@ -307,7 +312,9 @@ class _ExportRepoAdapter:
 # -----------------------------
 
 
-def get_inventory_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> InventoryService:
+def get_inventory_service(
+    conn: sqlite3.Connection = Depends(get_db_connection),
+) -> InventoryService:
     """Get InventoryService with a connection from the current request context."""
     drawers_impl = DrawersRepoImpl(conn)
     inventory_impl = InventoryRepoImpl(conn)

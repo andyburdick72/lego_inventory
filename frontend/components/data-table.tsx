@@ -103,6 +103,18 @@ export function DataTable<TData, TValue>({
         
         if (value === null || value === undefined) return false;
         
+        // Special handling for locations field: search through location objects
+        if (key === 'locations' && Array.isArray(value)) {
+          const locationStrings = value.map((loc: any) => {
+            const parts: string[] = [];
+            if (loc.drawer_name) parts.push(loc.drawer_name);
+            if (loc.container_name) parts.push(loc.container_name);
+            return parts.join(' / ');
+          });
+          const locationText = locationStrings.join(' ').toLowerCase();
+          return locationText.includes(searchTerm);
+        }
+        
         // Handle different value types
         let stringValue = String(value).toLowerCase();
         

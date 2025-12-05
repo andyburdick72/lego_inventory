@@ -52,6 +52,11 @@ export default function DrawerDetailPage() {
         'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
         'location-counts': { href: '/location-counts', label: 'Location Counts' },
         'containers': { href: `/containers/${searchParams.get('container_id') || ''}`, label: 'Container' },
+        'sets': { href: `/sets/${searchParams.get('set_number') || ''}`, label: 'Set' },
+        'parts': {
+          href: searchParams.get('design_id') ? `/parts/${searchParams.get('design_id')}` : '/loose-parts',
+          label: 'Part',
+        },
       };
       if (fromMap[fromParam]) {
         setBackLink(fromMap[fromParam]);
@@ -76,6 +81,22 @@ export default function DrawerDetailPage() {
         setBackLink({ href: '/location-counts', label: 'Location Counts' });
       } else if (pathname.includes('/loose-parts')) {
         setBackLink({ href: '/loose-parts', label: 'Loose Parts' });
+      } else if (pathname.includes('/parts/')) {
+        // Extract part design_id from referrer if possible
+        const partMatch = pathname.match(/\/parts\/([^/]+)/);
+        if (partMatch) {
+          setBackLink({ href: `/parts/${partMatch[1]}`, label: 'Part' });
+        } else {
+          setBackLink({ href: '/drawers', label: 'Drawers' });
+        }
+      } else if (pathname.includes('/sets/')) {
+        // Extract set number from referrer if possible
+        const setMatch = pathname.match(/\/sets\/([^/]+)/);
+        if (setMatch) {
+          setBackLink({ href: `/sets/${setMatch[1]}`, label: 'Set' });
+        } else {
+          setBackLink({ href: '/drawers', label: 'Drawers' });
+        }
       } else if (pathname.includes('/drawers')) {
         setBackLink({ href: '/drawers', label: 'Drawers' });
       }
