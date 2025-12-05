@@ -1,0 +1,185 @@
+# LEGO Inventory Management System - Cursor Rules
+
+## Project Overview
+SQLite-backed inventory management system for LEGO parts and sets. Integrates with Rebrickable API and supports importing from Instabrick/BrickLink XML exports.
+
+## Architecture
+
+### Backend
+- **Framework**: FastAPI (port 8001) - ✅ ACTIVE
+- **API Routes**: `src/app/api/v1/` - RESTful JSON endpoints
+- **Services**: `src/core/services/` - Business logic layer
+- **Repositories**: `src/infra/db/repositories/` - Data access layer
+- **DTOs**: `src/core/dtos.py` - Data transfer objects
+- **Enums**: `src/core/enums.py` - Status, etc.
+- **Database**: SQLite via `src/infra/db/inventory_db.py`
+
+### Frontend
+- **Framework**: Next.js 14+ (App Router) with TypeScript - ✅ ACTIVE
+- **Location**: `frontend/` directory
+- **UI Components**: `frontend/components/ui/` (shadcn/ui)
+- **Pages**: `frontend/app/` (Next.js App Router)
+- **API Client**: `frontend/lib/api.ts`
+- **Hooks**: `frontend/lib/hooks/`
+- **Styling**: Tailwind CSS
+
+### Scripts
+- **Location**: `src/scripts/`
+- **Purpose**: Data import, validation, maintenance
+- **Pattern**: Use argparse for CLI arguments, interact with DB via `inventory_db.py`
+
+## Code Quality Standards
+
+### Python
+- **Linting**: Ruff (`ruff check src --fix`)
+- **Formatting**: Black (line length: 100)
+- **Type Checking**: mypy (Python 3.13, strict mode)
+- **Line Length**: 100 characters
+- **Import Order**: Use Ruff's isort integration
+
+### TypeScript/React
+- **Linting**: ESLint (via Next.js)
+- **Formatting**: Prettier (via Next.js)
+- **Type Safety**: Strict TypeScript
+- **Components**: Use shadcn/ui components from `components/ui/`
+
+## Testing Requirements
+
+### Test Structure
+- **Unit Tests**: `tests/unit/` - Fast, isolated tests
+- **Contract Tests**: `tests/contract/api/` - API endpoint tests (marker: `@pytest.mark.contract`)
+- **Smoke Tests**: `tests/smoke/` - Quick sanity checks
+
+### Test Commands
+- **All tests**: `pytest` (runs unit + contract)
+- **Unit only**: `pytest tests/unit/`
+- **Contract only**: `pytest -m contract` (requires FastAPI on port 8001)
+- **Coverage**: `pytest --cov=src --cov-report=term-missing`
+- **Coverage threshold**: 70% minimum
+
+### Test Requirements
+- ✅ All new features must include tests
+- ✅ Contract tests for new API endpoints
+- ✅ Unit tests for services and utilities
+- ✅ No regressions in smoke tests
+
+## Development Workflow
+
+### Setup
+- Use `./dev.sh` for setup and running (installs deps, runs tests, starts servers)
+- Frontend: http://localhost:3001
+- Backend: http://localhost:8001
+- API Docs: http://localhost:8001/docs
+
+### Before Committing
+1. Run `ruff check src --fix`
+2. Run `black src`
+3. Run `mypy src` (if types are complete)
+4. Run `pytest` to ensure all tests pass
+5. Ensure coverage threshold is met
+
+## GitHub Workflow
+
+### Creating Issues
+- **Always add new issues to Project #1**: "LEGO Inventory Management System Roadmap"
+- Use appropriate labels:
+  - `type:*` (feature, refactor, test, bug, exploration)
+  - `area:*` (backend, frontend, scripts)
+  - `priority:*` (P1, P2, P3)
+  - `size:*` (S, M, L)
+  - `copilot` (for multi-file work)
+- Include acceptance criteria
+- Reference related issues/PRs
+
+### Branch Naming
+- `feature/` - New features
+- `refactor/` - Code refactoring
+- `test/` - Test improvements
+- `fix/` - Bug fixes
+- Format: `{type}/{short-description}`
+
+## Code Patterns
+
+### Backend API Endpoints
+```python
+# src/app/api/v1/{resource}.py
+from fastapi import APIRouter, Depends, HTTPException
+from app.errors import NotFoundError, ValidationError
+
+router = APIRouter(prefix="/{resource}", tags=["{resource}"])
+
+@router.get("", response_model=list[ResourceDTO])
+def list_resources(service: ResourceService = Depends(get_resource_service)):
+    """List all resources."""
+    # Implementation
+```
+
+### Frontend API Calls
+```typescript
+// Use React Query hooks from frontend/lib/hooks/
+import { useResources } from '@/lib/hooks/use-resources';
+
+// Or direct API calls
+import { api, handleApiError } from '@/lib/api';
+```
+
+### Error Handling
+- Use custom exceptions from `app.errors` (NotFoundError, ValidationError, ConflictError, etc.)
+- Map to appropriate HTTP status codes
+- Return consistent error format: `{message, code, details?}`
+
+### Database Access
+- Use repository pattern: `src/infra/db/repositories/`
+- Services depend on repositories (dependency injection via `app.di`)
+- Use transactions for multi-step operations
+
+## Common Tasks
+
+### Adding a New API Endpoint
+1. Add route in `src/app/api/v1/{resource}.py`
+2. Create/update DTOs in `src/core/dtos.py`
+3. Add service method if needed in `src/core/services/`
+4. Add repository method if needed in `src/infra/db/repositories/`
+5. Add contract tests in `tests/contract/api/`
+6. Update frontend hooks in `frontend/lib/hooks/`
+7. Add UI components if needed
+
+### Adding a New Frontend Page
+1. Create page in `frontend/app/{route}/page.tsx`
+2. Use existing hooks from `frontend/lib/hooks/`
+3. Use shadcn/ui components from `frontend/components/ui/`
+4. Follow existing patterns for data tables, dialogs, etc.
+
+### Adding a New Script
+1. Place in `src/scripts/`
+2. Use argparse for CLI arguments
+3. Interact with DB via `src/infra/db/inventory_db.py` or repositories
+4. Follow patterns from existing scripts
+
+## Important Notes
+
+### Active vs Legacy
+- ✅ **ACTIVE**: FastAPI backend (port 8001), Next.js frontend (port 3001)
+- ❌ **DEPRECATED**: Legacy server (`src/app/server.py`, port 8000), HTML templates
+
+### Database Schema
+- Canonical keys = Rebrickable IDs
+- BrickLink/Instabrick IDs kept only in alias tables
+- Soft deletes for drawers/containers (`deleted_at` field)
+
+### Status Enum
+- Values: `built`, `in_box`, `wip`, `loose_parts`, `teardown`
+- Use `Status.from_any()` for parsing
+- Display labels via `getStatusLabel()` utility
+
+## Documentation
+- Update `README.md` for user-facing changes
+- Update `docs/copilot-instructions.md` for architectural changes
+- Add inline docstrings for complex logic
+- Document API endpoints (FastAPI auto-generates from docstrings)
+
+## Dependencies
+- **Backend**: See `requirements.txt` and `requirements-dev.txt`
+- **Frontend**: See `frontend/package.json`
+- Keep dependencies up to date and secure
+
