@@ -15,8 +15,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EB's Bricks",
+  title: "EB's Bricks - LEGO Inventory",
   description: "LEGO inventory management system",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png", sizes: "256x256" },
+    ],
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({

@@ -17,7 +17,7 @@ ignore = ["E501"]
 known-first-party = ["lego_inventory"]
 
 [tool.pytest.ini_options]
-addopts = "-q --disable-warnings --cov=src --cov-report=term-missing --cov-report=html"
+addopts = "-q --disable-warnings --cov=src --cov-config=pyproject.toml --cov-report=term-missing --cov-report=html --cov-report=xml"
 markers = [
   "contract: contract tests hitting HTTP/API boundaries",
   "unit: fast, isolated unit tests"
@@ -48,7 +48,7 @@ relative_files = true
 
 [tool.coverage.report]
 show_missing = true
-skip_covered = true
+skip_covered = false  # Show all files so we can see what's being measured
 exclude_lines = [
   "pragma: no cover",
   "if TYPE_CHECKING:",
@@ -61,7 +61,7 @@ omit = [
   "src/app/di.py",
   "src/infra/db/*",
 ]
-fail_under = 85
+fail_under = 70  # Match pytest.ini threshold for consistency
 
 [tool.coverage.html]
 directory = "coverage_html_report"

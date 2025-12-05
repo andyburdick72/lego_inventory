@@ -49,7 +49,8 @@ def _get_conn() -> sqlite3.Connection:
         )
 
     # Enable WAL + busy timeout and autocommit to avoid long-held write locks in tests
-    conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None)  # autocommit mode
+    # check_same_thread=False allows connections to be used across threads (required for FastAPI async)
+    conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None, check_same_thread=False)  # autocommit mode
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
