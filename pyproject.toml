@@ -37,7 +37,6 @@ ignore_missing_imports = true
 branch = true
 source = ["src"]
 omit = [
-  "src/app/server.py",
   "src/scripts/*",
   "src/core/services/*",
   "src/app/di.py",
@@ -55,7 +54,6 @@ exclude_lines = [
   "^if __name__ == ['\\\"]__main__['\\\"]:$",
 ]
 omit = [
-  "src/app/server.py",
   "src/scripts/*",
   "src/core/services/*",
   "src/app/di.py",

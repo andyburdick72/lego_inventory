@@ -191,40 +191,22 @@ cd "$REPO_ROOT"
 # Set up trap to cleanup frontend on exit (always set, even if frontend didn't start)
 trap cleanup_frontend EXIT
 
-# Default to FastAPI server, but allow override via SERVER_TYPE env var
-SERVER_TYPE="${SERVER_TYPE:-fastapi}"
+# Start FastAPI backend server
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-8001}"
 
-# Try to detect LAN IP (common on en0 or en1) - do this once for both server types
+# Try to detect LAN IP (common on en0 or en1)
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost)"
 
-if [ "$SERVER_TYPE" = "fastapi" ] || [ "$SERVER_TYPE" = "1" ]; then
-  HOST="${HOST:-0.0.0.0}"
-  PORT="${PORT:-8001}"
-  echo "🚀 Starting FastAPI backend on http://${HOST}:${PORT}"
-  echo "💡 API docs available at http://${HOST}:${PORT}/docs"
-  echo "💡 Set SERVER_TYPE=legacy to use old Python server instead"
-  echo "💡 From another device: http://${LAN_IP}:${PORT}"
-  echo ""
-  echo "✅ Both servers running:"
-  echo "   - Frontend: http://localhost:3001"
-  echo "   - Backend:  http://${HOST}:${PORT}"
-  echo "   - API Docs: http://${HOST}:${PORT}/docs"
-  echo ""
-  echo "Press Ctrl+C to stop both servers"
-  
-  HOST="$HOST" PORT="$PORT" exec python -m uvicorn app.api.main:app --host "$HOST" --port "$PORT" --reload
-else
-  HOST="${HOST:-0.0.0.0}"
-  PORT="${PORT:-8000}"
-  echo "🚀 Starting legacy Python server on http://${HOST}:${PORT}"
-  echo "💡 Set SERVER_TYPE=fastapi to use FastAPI server instead"
-  echo "💡 From another device: http://${LAN_IP}:${PORT}"
-  echo ""
-  echo "✅ Both servers running:"
-  echo "   - Frontend: http://localhost:3001"
-  echo "   - Backend:  http://${HOST}:${PORT}"
-  echo ""
-  echo "Press Ctrl+C to stop both servers"
-  
-  HOST="$HOST" PORT="$PORT" exec python -m app.server
-fi
+echo "🚀 Starting FastAPI backend on http://${HOST}:${PORT}"
+echo "💡 API docs available at http://${HOST}:${PORT}/docs"
+echo "💡 From another device: http://${LAN_IP}:${PORT}"
+echo ""
+echo "✅ Both servers running:"
+echo "   - Frontend: http://localhost:3001"
+echo "   - Backend:  http://${HOST}:${PORT}"
+echo "   - API Docs: http://${HOST}:${PORT}/docs"
+echo ""
+echo "Press Ctrl+C to stop both servers"
+
+HOST="$HOST" PORT="$PORT" exec python -m uvicorn app.api.main:app --host "$HOST" --port "$PORT" --reload

@@ -52,9 +52,14 @@ def test_create_duplicate_drawer_conflict_prefer_409():
         # API_BASE already includes /api/v1, so just use /drawers/create
         r1 = c.post("/drawers/create", json={"name": unique})
         assert r1.status_code in (200, 201)
+        drawer_id = r1.json().get("id")
 
         r2 = c.post("/drawers/create", json={"name": unique})
         assert r2.status_code in (409, 400, 422)
+
+        # Cleanup: delete the created drawer
+        if drawer_id:
+            c.post("/drawers/delete", json={"id": drawer_id})
 
 
 def test_health_check():

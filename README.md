@@ -31,13 +31,9 @@ lego_inventory/
 │   ├── instabrick_inventory.xml          # Sample Instabrick export
 ├── src/
 │   ├── app/
-│   │   ├── server.py                     # [DEPRECATED] Legacy HTTP server (use FastAPI + Next.js)
 │   │   ├── api/                          # FastAPI REST API
 │   │   │   └── main.py                   # FastAPI application
-│   │   ├── static/
-│   │   │   └── styles.css                # CSS for web UI
-│   │   └── templates/
-│   │       ├── *.html                    # HTML templates for web UI
+│   │   └── ...
 │   ├── infra/
 │   │   └── db/
 │   │       └── inventory_db.py           # DB creation & execution helpers
@@ -86,7 +82,7 @@ pip install requests
 ```
 
 ### 3. Using `dev.sh` for setup and running
-The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, testing, and starts the server.
+The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, testing, and starts both servers.
 
 **Basic usage:**
 ```bash
@@ -94,17 +90,17 @@ The `dev.sh` script is the preferred way to set up and run the project. It handl
 ```
 This will:
 - Install/update dependencies
-- Run unit tests with coverage
-- Run contract tests (starts FastAPI server automatically)
-- Start the FastAPI server on port 8001
+- Run all tests (unit, smoke, contract)
+- Start the Next.js frontend on port 3001
+- Start the FastAPI backend on port 8001
 
 **With coverage reporting:**
 ```bash
 ./dev.sh cov
 ```
-This runs all tests with coverage reporting and merges unit + contract test coverage.
+This runs all tests with coverage reporting and merges unit + contract test coverage, then starts both servers.
 
-**Note:** `dev.sh` automatically kills any existing server on port 8001 before starting a new one to ensure fresh code is loaded.
+**Note:** `dev.sh` automatically kills any existing servers on ports 3001 and 8001 before starting new ones to ensure fresh code is loaded.
 
 ### macOS Launcher (optional)
 
@@ -167,7 +163,7 @@ python3 src/inventory_db.py
 
 ## **Web UI**
 
-### FastAPI Backend + Next.js Frontend (Recommended)
+### FastAPI Backend + Next.js Frontend
 
 Run:
 ```bash
@@ -176,36 +172,20 @@ Run:
 
 This will:
 1. Install/update dependencies
-2. Run unit tests with coverage
-3. Run contract tests (automatically starts FastAPI server)
-4. Start the FastAPI server on port 8001
-
-**Note:** The Next.js frontend must be started separately:
-```bash
-cd frontend
-npm run dev
-```
+2. Run all tests (unit, smoke, contract)
+3. Start the Next.js frontend on port 3001
+4. Start the FastAPI backend on port 8001
 
 **Access:**
-- **Frontend**: http://localhost:3000 (Next.js)
-- **API**: http://localhost:8001 (FastAPI)
+- **Frontend**: http://localhost:3001 (Next.js)
+- **Backend API**: http://localhost:8001 (FastAPI)
 - **API Docs**: http://localhost:8001/docs (Swagger UI)
 
 **UI Highlights:**
 - **Loose Parts by Location** and **Parts by Set**: collapsible hierarchical views  
 - Column sorting & searching (per table)  
 - CSV export button for every table view
-- Modern React-based UI with responsive design
-
-### Legacy Python Server (Deprecated)
-
-The old Python server (`src/app/server.py`) is deprecated. To run it:
-```bash
-SERVER_TYPE=legacy ./dev.sh
-```
-Visit: http://localhost:8000
-
-**Note:** The legacy server is maintained for reference only. All new development uses FastAPI + Next.js.  
+- Modern React-based UI with responsive design  
 
 ---
 
@@ -230,7 +210,6 @@ Visit: http://localhost:8000
 | `fix_alias_typos.py` | Correct typos from precheck step |
 | `load_instabrick_inventory.py` | Import Instabrick XML into DB |
 | `inventory_sanity_checks.py` | Compare loose vs set inventories |
-| `server.py` | [DEPRECATED] Run legacy web UI (use FastAPI + Next.js) |
 
 ---
 
@@ -276,7 +255,7 @@ source .venv/bin/activate
   ```bash
   pytest
   ```
-  Or use `./dev.sh` which runs all tests automatically.
+  Or use `./dev.sh` which runs all tests automatically before starting servers.
 
 - **Unit tests only**:
   ```bash
