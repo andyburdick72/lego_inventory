@@ -13,12 +13,14 @@ class SetsRepo(BaseRepo):
                    s.set_num,
                    s.name,
                    s.status,
-                   s.theme,
+                   s.theme_id,
                    s.year,
                    s.image_url,
                    s.rebrickable_url,
-                   s.added_at
+                   s.added_at,
+                   t.name AS theme_name
             FROM sets s
+            LEFT JOIN themes t ON t.id = s.theme_id
             WHERE s.id = ?
             """,
             [set_id],
@@ -51,9 +53,11 @@ class SetsRepo(BaseRepo):
     def get_set_by_num(self, set_num: str) -> dict | None:
         return self._one(
             """
-            SELECT set_num, name, year, theme, image_url, rebrickable_url, status, added_at
-            FROM sets
-            WHERE set_num = ?
+            SELECT s.set_num, s.name, s.year, s.theme_id, s.image_url, s.rebrickable_url, s.status, s.added_at,
+                   t.name AS theme_name
+            FROM sets s
+            LEFT JOIN themes t ON t.id = s.theme_id
+            WHERE s.set_num = ?
             """,
             [set_num],
         )
@@ -68,10 +72,13 @@ class SetsRepo(BaseRepo):
                 c.hex  AS hex,
                 sp.quantity,
                 p.part_url,
-                p.part_img_url
+                p.part_img_url,
+                p.part_category_id,
+                pc.name AS part_category_name
             FROM set_parts sp
             JOIN parts  p ON p.design_id = sp.design_id
             JOIN colors c ON c.id        = sp.color_id
+            LEFT JOIN part_categories pc ON pc.id = p.part_category_id
             WHERE sp.set_num = ?
             ORDER BY sp.design_id, sp.color_id
             """,
@@ -125,20 +132,25 @@ class SetsRepo(BaseRepo):
     def sets_for_part_with_colors(self, design_id: str) -> list[dict]:
         """
         Return sets that contain a given design_id with per-color detail.
-        Columns: set_num, set_name, year, color_id, color_name, hex, quantity
+        Columns: set_num, set_name, year, status, color_id, color_name, hex, quantity, part_category_id, part_category_name
         """
         return self._all(
             """
             SELECT s.set_num,
                    s.name        AS set_name,
                    s.year        AS year,
+                   s.status      AS status,
                    c.id          AS color_id,
                    c.name        AS color_name,
                    c.hex         AS hex,
-                   sp.quantity   AS quantity
+                   sp.quantity   AS quantity,
+                   p.part_category_id,
+                   pc.name       AS part_category_name
             FROM set_parts sp
             JOIN sets  s ON s.set_num = sp.set_num
             JOIN colors c ON c.id     = sp.color_id
+            JOIN parts p ON p.design_id = sp.design_id
+            LEFT JOIN part_categories pc ON pc.id = p.part_category_id
             WHERE sp.design_id = ?
             ORDER BY s.year, s.set_num, c.id
             """,
@@ -177,3 +189,21 @@ class SetsRepo(BaseRepo):
             values,
         )
         self.conn.commit()
+
+    def list_sets_with_statuses(self, statuses: list[str]) -> list[dict]:
+        """
+        Return sets with status in the given list.
+        Columns: set_num, name, year, theme, status, image_url, rebrickable_url
+        """
+        if not statuses:
+            return []
+        placeholders = ",".join(["?"] * len(statuses))
+        return self._all(
+            f"""
+            SELECT set_num, name, year, theme, status, image_url, rebrickable_url
+            FROM sets
+            WHERE status IN ({placeholders})
+            ORDER BY year DESC, set_num
+            """,
+            statuses,
+        )

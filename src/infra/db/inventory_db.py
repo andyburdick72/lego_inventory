@@ -170,7 +170,9 @@ def init_db() -> None:
                 design_id TEXT PRIMARY KEY,
                 name      TEXT,
                 part_url  TEXT,
-                part_img_url TEXT
+                part_img_url TEXT,
+                part_category_id INTEGER,
+                FOREIGN KEY (part_category_id) REFERENCES part_categories(id)
             );
 
             CREATE TABLE IF NOT EXISTS part_aliases(
@@ -199,6 +201,7 @@ def init_db() -> None:
                 row_index   INTEGER,
                 col_index   INTEGER,
                 sort_index  INTEGER DEFAULT 0,
+                is_put_away_bin INTEGER DEFAULT 0,
                 created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
                 deleted_at  TEXT,
@@ -218,16 +221,27 @@ def init_db() -> None:
             );
 
             -- Added sets and set_parts tables and indexes
+            CREATE TABLE IF NOT EXISTS themes(
+                id   INTEGER PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS sets(
                 id               INTEGER PRIMARY KEY,
                 set_num          TEXT,     -- e.g. 40571-1
                 name             TEXT,
                 year             INTEGER,
-                theme            TEXT,
+                theme_id         INTEGER,
                 image_url        TEXT,
                 rebrickable_url  TEXT,
                 status           TEXT,
-                added_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                added_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (theme_id) REFERENCES themes(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS part_categories(
+                id   INTEGER PRIMARY KEY,
+                name TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS set_parts(

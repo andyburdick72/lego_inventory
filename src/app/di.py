@@ -14,6 +14,8 @@ from core.services.export_service import ExportService
 from core.services.inventory_service import InventoryService
 
 # Parts service/repo
+from core.services.location_reconciliation_service import LocationReconciliationService
+from core.services.mismatch_service import MismatchService
 from core.services.parts_service import PartsService
 from core.services.set_parts_service import SetPartsService
 
@@ -169,6 +171,10 @@ class _DrawersRepoAdapter:
             return
         raise NotImplementedError("No restore/undelete method for drawers on implementation")
 
+    def get_put_away_bin(self) -> dict | None:
+        """Get the container marked as the put away bin."""
+        return self._impl.get_put_away_bin()
+
 
 class _ContainersRepoAdapter:
     """Adapts DrawersRepoImpl container reads to the ContainersRepo Protocol."""
@@ -249,6 +255,39 @@ class _InventoryRepoAdapter:
     def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]:
         return self._impl.loose_inventory_for_part_color(design_id, color_id)
 
+    def get_loose_inventory_totals(self) -> list[dict]:
+        return self._impl.get_loose_inventory_totals()
+
+    def get_part_color_info(self, design_id: str, color_id: int) -> dict | None:
+        return self._impl.get_part_color_info(design_id, color_id)
+
+    def update_loose_inventory_quantity(
+        self, design_id: str, color_id: int, new_quantity: int
+    ) -> None:
+        return self._impl.update_loose_inventory_quantity(design_id, color_id, new_quantity)
+
+    def get_inventory_by_location(
+        self, design_id: str, color_id: int, drawer_id: int | None, container_id: int | None
+    ) -> list[dict]:
+        return self._impl.get_inventory_by_location(design_id, color_id, drawer_id, container_id)
+
+    def get_inventory_totals_by_location(
+        self, design_id: str, color_id: int
+    ) -> list[dict]:
+        return self._impl.get_inventory_totals_by_location(design_id, color_id)
+
+    def set_inventory_quantity_at_location(
+        self,
+        design_id: str,
+        color_id: int,
+        quantity: int,
+        drawer_id: int | None,
+        container_id: int | None,
+    ) -> None:
+        return self._impl.set_inventory_quantity_at_location(
+            design_id, color_id, quantity, drawer_id, container_id
+        )
+
 
 class _SetsRepoAdapter:
     """
@@ -268,6 +307,9 @@ class _SetsRepoAdapter:
 
     def sets_for_part_with_colors(self, design_id: str) -> list[Mapping[str, Any]]:
         return cast(list[Mapping[str, Any]], self._impl.sets_for_part_with_colors(design_id))
+
+    def list_sets_with_statuses(self, statuses: list[str]) -> list[Mapping[str, Any]]:
+        return cast(list[Mapping[str, Any]], self._impl.list_sets_with_statuses(statuses))
 
 
 class _SetPartsRepoAdapter:
@@ -359,3 +401,31 @@ def get_parts_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> 
     """Get PartsService with a connection from the current request context."""
     parts_impl = PartsRepoImpl(conn)
     return PartsService(parts=parts_impl)
+
+
+def get_mismatch_service(conn: sqlite3.Connection = Depends(get_db_connection)) -> MismatchService:
+    """Get MismatchService with a connection from the current request context."""
+    sets_impl = SetsRepoImpl(conn)
+    inventory_impl = InventoryRepoImpl(conn)
+
+    sets = _SetsRepoAdapter(sets_impl)
+    set_parts = _SetPartsRepoAdapter(sets_impl)
+    inventory = _InventoryRepoAdapter(inventory_impl)
+
+    return MismatchService(sets=sets, set_parts=set_parts, inventory=inventory)
+
+
+def get_location_reconciliation_service(
+    conn: sqlite3.Connection = Depends(get_db_connection),
+) -> LocationReconciliationService:
+    """Get LocationReconciliationService with a connection from the current request context."""
+    sets_impl = SetsRepoImpl(conn)
+    inventory_impl = InventoryRepoImpl(conn)
+    drawers_impl = DrawersRepoImpl(conn)
+
+    sets = _SetsRepoAdapter(sets_impl)
+    set_parts = _SetPartsRepoAdapter(sets_impl)
+    inventory = _InventoryRepoAdapter(inventory_impl)
+    drawers = _DrawersRepoAdapter(drawers_impl)
+
+    return LocationReconciliationService(sets=sets, set_parts=set_parts, inventory=inventory, drawers=drawers)

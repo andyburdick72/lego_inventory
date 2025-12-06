@@ -66,6 +66,17 @@ class ContainerDeletedResponse(BaseModel):
     deleted: int
 
 
+class PutAwayBinResponse(BaseModel):
+    container_id: Optional[int] = None
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_name: Optional[str] = None
+
+
+class SetPutAwayBinRequest(BaseModel):
+    container_id: int
+
+
 @router.get("", response_model=list[ContainerSummaryDTO])
 def list_containers(
     drawer_id: int = Query(..., description="Drawer ID to list containers for"),
@@ -333,4 +344,38 @@ def get_container_parts(
         })
     
     return result
+
+
+@router.get("/put-away-bin", response_model=PutAwayBinResponse)
+def get_put_away_bin(
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Get the container marked as the put away bin."""
+    try:
+        repo = DrawersRepo(conn)
+        put_away = repo.get_put_away_bin()
+        if put_away:
+            return PutAwayBinResponse(
+                container_id=put_away.get("container_id"),
+                drawer_id=put_away.get("drawer_id"),
+                drawer_name=put_away.get("drawer_name"),
+                container_name=put_away.get("container_name"),
+            )
+        return PutAwayBinResponse(container_id=None, drawer_id=None, drawer_name=None, container_name=None)
+    except Exception as e:
+        import traceback
+        error_detail = f"Error getting put away bin: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console for debugging
+        raise HTTPException(status_code=500, detail=f"Error getting put away bin: {str(e)}") from e
+
+
+@router.post("/put-away-bin", response_model=dict[str, str])
+def set_put_away_bin(
+    request: SetPutAwayBinRequest,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Set a container as the put away bin. This will unset any other container with this flag."""
+    repo = DrawersRepo(conn)
+    repo.set_put_away_bin(request.container_id)
+    return {"message": "Put away bin updated successfully"}
 

@@ -28,10 +28,14 @@ if not API_KEY or not USER_TOKEN:
     )
 
 
-def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box"):
+def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", update_themes: bool = False):
     """
     Non-interactive version that uses a default status for all new sets.
     Returns a summary string of what was done.
+    
+    Args:
+        default_status: Status to use for new sets
+        update_themes: If True, update theme information for all sets (even existing ones)
     """
     if USER_TOKEN is None:
         raise ValueError("USER_TOKEN cannot be None")
@@ -55,7 +59,11 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box"):
         for set_num, owned_count in owned_counts.items():
             c.execute("SELECT COUNT(*) FROM sets WHERE set_num = ?", (set_num,))
             db_count = c.fetchone()[0]
-            if db_count >= owned_count:
+            
+            # Always fetch theme data if update_themes is True
+            should_fetch_theme = update_themes or db_count < owned_count
+            
+            if db_count >= owned_count and not update_themes:
                 if db_count > owned_count:
                     print(
                         f"⚠️ DB has {db_count} copies of {set_num} but Rebrickable shows {owned_count}. Skipping inserts; please reconcile."
@@ -64,6 +72,38 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box"):
                     print(
                         f"Skipping {set_num}: DB already has {db_count} copies (matches Rebrickable)."
                     )
+                if should_fetch_theme:
+                    # Still update theme even if skipping inserts
+                    url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
+                    set_data = get_json(url, params={"key": API_KEY})
+                    theme_id = set_data.get("theme_id")
+                    
+                    # Fetch theme name from themes endpoint if we have theme_id
+                    theme_name = None
+                    if theme_id is not None:
+                        try:
+                            theme_url = f"https://rebrickable.com/api/v3/lego/themes/{theme_id}/"
+                            theme_data = get_json(theme_url, params={"key": API_KEY})
+                            theme_name = theme_data.get("name")
+                        except Exception:
+                            # If theme fetch fails, continue without theme name
+                            pass
+                    
+                    if theme_id is not None and theme_name:
+                        c.execute(
+                            """
+                            INSERT OR REPLACE INTO themes (id, name)
+                            VALUES (?, ?)
+                            """,
+                            (theme_id, theme_name),
+                        )
+                        c.execute(
+                            """
+                            UPDATE sets SET theme_id = ? WHERE set_num = ?
+                            """,
+                            (theme_id, set_num),
+                        )
+                        print(f"  Updated theme for {set_num}: {theme_name}")
                 continue
 
             url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
@@ -71,9 +111,30 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box"):
 
             name = set_data["name"]
             year = set_data["year"]
-            theme = set_data["theme_id"]
+            theme_id = set_data.get("theme_id")
             image_url = set_data["set_img_url"]
             rebrickable_url = set_data["set_url"]
+            
+            # Fetch theme name from themes endpoint if we have theme_id
+            theme_name = None
+            if theme_id is not None:
+                try:
+                    theme_url = f"https://rebrickable.com/api/v3/lego/themes/{theme_id}/"
+                    theme_data = get_json(theme_url, params={"key": API_KEY})
+                    theme_name = theme_data.get("name")
+                except Exception:
+                    # If theme fetch fails, continue without theme name
+                    pass
+            
+            # Store theme if present
+            if theme_id is not None and theme_name:
+                c.execute(
+                    """
+                    INSERT OR REPLACE INTO themes (id, name)
+                    VALUES (?, ?)
+                    """,
+                    (theme_id, theme_name),
+                )
 
             to_insert = owned_count - db_count
 
@@ -84,14 +145,14 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box"):
             for _ in range(to_insert):
                 c.execute(
                     """
-                    INSERT INTO sets (set_num, name, year, theme, image_url, rebrickable_url, status, added_at)
+                    INSERT INTO sets (set_num, name, year, theme_id, image_url, rebrickable_url, status, added_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         set_num,
                         name,
                         year,
-                        theme,
+                        theme_id,
                         image_url,
                         rebrickable_url,
                         chosen_status_value,
@@ -118,6 +179,45 @@ def load_my_rebrickable_sets():
         for set_num, owned_count in owned_counts.items():
             c.execute("SELECT COUNT(*) FROM sets WHERE set_num = ?", (set_num,))
             db_count = c.fetchone()[0]
+            
+            # Always fetch set data to get theme information
+            url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
+            set_data = get_json(url, params={"key": API_KEY})
+
+            name = set_data["name"]
+            year = set_data["year"]
+            theme_id = set_data.get("theme_id")
+            image_url = set_data["set_img_url"]
+            rebrickable_url = set_data["set_url"]
+            
+            # Fetch theme name from themes endpoint if we have theme_id
+            theme_name = None
+            if theme_id is not None:
+                try:
+                    theme_url = f"https://rebrickable.com/api/v3/lego/themes/{theme_id}/"
+                    theme_data = get_json(theme_url, params={"key": API_KEY})
+                    theme_name = theme_data.get("name")
+                except Exception:
+                    # If theme fetch fails, continue without theme name
+                    pass
+            
+            # Store theme if present (always update themes)
+            if theme_id is not None and theme_name:
+                c.execute(
+                    """
+                    INSERT OR REPLACE INTO themes (id, name)
+                    VALUES (?, ?)
+                    """,
+                    (theme_id, theme_name),
+                )
+                # Update theme_id for all existing sets with this set_num
+                c.execute(
+                    """
+                    UPDATE sets SET theme_id = ? WHERE set_num = ?
+                    """,
+                    (theme_id, set_num),
+                )
+            
             if db_count >= owned_count:
                 if db_count > owned_count:
                     print(
@@ -125,18 +225,9 @@ def load_my_rebrickable_sets():
                     )
                 else:
                     print(
-                        f"Skipping {set_num}: DB already has {db_count} copies (matches Rebrickable)."
+                        f"Skipping {set_num}: DB already has {db_count} copies (matches Rebrickable). Theme updated."
                     )
                 continue
-
-            url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
-            set_data = get_json(url, params={"key": API_KEY})
-
-            name = set_data["name"]
-            year = set_data["year"]
-            theme = set_data["theme_id"]
-            image_url = set_data["set_img_url"]
-            rebrickable_url = set_data["set_url"]
 
             to_insert = owned_count - db_count
 
@@ -193,14 +284,14 @@ def load_my_rebrickable_sets():
             for _ in range(to_insert):
                 c.execute(
                     """
-                    INSERT INTO sets (set_num, name, year, theme, image_url, rebrickable_url, status, added_at)
+                    INSERT INTO sets (set_num, name, year, theme_id, image_url, rebrickable_url, status, added_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         set_num,
                         name,
                         year,
-                        theme,
+                        theme_id,
                         image_url,
                         rebrickable_url,
                         chosen_status_value,

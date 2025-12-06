@@ -27,7 +27,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from app.settings import get_settings  # noqa: E402
-from integrations.rebrickable_api import paginate  # noqa: E402
+from integrations.rebrickable_api import paginate, get_json  # noqa: E402
 from infra.db.inventory_db import _connect, insert_set_part  # noqa: E402
 
 # Centralized settings (cached by get_settings via lru_cache)
@@ -195,6 +195,8 @@ def gather_and_insert_parts(
     Fetch all parts from owned sets and insert them into the parts and part_aliases tables.
     If skip_refresh is False, deletes existing set_parts for each set before inserting new ones.
     """
+    # Shared cache for category names across all sets
+    category_name_cache: dict[int, str] = {}
     start_ts = time.perf_counter()
     new_parts = 0
     new_aliases = 0
@@ -230,12 +232,18 @@ def gather_and_insert_parts(
             # Aggregate quantities per (part, color), optionally including spare parts
             params = dict(base_params)
             agg: dict[tuple[str, int], int] = {}
+            seen_part_ids: set[str] = set()  # Track which parts we've seen in this set
             for item in paginate(f"/sets/{set_num}/parts/", params=params):
                 part = item.get("part", item)
                 rb_id = part["part_num"]
                 name = part["name"]
                 part_url = part.get("part_url")
                 part_img_url = part.get("part_img_url")
+                
+                # Track unique parts for category fetching
+                if rb_id not in seen_part_ids:
+                    seen_part_ids.add(rb_id)
+                
                 # Deterministic fallback for part_url if missing (safe canonical URL)
                 if part_url is None:
                     part_url = f"https://rebrickable.com/parts/{rb_id}/"
@@ -301,6 +309,10 @@ def gather_and_insert_parts(
                         set_parts_updated += 1
                     else:
                         set_parts_unchanged += 1
+            
+            # Note: Category fetching is now done separately via load_all_part_categories.py
+            # This avoids making individual API calls for each part during set processing,
+            # which was causing the script to be very slow
             
             # Commit after inserting all parts for this set
             conn.commit()

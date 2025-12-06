@@ -85,6 +85,7 @@ class DrawersRepo(BaseRepo):
                 c.row_index,
                 c.col_index,
                 c.sort_index,
+                c.is_put_away_bin,
                 COALESCE(SUM(i.quantity), 0) AS part_count,
                 COUNT(DISTINCT i.design_id || ':' || i.color_id) AS unique_parts
             FROM containers c
@@ -97,12 +98,51 @@ class DrawersRepo(BaseRepo):
             [drawer_id],
         )
 
+    def get_put_away_bin(self) -> dict | None:
+        """Get the container marked as the put away bin. Only one should exist."""
+        return self._one(
+            """
+            SELECT c.id AS container_id,
+                   c.drawer_id,
+                   c.name AS container_name,
+                   d.name AS drawer_name
+            FROM containers c
+            JOIN drawers d ON d.id = c.drawer_id
+            WHERE c.is_put_away_bin = 1 AND c.deleted_at IS NULL AND d.deleted_at IS NULL
+            LIMIT 1
+            """,
+            [],
+        )
+
+    def set_put_away_bin(self, container_id: int) -> None:
+        """Set a container as the put away bin. Unsets any other container with this flag."""
+        # First, unset all other containers
+        self.conn.execute(
+            """
+            UPDATE containers
+            SET is_put_away_bin = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE is_put_away_bin = 1
+            """,
+            [],
+        )
+        # Then set the specified container
+        self.conn.execute(
+            """
+            UPDATE containers
+            SET is_put_away_bin = 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            [container_id],
+        )
+        self.conn.commit()
+
     def get_container_with_drawer(self, container_id: int) -> dict | None:
         return self._one(
             """
             SELECT c.*,
                    d.name AS drawer_name,
-                   d.id   AS drawer_id
+                   d.id   AS drawer_id,
+                   c.is_put_away_bin
             FROM containers c
             JOIN drawers d ON d.id = c.drawer_id AND d.deleted_at IS NULL
             WHERE c.id = ? AND c.deleted_at IS NULL

@@ -280,3 +280,252 @@ class InventoryRepo(BaseRepo):
         """Return the total loose quantity (COALESCE SUM)."""
         row = self._one("SELECT COALESCE(SUM(quantity),0) AS q FROM inventory WHERE status='loose'")
         return int(row["q"]) if row and row["q"] is not None else 0
+
+    def get_loose_inventory_totals(self) -> list[dict]:
+        """
+        Return loose inventory totals grouped by design_id and color_id.
+        Columns: design_id, color_id, quantity
+        Note: Part/color names are not included here - they're added in the service layer
+        """
+        return self._all(
+            """
+            SELECT design_id, color_id, SUM(quantity) AS quantity
+            FROM inventory
+            WHERE status = 'loose'
+            GROUP BY design_id, color_id
+            ORDER BY design_id, color_id
+            """,
+            [],
+        )
+
+    def get_part_color_info(self, design_id: str, color_id: int) -> dict | None:
+        """
+        Get part and color information for a design_id and color_id.
+        Returns: part_name, color_name, color_hex, part_url, part_img_url
+        """
+        # Query parts and colors separately and combine
+        part_row = self._one(
+            """
+            SELECT name, part_url, part_img_url
+            FROM parts
+            WHERE design_id = ?
+            """,
+            [design_id],
+        )
+        color_row = self._one(
+            """
+            SELECT name, hex
+            FROM colors
+            WHERE id = ?
+            """,
+            [color_id],
+        )
+        
+        if not part_row or not color_row:
+            return None
+        
+        return {
+            "part_name": part_row.get("name"),
+            "color_name": color_row.get("name"),
+            "color_hex": color_row.get("hex"),
+            "part_url": part_row.get("part_url"),
+            "part_img_url": part_row.get("part_img_url"),
+        }
+
+    def update_loose_inventory_quantity(
+        self, design_id: str, color_id: int, new_quantity: int
+    ) -> None:
+        """
+        Update the total loose inventory quantity for a part+color.
+        
+        This consolidates all inventory records for this part+color:
+        - If new_quantity is 0, deletes all records
+        - If new_quantity > 0:
+          - If no records exist, creates one with container_id=NULL
+          - If records exist, updates the first one and deletes the rest
+        """
+        # Get all current inventory records for this part+color
+        current_records = self._all(
+            """
+            SELECT id, container_id, quantity
+            FROM inventory
+            WHERE design_id = ? AND color_id = ? AND status = 'loose'
+            ORDER BY id
+            """,
+            [design_id, color_id],
+        )
+
+        if new_quantity == 0:
+            # Delete all records
+            self.conn.execute(
+                """
+                DELETE FROM inventory
+                WHERE design_id = ? AND color_id = ? AND status = 'loose'
+                """,
+                [design_id, color_id],
+            )
+        elif current_records:
+            # Update first record, delete rest
+            first_id = current_records[0]["id"]
+            self.conn.execute(
+                """
+                UPDATE inventory
+                SET quantity = ?
+                WHERE id = ?
+                """,
+                [new_quantity, first_id],
+            )
+            # Delete remaining records
+            if len(current_records) > 1:
+                other_ids = [r["id"] for r in current_records[1:]]
+                placeholders = ",".join(["?"] * len(other_ids))
+                self.conn.execute(
+                    f"""
+                    DELETE FROM inventory
+                    WHERE id IN ({placeholders})
+                    """,
+                    other_ids,
+                )
+        else:
+            # No records exist, create one
+            self.conn.execute(
+                """
+                INSERT INTO inventory (design_id, color_id, quantity, status)
+                VALUES (?, ?, ?, 'loose')
+                """,
+                [design_id, color_id, new_quantity],
+            )
+
+        self.conn.commit()
+
+    def get_inventory_by_location(
+        self, design_id: str, color_id: int, drawer_id: int | None, container_id: int | None
+    ) -> list[dict]:
+        """
+        Get inventory for a part+color at a specific location.
+        Returns: list of dicts with quantity, drawer_id, container_id, drawer_name, container_name
+        """
+        clauses = [
+            "i.design_id = ?",
+            "i.color_id = ?",
+            "i.status = 'loose'",
+        ]
+        params = [design_id, color_id]
+
+        if drawer_id is not None:
+            clauses.append("c.drawer_id = ?")
+            params.append(drawer_id)
+        else:
+            clauses.append("c.drawer_id IS NULL")
+
+        if container_id is not None:
+            clauses.append("i.container_id = ?")
+            params.append(container_id)
+        else:
+            clauses.append("i.container_id IS NULL")
+
+        where = " AND ".join(clauses)
+
+        return self._all(
+            f"""
+            SELECT 
+                i.quantity,
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_name
+            FROM inventory i
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE {where}
+            """,
+            params,
+        )
+
+    def get_inventory_totals_by_location(
+        self, design_id: str, color_id: int
+    ) -> list[dict]:
+        """
+        Get inventory totals for a part+color grouped by location.
+        Returns: list of dicts with drawer_id, container_id, drawer_name, container_name, quantity
+        """
+        return self._all(
+            """
+            SELECT 
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_name,
+                SUM(i.quantity) AS quantity
+            FROM inventory i
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+            GROUP BY d.id, c.id, d.name, c.name
+            ORDER BY d.id, c.id
+            """,
+            [design_id, color_id],
+        )
+
+    def set_inventory_quantity_at_location(
+        self,
+        design_id: str,
+        color_id: int,
+        quantity: int,
+        drawer_id: int | None,
+        container_id: int | None,
+    ) -> None:
+        """
+        Set inventory quantity at a specific location for a part+color.
+        
+        This will:
+        - Delete/update only inventory records at the SPECIFIC location (matching container_id)
+        - Leave inventory at other locations untouched
+        - Create a new inventory record at the specified location (if quantity > 0)
+        - If drawer_id/container_id are None, updates records without location (container_id IS NULL)
+        
+        This allows a part+color to have inventory in multiple locations simultaneously
+        (e.g., some in put-away bin for teardown sets, some in other locations for loose parts).
+        """
+        # Delete existing inventory at this SPECIFIC location only
+        if container_id is not None:
+            # Specific container location
+            self.conn.execute(
+                """
+                DELETE FROM inventory
+                WHERE design_id = ? AND color_id = ? AND status = 'loose' AND container_id = ?
+                """,
+                [design_id, color_id, container_id],
+            )
+        else:
+            # No specific location (container_id IS NULL)
+            self.conn.execute(
+                """
+                DELETE FROM inventory
+                WHERE design_id = ? AND color_id = ? AND status = 'loose' AND container_id IS NULL
+                """,
+                [design_id, color_id],
+            )
+
+        # If quantity > 0, create new record at specified location
+        if quantity > 0:
+            if container_id is not None:
+                # Specific container location
+                self.conn.execute(
+                    """
+                    INSERT INTO inventory (design_id, color_id, quantity, status, container_id)
+                    VALUES (?, ?, ?, 'loose', ?)
+                    """,
+                    [design_id, color_id, quantity, container_id],
+                )
+            else:
+                # No specific location (loose parts that can be anywhere)
+                self.conn.execute(
+                    """
+                    INSERT INTO inventory (design_id, color_id, quantity, status)
+                    VALUES (?, ?, ?, 'loose')
+                    """,
+                    [design_id, color_id, quantity],
+                )
+
+        self.conn.commit()

@@ -1,8 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
-import Image from 'next/image';
 import {
   Card,
   CardContent,
@@ -10,6 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { AlertCircle } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
 
 export default function HomePage() {
   return (
@@ -34,7 +35,7 @@ export default function HomePage() {
             alt="Drawers"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
         </Card>
 
@@ -55,7 +56,7 @@ export default function HomePage() {
             alt="Sets"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
         </Card>
 
@@ -76,7 +77,7 @@ export default function HomePage() {
             alt="Loose Parts"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
         </Card>
 
@@ -97,7 +98,7 @@ export default function HomePage() {
             alt="Part Counts"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
         </Card>
 
@@ -118,7 +119,7 @@ export default function HomePage() {
             alt="Part + Color Counts"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
         </Card>
 
@@ -139,8 +140,25 @@ export default function HomePage() {
             alt="Location Counts"
             width={120}
             height={120}
-            className="object-contain flex-shrink-0 pr-4"
+            className="object-contain shrink-0 pr-4"
           />
+        </Card>
+
+        <Card className="flex flex-row items-center gap-4">
+          <div className="flex-1">
+            <CardHeader>
+              <CardTitle>Location Reconciliation</CardTitle>
+              <CardDescription>Reconcile inventory with set parts by location</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <Button asChild className="bg-green-600 hover:bg-green-700 text-white">
+                <Link href="/location-reconciliation">Reconcile Locations</Link>
+              </Button>
+            </CardContent>
+          </div>
+          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
+            <AlertCircle className="h-16 w-16 text-green-600" />
+          </div>
         </Card>
       </div>
     </div>

@@ -32,6 +32,17 @@ app.include_router(sets.router, prefix="/api/v1")
 app.include_router(parts.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 
+# Import mismatches router with error handling
+try:
+    from app.api.v1 import mismatches
+    app.include_router(mismatches.router, prefix="/api/v1")
+    print("✅ Mismatches router loaded successfully")
+except Exception as e:
+    # Log the error but don't crash the API
+    import traceback
+    print(f"❌ Failed to load mismatches router: {e}")
+    traceback.print_exc()
+
 # Import scripts router with error handling in case it fails
 try:
     from app.api.v1 import scripts
@@ -41,6 +52,17 @@ except Exception as e:
     # Log the error but don't crash the API
     import traceback
     print(f"❌ Failed to load scripts router: {e}")
+    traceback.print_exc()
+
+# Import location reconciliation router with error handling
+try:
+    from app.api.v1 import location_reconciliation
+    app.include_router(location_reconciliation.router, prefix="/api/v1")
+    print("✅ Location reconciliation router loaded successfully")
+except Exception as e:
+    # Log the error but don't crash the API
+    import traceback
+    print(f"❌ Failed to load location reconciliation router: {e}")
     traceback.print_exc()
 
 

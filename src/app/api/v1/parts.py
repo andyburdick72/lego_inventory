@@ -24,6 +24,9 @@ class PartDTO(DTOBase):
     name: str
     part_url: str
     part_img_url: str
+    # TODO: Add part categories later - API fetching is too slow
+    # part_category_id: Optional[int] = None
+    # part_category_name: Optional[str] = None
 
 
 class PartInSetDTO(DTOBase):
@@ -31,10 +34,13 @@ class PartInSetDTO(DTOBase):
 
     set_number: str
     set_name: str
+    status: Optional[str] = None
     color_id: int
     color_name: str
     hex: Optional[str] = None
     quantity: int
+    part_category_id: Optional[int] = None
+    part_category_name: Optional[str] = None
 
 
 @router.get("/{design_id}", response_model=PartDTO)
@@ -59,6 +65,9 @@ def get_part(
             name=str(part_data.get("name", "")),
             part_url=part_url,
             part_img_url=part_img_url,
+            # TODO: Add part categories later
+            # part_category_id=part_data.get("part_category_id"),
+            # part_category_name=part_data.get("part_category_name"),
         )
         return part.model_dump()
     except NotFoundError as e:
@@ -100,10 +109,13 @@ def get_sets_for_part(
             PartInSetDTO(
                 set_number=str(s.get("set_num", "") or s.get("set_number", "")),
                 set_name=str(s.get("set_name", "") or s.get("name", "")),
+                status=s.get("status"),
                 color_id=int(s.get("color_id", 0)),
                 color_name=str(s.get("color_name", "")),
                 hex=s.get("hex"),
                 quantity=int(s.get("quantity", 0)),
+                part_category_id=s.get("part_category_id"),
+                part_category_name=s.get("part_category_name"),
             )
             for s in sets_data
         ]

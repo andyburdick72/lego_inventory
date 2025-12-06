@@ -19,9 +19,12 @@ class PartsRepo(BaseRepo):
     def get_part(self, design_id: str) -> dict | None:
         return self._one(
             """
-            SELECT design_id, name, part_url, part_img_url
-            FROM parts
-            WHERE design_id = ?
+            SELECT p.design_id, p.name, p.part_url, p.part_img_url,
+                   p.part_category_id,
+                   pc.name AS part_category_name
+            FROM parts p
+            LEFT JOIN part_categories pc ON pc.id = p.part_category_id
+            WHERE p.design_id = ?
             """,
             [design_id],
         )

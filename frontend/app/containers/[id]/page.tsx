@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import { useContainer, useContainerParts, ContainerPart } from '@/lib/hooks/use-containers';
+import { usePutAwayBin, useSetPutAwayBin } from '@/lib/hooks/use-location-reconciliation';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -41,6 +42,10 @@ export default function ContainerDetailPage() {
 
   const { data: container, isLoading: containerLoading } = useContainer(containerId);
   const { data: parts, isLoading: partsLoading } = useContainerParts(containerId);
+  const { data: putAwayBin } = usePutAwayBin();
+  const setPutAwayBinMutation = useSetPutAwayBin();
+  
+  const isPutAwayBin = container?.is_put_away_bin === 1;
 
   // Determine back navigation based on referrer or query param
   useEffect(() => {
@@ -240,16 +245,32 @@ export default function ContainerDetailPage() {
             Position: r{container.row_index} c{container.col_index}
           </p>
         )}
-        <div className="flex gap-4 mt-4 text-sm">
-          <div>
-            <span className="text-muted-foreground">Parts: </span>
-            <span className="font-medium">{formatNumber(parts?.length || 0)}</span>
+        <div className="flex gap-4 mt-4 items-center">
+          <div className="flex gap-4 text-sm">
+            <div>
+              <span className="text-muted-foreground">Parts: </span>
+              <span className="font-medium">{formatNumber(parts?.length || 0)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Total Quantity: </span>
+              <span className="font-medium">
+                {formatNumber(parts?.reduce((sum, p) => sum + p.quantity, 0) || 0)}
+              </span>
+            </div>
           </div>
-          <div>
-            <span className="text-muted-foreground">Total Quantity: </span>
-            <span className="font-medium">
-              {formatNumber(parts?.reduce((sum, p) => sum + p.quantity, 0) || 0)}
-            </span>
+          <div className="ml-auto">
+            <Button
+              variant={isPutAwayBin ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                if (containerId) {
+                  setPutAwayBinMutation.mutate(containerId);
+                }
+              }}
+              disabled={setPutAwayBinMutation.isPending}
+            >
+              {isPutAwayBin ? '✓ Put Away Bin' : 'Set as Put Away Bin'}
+            </Button>
           </div>
         </div>
       </div>

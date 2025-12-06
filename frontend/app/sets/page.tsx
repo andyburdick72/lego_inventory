@@ -108,6 +108,14 @@ export default function SetsPage() {
       },
     },
     {
+      accessorKey: 'theme_name',
+      header: 'Theme',
+      cell: ({ row }) => {
+        const theme = row.original.theme_name;
+        return <span className="text-muted-foreground">{theme || '—'}</span>;
+      },
+    },
+    {
       accessorKey: 'status',
       header: 'Status',
       cell: ({ row }) => {
@@ -284,8 +292,8 @@ export default function SetsPage() {
         <DataTable
           columns={columns}
           data={sets || []}
-          searchKeys={['set_number', 'name', 'year', 'status']}
-          searchPlaceholder="Search by set number, name, year, or status (e.g., 'In Box', 'Work in Progress')..."
+          searchKeys={['set_number', 'name', 'year', 'theme_name', 'status']}
+          searchPlaceholder="Search by set number, name, year, theme, or status (e.g., 'In Box', 'Work in Progress')..."
           onRowClick={handleRowClick}
           exportFilename="sets"
           numericColumns={['total_parts']}
@@ -313,6 +321,12 @@ export default function SetsPage() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Year:</span>
                         <span className="font-medium">{set.year}</span>
+                      </div>
+                    )}
+                    {set.theme_name && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Theme:</span>
+                        <span className="font-medium">{set.theme_name}</span>
                       </div>
                     )}
                     <div className="flex justify-between">

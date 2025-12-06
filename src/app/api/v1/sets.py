@@ -1,6 +1,7 @@
 """FastAPI router for sets endpoints."""
 
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,17 +24,17 @@ class SetPartDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: str | None = None
+    hex: Optional[str] = None
     quantity: int
-    part_url: str | None = None
-    part_img_url: str | None = None
+    part_url: Optional[str] = None
+    part_img_url: Optional[str] = None
 
 
 class PartLocationDTO(BaseModel):
-    drawer_id: int | None = None
-    drawer_name: str | None = None
-    container_id: int | None = None
-    container_name: str | None = None
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_id: Optional[int] = None
+    container_name: Optional[str] = None
     quantity: int
 
 
@@ -42,12 +43,12 @@ class SetPartWithLocationsDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: str | None = None
+    hex: Optional[str] = None
     required_quantity: int
     available_quantity: int
     locations: list[PartLocationDTO]
-    part_url: str | None = None
-    part_img_url: str | None = None
+    part_url: Optional[str] = None
+    part_img_url: Optional[str] = None
 
 
 # Request models
@@ -72,7 +73,8 @@ def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):
             s.set_num AS set_number,
             s.name,
             s.year,
-            s.theme,
+            s.theme_id,
+            t.name AS theme_name,
             s.status,
             s.image_url,
             s.rebrickable_url,
@@ -82,6 +84,7 @@ def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):
               WHERE sp.set_num = s.set_num
             ) AS total_parts
         FROM sets s
+        LEFT JOIN themes t ON t.id = s.theme_id
         ORDER BY s.added_at DESC
         """
     ).fetchall()
@@ -108,7 +111,8 @@ def get_set(
             set_number=str(set_data.get("set_number") or set_data.get("set_num") or ""),
             name=str(set_data.get("name") or ""),
             year=set_data.get("year"),
-            theme=set_data.get("theme"),
+            theme_id=set_data.get("theme_id"),
+            theme_name=set_data.get("theme_name"),
             status=status_enum,
             total_parts=None,  # Not included in get_set response
             image_url=set_data.get("image_url"),
@@ -263,6 +267,9 @@ def get_set_parts_with_locations(
     - List of locations where the part is stored (drawer/container)
     """
     try:
+        # First verify the set exists
+        set_parts_service.get_set(set_number=set_number)
+        
         # Get all parts required by the set
         parts = list(set_parts_service.list_parts(set_number=set_number))
 

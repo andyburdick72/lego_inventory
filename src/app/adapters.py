@@ -39,7 +39,8 @@ def row_to_set(row: Mapping) -> LEGOSetDTO:
         set_number=str(row.get("set_number") or ""),
         name=str(row.get("name") or ""),
         year=row.get("year"),
-        theme=row.get("theme"),
+        theme_id=row.get("theme_id"),
+        theme_name=row.get("theme_name"),
         status=Status.from_any(row.get("status")) or Status.IN_BOX,
         total_parts=row.get("total_parts"),
         image_url=row.get("image_url"),
@@ -97,6 +98,7 @@ def row_to_container_summary(row: Mapping) -> ContainerSummaryDTO:
         row_index=row.get("row_index"),
         col_index=row.get("col_index"),
         sort_index=int(row.get("sort_index") or 0),
+        is_put_away_bin=row.get("is_put_away_bin"),
         part_count=int(row.get("part_count") or 0),
         unique_parts=int(row.get("unique_parts") or 0),
     )
