@@ -370,18 +370,26 @@ def get_put_away_bin(
                 except (ValueError, TypeError):
                     return None
             
-            # Safely convert to string, handling None cases
+            # Safely convert to string, handling None and empty cases
             def safe_str(value):
                 if value is None:
                     return None
-                return str(value) if value else None
+                # Convert to string and strip whitespace
+                s = str(value).strip()
+                # Return None for empty strings, otherwise return the string
+                return s if s else None
             
-            return PutAwayBinResponse(
-                container_id=safe_int(container_id),
-                drawer_id=safe_int(drawer_id),
-                drawer_name=safe_str(drawer_name),
-                container_name=safe_str(container_name),
-            )
+            # Build response with explicit type handling
+            response_data = {
+                "container_id": safe_int(container_id),
+                "drawer_id": safe_int(drawer_id),
+                "drawer_name": safe_str(drawer_name),
+                "container_name": safe_str(container_name),
+            }
+            
+            # Validate and return response
+            response = PutAwayBinResponse(**response_data)
+            return response
         return PutAwayBinResponse(container_id=None, drawer_id=None, drawer_name=None, container_name=None)
     except Exception as e:
         import traceback

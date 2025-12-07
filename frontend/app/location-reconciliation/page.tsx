@@ -598,9 +598,12 @@ export default function LocationReconciliationPage() {
             <DialogTitle>Edit Inventory Location & Quantity</DialogTitle>
             <DialogDescription>
               Set the storage location and quantity for {editingItem?.part_name} ({editingItem?.color_name}).
-              {activeTab === 'teardown' && putAwayBin && (
+              {activeTab === 'teardown' && putAwayBin && putAwayBin.drawer_id && putAwayBin.container_id && (
                 <span className="block mt-1 text-xs">
-                  Teardown parts must be stored in Put Away bin ({putAwayBin.drawer_name} / {putAwayBin.container_name}).
+                  Teardown parts must be stored in Put Away bin
+                  {putAwayBin.drawer_name && putAwayBin.container_name
+                    ? ` (${putAwayBin.drawer_name} / ${putAwayBin.container_name})`
+                    : '.'}
                 </span>
               )}
             </DialogDescription>
