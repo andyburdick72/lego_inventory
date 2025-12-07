@@ -209,7 +209,7 @@ export default function PartColorCountsPage() {
         <DataTable
           columns={columns}
           data={partColorCounts || []}
-          searchKeys={['design_id', 'part_name', 'color_name']}
+          searchKeys={['design_id', 'part_name', 'color', 'color_name']}
           searchPlaceholder="Search by part ID, name, or color..."
           numericColumns={['total_qty']}
           defaultSorting={[{ id: 'total_qty', desc: true }]}

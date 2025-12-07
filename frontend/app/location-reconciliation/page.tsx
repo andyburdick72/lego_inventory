@@ -495,7 +495,12 @@ export default function LocationReconciliationPage() {
                   Export CSV
                 </Button>
               </div>
-              <DataTable columns={columns} data={filteredItems} hideTopBar={true} />
+              <DataTable 
+                columns={columns} 
+                data={filteredItems} 
+                hideTopBar={true}
+                searchKeys={['design_id', 'part_name', 'color_name']}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -586,7 +591,12 @@ export default function LocationReconciliationPage() {
                   Export CSV
                 </Button>
               </div>
-              <DataTable columns={columns} data={filteredItems} hideTopBar={true} />
+              <DataTable 
+                columns={columns} 
+                data={filteredItems} 
+                hideTopBar={true}
+                searchKeys={['design_id', 'part_name', 'color_name']}
+              />
             </CardContent>
           </Card>
         </TabsContent>

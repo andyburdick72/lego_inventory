@@ -388,9 +388,19 @@ def get_put_away_bin(
             }
             
             # Validate and return response
-            response = PutAwayBinResponse(**response_data)
-            return response
+            try:
+                response = PutAwayBinResponse(**response_data)
+                return response
+            except Exception as validation_error:
+                import traceback
+                error_detail = f"Validation error creating PutAwayBinResponse: {str(validation_error)}\nData: {response_data}\n{traceback.format_exc()}"
+                print(error_detail)  # Log to console for debugging
+                # Re-raise as 422 to match FastAPI's validation error behavior
+                raise HTTPException(status_code=422, detail=f"Response validation failed: {str(validation_error)}") from validation_error
         return PutAwayBinResponse(container_id=None, drawer_id=None, drawer_name=None, container_name=None)
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         import traceback
         error_detail = f"Error getting put away bin: {str(e)}\n{traceback.format_exc()}"

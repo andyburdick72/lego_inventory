@@ -64,11 +64,127 @@ export function DataTable<TData, TValue>({
   const searchFields = searchKeys || (searchKey ? [searchKey] : []);
   const [sorting, setSorting] = useState<SortingState>(defaultSorting);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [globalFilter, setGlobalFilter] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: defaultPageSize,
   });
+
+  // Helper function to get column filter value
+  const getColumnFilterValue = (columnId: string): string => {
+    const filter = columnFilters.find((f) => f.id === columnId);
+    return (filter?.value as string) || '';
+  };
+
+  // Helper function to set column filter value
+  const setColumnFilterValue = (columnId: string, value: string) => {
+    setColumnFilters((prev) => {
+      const existing = prev.find((f) => f.id === columnId);
+      if (existing) {
+        if (value === '') {
+          // Remove filter if empty
+          return prev.filter((f) => f.id !== columnId);
+        }
+        // Update existing filter
+        return prev.map((f) => (f.id === columnId ? { ...f, value } : f));
+      } else {
+        // Add new filter if value is not empty
+        if (value === '') return prev;
+        return [...prev, { id: columnId, value }];
+      }
+    });
+    // Reset to first page when filtering
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+  };
+
+  // Create maps for efficient lookup between column IDs and accessor keys
+  const columnAccessorMap = new Map<string, string>(); // columnId -> accessorKey
+  const accessorToColumnIdMap = new Map<string, string>(); // accessorKey -> columnId
+  columns.forEach((col) => {
+    const id = 'id' in col ? (col.id as string) : undefined;
+    const accessorKey = 'accessorKey' in col ? (col.accessorKey as string) : undefined;
+    if (id && accessorKey) {
+      columnAccessorMap.set(id, accessorKey);
+      accessorToColumnIdMap.set(accessorKey, id);
+    } else if (accessorKey) {
+      // If no explicit id, use accessorKey as both id and accessor
+      columnAccessorMap.set(accessorKey, accessorKey);
+      accessorToColumnIdMap.set(accessorKey, accessorKey);
+    } else if (id) {
+      // If no accessorKey but has id, use id as both
+      columnAccessorMap.set(id, id);
+      accessorToColumnIdMap.set(id, id);
+    }
+  });
+
+  // Common column ID to data field mappings for columns without accessorKey
+  const columnIdToFieldMap: Record<string, string[]> = {
+    color: ['color_name', 'color'],
+    drawer: ['drawer_name', 'drawer'],
+    container: ['container_label', 'container_name', 'container'],
+  };
+
+  // Custom filter function for columns
+  const columnFilterFn = (row: any, columnId: string, filterValue: any) => {
+    if (!filterValue || (typeof filterValue === 'string' && filterValue.trim() === '')) return true;
+
+    const searchTerm = String(filterValue).toLowerCase();
+    const rowData = row.original as any;
+
+    // Get the accessor key for this column, or use columnId as fallback
+    let accessorKey = columnAccessorMap.get(columnId) || columnId;
+
+    // Try to get value from row data using accessor key
+    let value = rowData?.[accessorKey];
+
+    // If not found and columnId has a mapping, try those fields
+    if ((value === null || value === undefined) && columnIdToFieldMap[columnId]) {
+      for (const field of columnIdToFieldMap[columnId]) {
+        value = rowData?.[field];
+        if (value !== null && value !== undefined) {
+          accessorKey = field;
+          break;
+        }
+      }
+    }
+
+    // If still not found, try getValue (for computed columns)
+    if (value === null || value === undefined) {
+      try {
+        // Use the row's getValue method if available
+        if (typeof row.getValue === 'function') {
+          value = row.getValue(columnId);
+        }
+      } catch {
+        // Column might not exist, skip it
+        return false;
+      }
+    }
+
+    if (value === null || value === undefined) return false;
+
+    // Special handling for locations field: search through location objects
+    if (columnId === 'locations' && Array.isArray(value)) {
+      const locationStrings = value.map((loc: any) => {
+        const parts: string[] = [];
+        if (loc.drawer_name) parts.push(loc.drawer_name);
+        if (loc.container_name) parts.push(loc.container_name);
+        return parts.join(' / ');
+      });
+      const locationText = locationStrings.join(' ').toLowerCase();
+      return locationText.includes(searchTerm);
+    }
+
+    // Handle different value types
+    let stringValue = String(value).toLowerCase();
+
+    // Special handling for status field: also search by status label
+    if (columnId === 'status' && typeof value === 'string') {
+      const statusLabel = getStatusLabel(value).toLowerCase();
+      stringValue = `${stringValue} ${statusLabel}`;
+    }
+
+    return stringValue.includes(searchTerm);
+  };
 
   const table = useReactTable({
     data,
@@ -79,60 +195,16 @@ export function DataTable<TData, TValue>({
     getPaginationRowModel: getPaginationRowModel(),
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
-    onGlobalFilterChange: setGlobalFilter,
     onPaginationChange: setPagination,
-    globalFilterFn: (row, columnId, filterValue) => {
-      if (searchFields.length === 0) return true;
-      if (!filterValue) return true;
-
-      const searchTerm = filterValue.toLowerCase();
-      const rowData = row.original as any;
-
-      // Search across all specified fields
-      return searchFields.some((key) => {
-        // Try to get value from row data directly (for accessorKey fields)
-        let value = rowData?.[key];
-
-        // If not found, try getValue (for computed columns)
-        if (value === null || value === undefined) {
-          try {
-            value = row.getValue(key);
-          } catch {
-            // Column might not exist, skip it
-            return false;
-          }
-        }
-
-        if (value === null || value === undefined) return false;
-
-        // Special handling for locations field: search through location objects
-        if (key === 'locations' && Array.isArray(value)) {
-          const locationStrings = value.map((loc: any) => {
-            const parts: string[] = [];
-            if (loc.drawer_name) parts.push(loc.drawer_name);
-            if (loc.container_name) parts.push(loc.container_name);
-            return parts.join(' / ');
-          });
-          const locationText = locationStrings.join(' ').toLowerCase();
-          return locationText.includes(searchTerm);
-        }
-
-        // Handle different value types
-        let stringValue = String(value).toLowerCase();
-
-        // Special handling for status field: also search by status label
-        if (key === 'status' && typeof value === 'string') {
-          const statusLabel = getStatusLabel(value).toLowerCase();
-          stringValue = `${stringValue} ${statusLabel}`;
-        }
-
-        return stringValue.includes(searchTerm);
-      });
+    filterFns: {
+      customFilter: columnFilterFn,
+    },
+    defaultColumn: {
+      filterFn: 'customFilter',
     },
     state: {
       sorting,
       columnFilters,
-      globalFilter,
       pagination,
     },
   });
@@ -220,18 +292,42 @@ export function DataTable<TData, TValue>({
     document.body.removeChild(link);
   };
 
+  // Check if a column is searchable based on its accessorKey or id
+  const isColumnSearchable = (columnId: string, accessorKey?: string): boolean => {
+    // Check if columnId or accessorKey is in searchFields
+    // TanStack Table uses the column's id, which may be the accessorKey if no explicit id is set
+    if (searchFields.includes(columnId)) return true;
+    if (accessorKey && searchFields.includes(accessorKey)) return true;
+    // Also check the mapped accessorKey from columnAccessorMap
+    const mappedAccessorKey = columnAccessorMap.get(columnId);
+    if (mappedAccessorKey && searchFields.includes(mappedAccessorKey)) return true;
+    return false;
+  };
+
+  // Get column header labels for filter placeholders
+  const getColumnHeaderLabel = (columnId: string): string => {
+    const column = columns.find((col) => {
+      const id = 'id' in col ? (col.id as string) : undefined;
+      const accessorKey = 'accessorKey' in col ? (col.accessorKey as string) : undefined;
+      return id === columnId || accessorKey === columnId;
+    });
+    if (!column) return columnId;
+    const header = column.header;
+    if (typeof header === 'string') return header;
+    // Try to format the column ID as a readable label
+    return columnId
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .trim()
+      .split(' ')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   return (
     <div className="space-y-4">
       {!hideTopBar && (
-        <div className="flex items-center justify-between">
-          {searchFields.length > 0 && (
-            <Input
-              placeholder={searchPlaceholder}
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="max-w-sm"
-            />
-          )}
+        <div className="flex items-center justify-end">
           <Button onClick={exportToCSV} variant="outline" size="sm">
             <Download className="mr-2 h-4 w-4" />
             Export CSV
@@ -245,6 +341,8 @@ export function DataTable<TData, TValue>({
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   const isNumeric = numericColumns.includes(header.column.id);
+                  const columnId = header.column.id;
+                  const isSearchable = searchFields.length > 0 && searchFields.includes(columnId);
                   return (
                     <TableHead
                       key={header.id}
@@ -272,6 +370,35 @@ export function DataTable<TData, TValue>({
                 })}
               </TableRow>
             ))}
+            {/* Filter row */}
+            {searchFields.length > 0 && (
+              <TableRow>
+                {table.getHeaderGroups()[0].headers.map((header) => {
+                  const columnId = header.column.id;
+                  const columnDef = header.column.columnDef;
+                  const accessorKey = 'accessorKey' in columnDef ? (columnDef.accessorKey as string) : undefined;
+                  // Check if this column is searchable (by columnId or accessorKey)
+                  const isSearchable = isColumnSearchable(columnId, accessorKey);
+                  const isNumeric = numericColumns.includes(columnId);
+                  // Use columnId for the filter (TanStack Table uses column.id for filtering)
+                  return (
+                    <TableHead key={`filter-${header.id}`} className={cn(isNumeric && 'text-right')}>
+                      {isSearchable ? (
+                        <Input
+                          placeholder={`Filter ${getColumnHeaderLabel(columnId)}...`}
+                          value={getColumnFilterValue(columnId)}
+                          onChange={(e) => setColumnFilterValue(columnId, e.target.value)}
+                          className="h-8 w-full"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="h-8" />
+                      )}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            )}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows?.length ? (

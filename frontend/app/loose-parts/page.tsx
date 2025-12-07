@@ -254,7 +254,7 @@ export default function LoosePartsPage() {
           <DataTable
             columns={columns}
             data={parts || []}
-            searchKeys={['part_id', 'part_name', 'color_name', 'drawer_name', 'container_label']}
+            searchKeys={['part_id', 'part_name', 'color', 'color_name', 'drawer', 'drawer_name', 'container', 'container_label']}
             searchPlaceholder="Search by part ID, name, color, drawer, or container..."
             exportFilename="loose-parts"
             defaultSorting={[{ id: 'quantity', desc: true }]}

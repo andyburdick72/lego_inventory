@@ -553,7 +553,7 @@ export default function SetDetailPage() {
                 <DataTable
                   columns={columns}
                   data={parts || []}
-                  searchKeys={['design_id', 'name', 'color_name']}
+                  searchKeys={['design_id', 'name', 'color', 'color_name']}
                   searchPlaceholder="Search by part ID, name, or color..."
                   exportFilename={`set-${setNumber}-parts`}
                   defaultSorting={[{ id: 'quantity', desc: true }]}
@@ -696,7 +696,7 @@ export default function SetDetailPage() {
                 <DataTable
                   columns={partLocationsColumns}
                   data={partsWithLocations}
-                  searchKeys={['design_id', 'name', 'color_name', 'locations']}
+                  searchKeys={['design_id', 'name', 'color', 'color_name', 'locations']}
                   searchPlaceholder="Search by part ID, name, color, or location..."
                   exportFilename={`set-${setNumber}-part-locations`}
                   defaultSorting={[{ id: 'required_quantity', desc: true }]}
@@ -999,7 +999,7 @@ export default function SetDetailPage() {
               <DataTable
                 columns={columns}
                 data={parts || []}
-                searchKeys={['design_id', 'name', 'color_name']}
+                searchKeys={['design_id', 'name', 'color', 'color_name']}
                 searchPlaceholder="Search by part ID, name, or color..."
                 exportFilename={`set-${setNumber}-parts`}
                 defaultSorting={[{ id: 'quantity', desc: true }]}

@@ -131,3 +131,48 @@ def test_containers_400_without_drawer_id(api_base_url, skip_if_no_api):
         assert "drawer" in msg or "missing" in msg
     except Exception:
         assert resp.text.strip()
+
+
+@pytest.mark.contract
+def test_put_away_bin_endpoint(api_base_url, skip_if_no_api):
+    """Test GET /containers/put-away-bin endpoint returns valid response."""
+    base = api_base_url.rstrip("/")
+    if base.endswith("/api/v1"):
+        base_api = base
+    elif base.endswith("/api"):
+        base_api = f"{base}/v1"
+    else:
+        base_api = f"{base}/api/v1"
+    
+    url = f"{base_api}/containers/put-away-bin"
+    resp = requests.get(url, timeout=10)
+    
+    # Should return 200 even if no put-away-bin is set
+    assert resp.status_code == 200, (
+        f"Expected 200 from {url}, got {resp.status_code}: {resp.text[:300]}"
+    )
+    
+    # Should return JSON
+    assert "json" in resp.headers.get("Content-Type", "").lower(), (
+        f"Expected JSON from {url}, got {resp.headers.get('Content-Type', '')}"
+    )
+    
+    data = resp.json()
+    assert isinstance(data, dict), (
+        f"Expected dict from {url}, got {type(data).__name__}"
+    )
+    
+    # Should have the expected fields (all optional)
+    expected_fields = ["container_id", "drawer_id", "drawer_name", "container_name"]
+    for field in expected_fields:
+        assert field in data, f"Missing field '{field}' in response from {url}"
+        # Values can be None or the appropriate type
+        if data[field] is not None:
+            if field in ("container_id", "drawer_id"):
+                assert isinstance(data[field], int), (
+                    f"Expected int or None for {field}, got {type(data[field]).__name__}"
+                )
+            else:
+                assert isinstance(data[field], str), (
+                    f"Expected str or None for {field}, got {type(data[field]).__name__}"
+                )
