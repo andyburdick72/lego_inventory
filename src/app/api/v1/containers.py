@@ -355,11 +355,17 @@ def get_put_away_bin(
         repo = DrawersRepo(conn)
         put_away = repo.get_put_away_bin()
         if put_away:
+            # Ensure we handle None values properly - convert to appropriate types
+            container_id = put_away.get("container_id")
+            drawer_id = put_away.get("drawer_id")
+            drawer_name = put_away.get("drawer_name")
+            container_name = put_away.get("container_name")
+            
             return PutAwayBinResponse(
-                container_id=put_away.get("container_id"),
-                drawer_id=put_away.get("drawer_id"),
-                drawer_name=put_away.get("drawer_name"),
-                container_name=put_away.get("container_name"),
+                container_id=int(container_id) if container_id is not None else None,
+                drawer_id=int(drawer_id) if drawer_id is not None else None,
+                drawer_name=str(drawer_name) if drawer_name is not None else None,
+                container_name=str(container_name) if container_name is not None else None,
             )
         return PutAwayBinResponse(container_id=None, drawer_id=None, drawer_name=None, container_name=None)
     except Exception as e:

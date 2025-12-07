@@ -15,9 +15,11 @@ app = FastAPI(
 )
 
 # Enable CORS for Next.js frontend
+# In development, allow all origins to support access from other devices on the network
+# In production, this should be restricted to specific domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Allow both ports for flexibility
+    allow_origins=["*"],  # Allow all origins for development (supports LAN access)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -56,7 +56,7 @@ def test_row_to_set_with_all_fields():
         "set_number": "12345-1",
         "name": "Test Set",
         "year": 2024,
-        "theme": "Test Theme",
+        "theme_name": "Test Theme",
         "status": "built",
         "total_parts": 100,
         "image_url": "https://example.com/image.jpg",
@@ -66,7 +66,7 @@ def test_row_to_set_with_all_fields():
     assert dto.set_number == "12345-1"
     assert dto.name == "Test Set"
     assert dto.year == 2024
-    assert dto.theme == "Test Theme"
+    assert dto.theme_name == "Test Theme"
     assert dto.total_parts == 100
     assert dto.image_url == "https://example.com/image.jpg"
     assert dto.rebrickable_url == "https://rebrickable.com/sets/12345-1/"

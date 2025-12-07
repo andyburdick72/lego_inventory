@@ -207,6 +207,11 @@ echo "   - Frontend: http://localhost:3001"
 echo "   - Backend:  http://${HOST}:${PORT}"
 echo "   - API Docs: http://${HOST}:${PORT}/docs"
 echo ""
+echo "🌐 Access from other devices on your network:"
+echo "   - Frontend: http://${LAN_IP}:3001"
+echo "   - Backend:  http://${LAN_IP}:${PORT}"
+echo "   - API Docs: http://${LAN_IP}:${PORT}/docs"
+echo ""
 echo "Press Ctrl+C to stop both servers"
 
 HOST="$HOST" PORT="$PORT" exec python -m uvicorn app.api.main:app --host "$HOST" --port "$PORT" --reload
