@@ -361,11 +361,26 @@ def get_put_away_bin(
             drawer_name = put_away.get("drawer_name")
             container_name = put_away.get("container_name")
             
+            # Safely convert to int, handling None, 0, and string cases
+            def safe_int(value):
+                if value is None:
+                    return None
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    return None
+            
+            # Safely convert to string, handling None cases
+            def safe_str(value):
+                if value is None:
+                    return None
+                return str(value) if value else None
+            
             return PutAwayBinResponse(
-                container_id=int(container_id) if container_id is not None else None,
-                drawer_id=int(drawer_id) if drawer_id is not None else None,
-                drawer_name=str(drawer_name) if drawer_name is not None else None,
-                container_name=str(container_name) if container_name is not None else None,
+                container_id=safe_int(container_id),
+                drawer_id=safe_int(drawer_id),
+                drawer_name=safe_str(drawer_name),
+                container_name=safe_str(container_name),
             )
         return PutAwayBinResponse(container_id=None, drawer_id=None, drawer_name=None, container_name=None)
     except Exception as e:

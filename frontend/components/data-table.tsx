@@ -1,18 +1,14 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
-  ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  SortingState,
-  useReactTable,
-  ColumnFiltersState,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  PaginationState,
-} from '@tanstack/react-table';
-import { useState } from 'react';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -21,17 +17,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn, formatNumber, getStatusLabel } from '@/lib/utils';
+import {
+  ColumnDef,
+  ColumnFiltersState,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  PaginationState,
+  SortingState,
+  useReactTable,
+} from '@tanstack/react-table';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { useState } from 'react';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -44,6 +44,7 @@ interface DataTableProps<TData, TValue> {
   defaultSorting?: SortingState;
   numericColumns?: string[]; // Column IDs that should be summed in totals row
   defaultPageSize?: number;
+  hideTopBar?: boolean; // Hide the search and export button bar
 }
 
 export function DataTable<TData, TValue>({
@@ -57,6 +58,7 @@ export function DataTable<TData, TValue>({
   defaultSorting = [],
   numericColumns = [],
   defaultPageSize = 20,
+  hideTopBar = false,
 }: DataTableProps<TData, TValue>) {
   // Support both searchKey (legacy) and searchKeys (new)
   const searchFields = searchKeys || (searchKey ? [searchKey] : []);
@@ -82,15 +84,15 @@ export function DataTable<TData, TValue>({
     globalFilterFn: (row, columnId, filterValue) => {
       if (searchFields.length === 0) return true;
       if (!filterValue) return true;
-      
+
       const searchTerm = filterValue.toLowerCase();
       const rowData = row.original as any;
-      
+
       // Search across all specified fields
       return searchFields.some((key) => {
         // Try to get value from row data directly (for accessorKey fields)
         let value = rowData?.[key];
-        
+
         // If not found, try getValue (for computed columns)
         if (value === null || value === undefined) {
           try {
@@ -100,9 +102,9 @@ export function DataTable<TData, TValue>({
             return false;
           }
         }
-        
+
         if (value === null || value === undefined) return false;
-        
+
         // Special handling for locations field: search through location objects
         if (key === 'locations' && Array.isArray(value)) {
           const locationStrings = value.map((loc: any) => {
@@ -114,16 +116,16 @@ export function DataTable<TData, TValue>({
           const locationText = locationStrings.join(' ').toLowerCase();
           return locationText.includes(searchTerm);
         }
-        
+
         // Handle different value types
         let stringValue = String(value).toLowerCase();
-        
+
         // Special handling for status field: also search by status label
         if (key === 'status' && typeof value === 'string') {
           const statusLabel = getStatusLabel(value).toLowerCase();
           stringValue = `${stringValue} ${statusLabel}`;
         }
-        
+
         return stringValue.includes(searchTerm);
       });
     },
@@ -187,7 +189,8 @@ export function DataTable<TData, TValue>({
         .headers.filter((header) => header.id !== 'actions')
         .map((header) => {
           const columnDef = header.column.columnDef;
-          const accessorKey = columnDef.accessorKey as string;
+          // Check if accessorKey exists in the column definition
+          const accessorKey = 'accessorKey' in columnDef ? (columnDef.accessorKey as string) : undefined;
           if (accessorKey) {
             // Get raw value from the row data
             const rawValue = (row.original as any)[accessorKey];
@@ -219,20 +222,22 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        {searchFields.length > 0 && (
-          <Input
-            placeholder={searchPlaceholder}
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            className="max-w-sm"
-          />
-        )}
-        <Button onClick={exportToCSV} variant="outline" size="sm">
-          <Download className="mr-2 h-4 w-4" />
-          Export CSV
-        </Button>
-      </div>
+      {!hideTopBar && (
+        <div className="flex items-center justify-between">
+          {searchFields.length > 0 && (
+            <Input
+              placeholder={searchPlaceholder}
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="max-w-sm"
+            />
+          )}
+          <Button onClick={exportToCSV} variant="outline" size="sm">
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
+      )}
       <div className="rounded-md border">
         <Table>
           <TableHeader>

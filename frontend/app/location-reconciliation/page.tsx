@@ -26,6 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { useContainers } from '@/lib/hooks/use-containers';
 import { useDrawers } from '@/lib/hooks/use-drawers';
 import {
@@ -34,17 +40,11 @@ import {
   usePutAwayBin,
   useUpdateInventoryLocation,
 } from '@/lib/hooks/use-location-reconciliation';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { AlertCircle, ArrowLeft, Edit2, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Download, Edit2, RefreshCw, Search } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function LocationReconciliationPage() {
   const [activeTab, setActiveTab] = useState<'loose-parts' | 'teardown'>('loose-parts');
@@ -58,6 +58,7 @@ export default function LocationReconciliationPage() {
   const [selectedContainerId, setSelectedContainerId] = useState<string>('none');
   const [quantity, setQuantity] = useState<string>('');
   const [filterNeedsUpdate, setFilterNeedsUpdate] = useState<boolean>(true);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const selectedDrawer = drawers?.find((d) => d.id.toString() === selectedDrawerId);
   const { data: containers } = useContainers(
@@ -73,7 +74,7 @@ export default function LocationReconciliationPage() {
 
   const handleEdit = (item: LocationReconciliationItem) => {
     setEditingItem(item);
-    
+
     if (activeTab === 'teardown') {
       // For teardown, default to put away bin
       if (putAwayBin?.drawer_id && putAwayBin?.container_id) {
@@ -101,7 +102,7 @@ export default function LocationReconciliationPage() {
         setSelectedContainerId('none');
       }
     }
-    
+
     // Initialize quantity with current total if item exists, otherwise use required quantity
     setQuantity(item.current_total > 0 ? item.current_total.toString() : item.required_quantity.toString());
     setEditDialogOpen(true);
@@ -139,7 +140,73 @@ export default function LocationReconciliationPage() {
     }
   };
 
-  const filteredItems = items?.filter((item) => !filterNeedsUpdate || item.needs_update) || [];
+  const filteredItems = items?.filter((item) => {
+    // Filter by needs update if enabled
+    if (filterNeedsUpdate && !item.needs_update) {
+      return false;
+    }
+
+    // Filter by search query (case-insensitive)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      const matchesPartId = item.design_id.toLowerCase().includes(query);
+      const matchesPartName = item.part_name.toLowerCase().includes(query);
+      const matchesColor = item.color_name.toLowerCase().includes(query);
+
+      if (!matchesPartId && !matchesPartName && !matchesColor) {
+        return false;
+      }
+    }
+
+    return true;
+  }) || [];
+
+  const exportToCSV = () => {
+    const headers = [
+      'Image',
+      'Part ID',
+      'Part Name',
+      'Color',
+      'Required (Set Parts)',
+      activeTab === 'teardown' ? 'Current Location (Put Away)' : 'Current Locations (Not Put Away)',
+      'Current Total',
+      activeTab === 'teardown' ? 'In Wrong Location' : 'In Put Away',
+      'Delta',
+    ];
+
+    const rows = filteredItems.map((item) => {
+      const locations = item.current_locations
+        .map((loc) => `${loc.drawer_name}${loc.container_name ? ` / ${loc.container_name}` : ''}: ${loc.quantity}`)
+        .join('; ');
+
+      return [
+        item.part_img_url || '',
+        item.design_id,
+        item.part_name,
+        item.color_name,
+        item.required_quantity.toString(),
+        locations || 'No location',
+        item.current_total.toString(),
+        item.put_away_quantity.toString(),
+        item.delta.toString(),
+      ];
+    });
+
+    const csvContent = [
+      headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(','),
+      ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `location-reconciliation-${activeTab}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const summary = {
     total: items?.length || 0,
@@ -194,7 +261,7 @@ export default function LocationReconciliationPage() {
         const item = row.original;
         const bgColor = item.color_hex ? `#${item.color_hex}` : '#ffffff';
         const textColor = isLightColor(item.color_hex) ? '#000000' : '#ffffff';
-        
+
         return (
           <div
             className="inline-flex items-center px-2 py-1 rounded border"
@@ -412,7 +479,23 @@ export default function LocationReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <DataTable columns={columns} data={filteredItems} />
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <Input
+                    type="text"
+                    placeholder="Search by Part ID, Part Name, or Color..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button onClick={exportToCSV} variant="outline" size="sm">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              </div>
+              <DataTable columns={columns} data={filteredItems} hideTopBar={true} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -487,7 +570,23 @@ export default function LocationReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <DataTable columns={columns} data={filteredItems} />
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <Input
+                    type="text"
+                    placeholder="Search by Part ID, Part Name, or Color..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button onClick={exportToCSV} variant="outline" size="sm">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              </div>
+              <DataTable columns={columns} data={filteredItems} hideTopBar={true} />
             </CardContent>
           </Card>
         </TabsContent>
