@@ -9,14 +9,16 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { AlertCircle, Package, ArrowRightLeft } from 'lucide-react';
+import { ArrowLeftRight, Package, ArrowRightLeft, MapPin, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useLocationReconciliationItems } from '@/lib/hooks/use-location-reconciliation';
+import { useMultipleLocationsElements } from '@/lib/hooks/use-inventory';
 import { formatNumber } from '@/lib/utils';
 
 export default function InventoryUpdatesPage() {
   const { data: loosePartsItems } = useLocationReconciliationItems('loose-parts');
   const { data: teardownItems } = useLocationReconciliationItems('teardown');
+  const { data: multipleLocationsElements } = useMultipleLocationsElements();
 
   const summary = useMemo(() => {
     const allItems = [
@@ -31,8 +33,24 @@ export default function InventoryUpdatesPage() {
     };
   }, [loosePartsItems, teardownItems]);
 
+  const multipleLocationsSummary = useMemo(() => {
+    if (!multipleLocationsElements) return { total: 0, totalLocations: 0, totalQuantity: 0 };
+    const total = multipleLocationsElements.length;
+    const totalLocations = multipleLocationsElements.reduce((sum, e) => sum + e.location_count, 0);
+    const totalQuantity = multipleLocationsElements.reduce((sum, e) => sum + e.total_quantity, 0);
+    return { total, totalLocations, totalQuantity };
+  }, [multipleLocationsElements]);
+
   return (
     <div className="container mx-auto py-8">
+      <div className="mb-6">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Home
+          </Link>
+        </Button>
+      </div>
       <h1 className="text-3xl font-bold mb-6">Inventory Updates</h1>
       <p className="text-muted-foreground mb-8">
         Tools for updating and modifying your inventory data.
@@ -68,7 +86,37 @@ export default function InventoryUpdatesPage() {
             </CardContent>
           </div>
           <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <AlertCircle className="h-16 w-16 text-green-600" />
+            <ArrowLeftRight className="h-16 w-16 text-green-600" />
+          </div>
+        </Card>
+
+        <Card className="flex flex-row items-center gap-4">
+          <div className="flex-1">
+            <CardHeader>
+              <CardTitle>Multiple Locations</CardTitle>
+              <CardDescription>View elements in multiple locations</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {multipleLocationsElements !== undefined && (
+                <div className="text-sm text-muted-foreground mb-3 space-y-1">
+                  <div>
+                    Total Elements: <span className="font-medium text-destructive">{formatNumber(multipleLocationsSummary.total)}</span>
+                  </div>
+                  <div>
+                    Total Locations: <span className="font-medium text-foreground">{formatNumber(multipleLocationsSummary.totalLocations)}</span>
+                  </div>
+                  <div>
+                    Total Quantity: <span className="font-medium text-foreground">{formatNumber(multipleLocationsSummary.totalQuantity)}</span>
+                  </div>
+                </div>
+              )}
+              <Button asChild className="bg-amber-600 hover:bg-amber-700 text-white">
+                <Link href="/multiple-locations">Update Element Locations</Link>
+              </Button>
+            </CardContent>
+          </div>
+          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
+            <MapPin className="h-16 w-16 text-amber-600" />
           </div>
         </Card>
 

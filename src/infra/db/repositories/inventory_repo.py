@@ -726,3 +726,154 @@ class InventoryRepo(BaseRepo):
                 )
         
         self.conn.commit()
+
+    def elements_in_multiple_locations(self) -> list[dict]:
+        """
+        Find elements (part + color) that exist in multiple non-put-away-bin locations.
+        
+        Returns a list of dicts with:
+        - design_id, part_name, color_id, color_name, color_hex
+        - part_url, part_img_url
+        - location_count (number of distinct locations, excluding put-away bin)
+        - total_quantity (sum across all non-put-away locations)
+        - locations (list of location dicts with drawer_id, drawer_name, container_id, container_name, quantity)
+        """
+        # First, get the put-away bin container_id if it exists
+        put_away_bin = self._one(
+            """
+            SELECT c.id AS container_id
+            FROM containers c
+            JOIN drawers d ON d.id = c.drawer_id
+            WHERE c.is_put_away_bin = 1 
+              AND c.deleted_at IS NULL 
+              AND d.deleted_at IS NULL
+            LIMIT 1
+            """,
+            [],
+        )
+        put_away_container_id = put_away_bin.get("container_id") if put_away_bin else None
+        
+        # Build the query to find elements in multiple locations
+        # We'll use a CTE to:
+        # 1. Group by design_id + color_id and count distinct locations (excluding put-away)
+        # 2. Filter to only those with >1 location
+        # 3. Join back to get all location details
+        
+        if put_away_container_id is not None:
+            # Exclude put-away bin
+            location_filter = "AND (i.container_id IS NULL OR i.container_id != ?)"
+            params = [put_away_container_id]
+        else:
+            # No put-away bin configured, include all locations
+            location_filter = ""
+            params = []
+        
+        sql = f"""
+        WITH element_locations AS (
+            SELECT 
+                i.design_id,
+                i.color_id,
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_name,
+                SUM(i.quantity) AS quantity
+            FROM inventory i
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE i.status = 'loose'
+              AND (c.deleted_at IS NULL OR c.id IS NULL)
+              AND (d.deleted_at IS NULL OR d.id IS NULL)
+              {location_filter}
+            GROUP BY i.design_id, i.color_id, d.id, c.id, d.name, c.name
+        ),
+        element_counts AS (
+            SELECT 
+                design_id,
+                color_id,
+                COUNT(DISTINCT drawer_id || ':' || COALESCE(container_id, 'NULL')) AS location_count,
+                SUM(quantity) AS total_quantity
+            FROM element_locations
+            GROUP BY design_id, color_id
+            HAVING location_count > 1
+        )
+        SELECT 
+            ec.design_id,
+            p.name AS part_name,
+            ec.color_id,
+            col.name AS color_name,
+            col.hex AS color_hex,
+            p.part_url,
+            p.part_img_url,
+            ec.location_count,
+            ec.total_quantity
+        FROM element_counts ec
+        JOIN parts p ON p.design_id = ec.design_id
+        JOIN colors col ON col.id = ec.color_id
+        ORDER BY ec.location_count DESC, p.name COLLATE NOCASE, ec.color_id
+        """
+        
+        elements = self._all(sql, params)
+        
+        # For each element, get all its locations
+        result = []
+        for elem in elements:
+            design_id = elem["design_id"]
+            color_id = elem["color_id"]
+            
+            # Get all locations for this element (excluding put-away)
+            # Include the first inventory ID for each location for move operations
+            if put_away_container_id is not None:
+                locations = self._all(
+                    """
+                    SELECT 
+                        d.id AS drawer_id,
+                        d.name AS drawer_name,
+                        c.id AS container_id,
+                        c.name AS container_name,
+                        SUM(i.quantity) AS quantity,
+                        MIN(i.id) AS inventory_id
+                    FROM inventory i
+                    LEFT JOIN containers c ON c.id = i.container_id
+                    LEFT JOIN drawers d ON d.id = c.drawer_id
+                    WHERE i.design_id = ? 
+                      AND i.color_id = ?
+                      AND i.status = 'loose'
+                      AND (i.container_id IS NULL OR i.container_id != ?)
+                      AND (c.deleted_at IS NULL OR c.id IS NULL)
+                      AND (d.deleted_at IS NULL OR d.id IS NULL)
+                    GROUP BY d.id, c.id, d.name, c.name
+                    ORDER BY d.name COLLATE NOCASE, c.name COLLATE NOCASE
+                    """,
+                    [design_id, color_id, put_away_container_id],
+                )
+            else:
+                locations = self._all(
+                    """
+                    SELECT 
+                        d.id AS drawer_id,
+                        d.name AS drawer_name,
+                        c.id AS container_id,
+                        c.name AS container_name,
+                        SUM(i.quantity) AS quantity,
+                        MIN(i.id) AS inventory_id
+                    FROM inventory i
+                    LEFT JOIN containers c ON c.id = i.container_id
+                    LEFT JOIN drawers d ON d.id = c.drawer_id
+                    WHERE i.design_id = ? 
+                      AND i.color_id = ?
+                      AND i.status = 'loose'
+                      AND (c.deleted_at IS NULL OR c.id IS NULL)
+                      AND (d.deleted_at IS NULL OR d.id IS NULL)
+                    GROUP BY d.id, c.id, d.name, c.name
+                    ORDER BY d.name COLLATE NOCASE, c.name COLLATE NOCASE
+                    """,
+                    [design_id, color_id],
+                )
+            
+            result.append({
+                **elem,
+                "locations": locations,
+            })
+        
+        return result

@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { BarChart3, AlertCircle } from 'lucide-react';
+import { BarChart3, Wrench } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useDrawers } from '@/lib/hooks/use-drawers';
@@ -141,7 +141,7 @@ export default function HomePage() {
             </CardContent>
           </div>
           <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <AlertCircle className="h-16 w-16 text-green-600" />
+            <Wrench className="h-16 w-16 text-green-600" />
           </div>
         </Card>
       </div>

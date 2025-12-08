@@ -11,6 +11,7 @@ from app.di import get_db_connection, get_inventory_service
 from app.errors import NotFoundError, ValidationError
 from core.dtos import InventoryItemDTO
 from core.services.inventory_service import InventoryService
+from infra.db.repositories.inventory_repo import InventoryRepo
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -42,6 +43,28 @@ class LocationCountDTO(BaseModel):
     drawer_name: Optional[str] = None
     container_id: Optional[int] = None
     container_name: Optional[str] = None
+
+
+class ElementLocationDTO(BaseModel):
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_id: Optional[int] = None
+    container_name: Optional[str] = None
+    quantity: int
+    inventory_id: Optional[int] = None
+
+
+class MultipleLocationsElementDTO(BaseModel):
+    design_id: str
+    part_name: str
+    color_id: int
+    color_name: str
+    color_hex: Optional[str] = None
+    part_url: Optional[str] = None
+    part_img_url: Optional[str] = None
+    location_count: int
+    total_quantity: int
+    locations: list[ElementLocationDTO]
 
 
 class TotalPartCountDTO(BaseModel):
@@ -438,4 +461,43 @@ def move_inventory(
                 "code": "validation_error",
             },
         )
+
+
+@router.get("/multiple-locations", response_model=list[MultipleLocationsElementDTO])
+def get_elements_in_multiple_locations(conn: sqlite3.Connection = Depends(get_db_connection)):
+    """Get elements (part + color) that exist in multiple non-put-away-bin locations."""
+    repo = InventoryRepo(conn)
+    elements = repo.elements_in_multiple_locations()
+    
+    # Convert to DTOs
+    result = []
+    for elem in elements:
+        locations = [
+            ElementLocationDTO(
+                drawer_id=loc.get("drawer_id"),
+                drawer_name=loc.get("drawer_name"),
+                container_id=loc.get("container_id"),
+                container_name=loc.get("container_name"),
+                quantity=int(loc.get("quantity", 0)),
+                inventory_id=loc.get("inventory_id"),
+            )
+            for loc in elem.get("locations", [])
+        ]
+        
+        result.append(
+            MultipleLocationsElementDTO(
+                design_id=elem["design_id"],
+                part_name=elem["part_name"],
+                color_id=int(elem["color_id"]),
+                color_name=elem["color_name"],
+                color_hex=elem.get("color_hex"),
+                part_url=elem.get("part_url"),
+                part_img_url=elem.get("part_img_url"),
+                location_count=int(elem["location_count"]),
+                total_quantity=int(elem["total_quantity"]),
+                locations=locations,
+            )
+        )
+    
+    return result
 
