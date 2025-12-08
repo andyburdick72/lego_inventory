@@ -114,3 +114,51 @@ def test_inventory_location_counts():
             assert isinstance(item["location"], str)
             assert len(item["location"]) > 0
 
+
+def test_inventory_multiple_locations():
+    """Test multiple locations endpoint."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get("/inventory/multiple-locations")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        # All items should have location_count > 1 (by definition)
+        for item in data:
+            assert "design_id" in item
+            assert "part_name" in item
+            assert "color_id" in item
+            assert "color_name" in item
+            assert "location_count" in item
+            assert "total_quantity" in item
+            assert "locations" in item
+            assert isinstance(item["design_id"], str)
+            assert isinstance(item["part_name"], str)
+            assert isinstance(item["color_id"], int)
+            assert isinstance(item["color_name"], str)
+            assert isinstance(item["location_count"], int)
+            assert isinstance(item["total_quantity"], int)
+            assert isinstance(item["locations"], list)
+            # Location count must be > 1 (element exists in multiple locations)
+            assert item["location_count"] > 1
+            # Total quantity should be sum of location quantities
+            assert item["total_quantity"] >= item["location_count"]
+            # Verify locations structure
+            if item["locations"]:
+                loc = item["locations"][0]
+                assert "quantity" in loc
+                assert isinstance(loc["quantity"], int)
+                assert loc["quantity"] > 0
+                # At least one of drawer_id or container_id should be present
+                # (or both can be None for unassigned inventory)
+                assert "drawer_id" in loc or loc.get("drawer_id") is None
+                assert "drawer_name" in loc or loc.get("drawer_name") is None
+                assert "container_id" in loc or loc.get("container_id") is None
+                assert "container_name" in loc or loc.get("container_name") is None
+                assert "inventory_id" in loc
+                assert isinstance(loc["inventory_id"], int)
+                assert loc["inventory_id"] > 0
+            # Verify that total_quantity matches sum of location quantities
+            location_sum = sum(loc["quantity"] for loc in item["locations"])
+            assert item["total_quantity"] == location_sum
+
