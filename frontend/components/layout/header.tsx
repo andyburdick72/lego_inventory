@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useTotalPartCount } from '@/lib/hooks/use-inventory';
 import { useSetsCount } from '@/lib/hooks/use-sets';
 import { formatNumber } from '@/lib/utils';
+import Link from 'next/link';
 
 export function Header() {
   const { data: totalCountData, isLoading, error } = useTotalPartCount();
@@ -17,42 +17,36 @@ export function Header() {
             <span className="text-xl font-bold">Ervin-Burdick's Bricks</span>
           </Link>
           <nav className="flex items-center space-x-6 text-sm font-medium">
-          <Link
-            href="/loose-parts"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Loose Parts
-          </Link>
-          <Link
-            href="/drawers"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Drawers
-          </Link>
-          <Link
-            href="/sets"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Sets
-          </Link>
-          <Link
-            href="/part-counts"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Part Counts
-          </Link>
-          <Link
-            href="/part-color-counts"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Part + Color Counts
-          </Link>
-          <Link
-            href="/location-counts"
-            className="transition-colors hover:text-foreground/80 text-foreground/60"
-          >
-            Location Counts
-          </Link>
+            <Link
+              href="/loose-parts"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Loose Parts
+            </Link>
+            <Link
+              href="/drawers"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Drawers
+            </Link>
+            <Link
+              href="/sets"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Sets
+            </Link>
+            <Link
+              href="/reporting-analytics"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Reporting & Analytics
+            </Link>
+            <Link
+              href="/inventory-updates"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Inventory Updates
+            </Link>
           </nav>
         </div>
         <div className="flex flex-col items-end gap-1">

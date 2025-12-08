@@ -1,16 +1,15 @@
 'use client';
 
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
 
 const navItems = [
   { href: '/loose-parts', label: 'Loose Parts' },
   { href: '/drawers', label: 'Drawers' },
   { href: '/sets', label: 'Sets' },
-  { href: '/part-counts', label: 'Part Counts' },
-  { href: '/part-color-counts', label: 'Part + Color Counts' },
-  { href: '/location-counts', label: 'Location Counts' },
+  { href: '/reporting-analytics', label: 'Reporting & Analytics' },
+  { href: '/inventory-updates', label: 'Inventory Updates' },
 ];
 
 export function Sidebar() {
