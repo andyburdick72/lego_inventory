@@ -56,6 +56,7 @@ def row_to_inventory_item(row: Mapping) -> InventoryItemDTO:
     if color_hex and isinstance(color_hex, str):
         color_hex = color_hex.lstrip("#")
     dto = InventoryItemDTO(
+        id=int(row.get("id") or 0),
         part_id=str(row.get("part_id") or ""),
         color_id=int(row.get("color_id") or 0),
         color_name=row.get("color_name"),

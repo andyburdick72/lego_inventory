@@ -19,9 +19,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink, Edit, Move, Trash2 } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
+import {
+  UpdateQuantityDialog,
+  MoveInventoryDialog,
+  DeleteInventoryDialog,
+} from '@/components/loose-parts/loose-parts-dialogs';
 
 type ViewMode = 'cards' | 'table';
 
@@ -29,6 +34,10 @@ export default function LoosePartsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
+  const [selectedPart, setSelectedPart] = useState<LoosePart | null>(null);
+  const [updateQuantityOpen, setUpdateQuantityOpen] = useState(false);
+  const [moveInventoryOpen, setMoveInventoryOpen] = useState(false);
+  const [deleteInventoryOpen, setDeleteInventoryOpen] = useState(false);
 
   const { data: parts, isLoading } = useLooseParts();
 
@@ -166,6 +175,53 @@ export default function LoosePartsPage() {
           );
         },
       },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const part = row.original;
+        return (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(part);
+                setUpdateQuantityOpen(true);
+              }}
+              title="Update quantity"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(part);
+                setMoveInventoryOpen(true);
+              }}
+              title="Move parts"
+            >
+              <Move className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(part);
+                setDeleteInventoryOpen(true);
+              }}
+              title="Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      },
+    },
     {
       id: 'image',
       header: 'Image',
@@ -344,6 +400,47 @@ export default function LoosePartsPage() {
                             </a>
                           </Button>
                         )}
+                        <div className="flex gap-2 pt-2 border-t">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              setSelectedPart(part);
+                              setUpdateQuantityOpen(true);
+                            }}
+                            title="Update quantity"
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              setSelectedPart(part);
+                              setMoveInventoryOpen(true);
+                            }}
+                            title="Move parts"
+                          >
+                            <Move className="h-3 w-3 mr-1" />
+                            Move
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              setSelectedPart(part);
+                              setDeleteInventoryOpen(true);
+                            }}
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Delete
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -410,6 +507,21 @@ export default function LoosePartsPage() {
           </div>
         </>
       )}
+      <UpdateQuantityDialog
+        part={selectedPart}
+        open={updateQuantityOpen}
+        onOpenChange={setUpdateQuantityOpen}
+      />
+      <MoveInventoryDialog
+        part={selectedPart}
+        open={moveInventoryOpen}
+        onOpenChange={setMoveInventoryOpen}
+      />
+      <DeleteInventoryDialog
+        part={selectedPart}
+        open={deleteInventoryOpen}
+        onOpenChange={setDeleteInventoryOpen}
+      />
     </div>
   );
 }

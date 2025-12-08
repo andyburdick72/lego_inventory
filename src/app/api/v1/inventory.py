@@ -3,11 +3,12 @@
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.adapters import row_to_inventory_item, rows_to
 from app.di import get_db_connection, get_inventory_service
+from app.errors import NotFoundError, ValidationError
 from core.dtos import InventoryItemDTO
 from core.services.inventory_service import InventoryService
 
@@ -72,7 +73,8 @@ def list_loose_inventory(conn: sqlite3.Connection = Depends(get_db_connection)):
     """List all loose inventory items."""
     rows = conn.execute(
         """
-        SELECT  i.design_id AS part_id,
+        SELECT  i.id,
+                i.design_id AS part_id,
                 i.color_id,
                 c.name AS color_name,
                 c.hex AS color_hex,
@@ -257,4 +259,183 @@ def get_location_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
             )
         )
     return result
+
+
+# Request models for CRUD operations
+class UpdateInventoryQuantityRequest(BaseModel):
+    quantity: int
+
+
+class UpdateInventoryLocationRequest(BaseModel):
+    container_id: Optional[int] = None
+
+
+class MoveInventoryRequest(BaseModel):
+    to_container_id: Optional[int] = None
+    quantity: int
+
+
+# Response models
+class InventoryUpdatedResponse(BaseModel):
+    id: int
+    message: str = "Inventory updated successfully"
+
+
+class InventoryDeletedResponse(BaseModel):
+    id: int
+    message: str = "Inventory deleted successfully"
+
+
+class InventoryMovedResponse(BaseModel):
+    from_id: int
+    to_container_id: Optional[int] = None
+    quantity: int
+    message: str = "Inventory moved successfully"
+
+
+@router.get("/loose/{inventory_id}", response_model=InventoryItemDTO)
+def get_loose_inventory_item(
+    inventory_id: int,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Get a single loose inventory item by ID."""
+    try:
+        item = service.get_inventory_item(inventory_id)
+        return row_to_inventory_item(item)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/loose/{inventory_id}/quantity", response_model=InventoryUpdatedResponse)
+def update_inventory_quantity(
+    inventory_id: int,
+    request: UpdateInventoryQuantityRequest,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Update the quantity of a loose inventory item."""
+    try:
+        service.update_inventory_quantity(inventory_id=inventory_id, quantity=request.quantity)
+        return InventoryUpdatedResponse(id=inventory_id)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(e),
+                "code": "validation_error",
+            },
+        )
+
+
+@router.patch("/loose/{inventory_id}/location", response_model=InventoryUpdatedResponse)
+def update_inventory_location(
+    inventory_id: int,
+    request: UpdateInventoryLocationRequest,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Update the location (container_id) of a loose inventory item."""
+    try:
+        service.update_inventory_location(
+            inventory_id=inventory_id, container_id=request.container_id
+        )
+        return InventoryUpdatedResponse(id=inventory_id)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(e),
+                "code": "validation_error",
+            },
+        )
+
+
+@router.delete("/loose/{inventory_id}", response_model=InventoryDeletedResponse)
+def delete_inventory_item(
+    inventory_id: int,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Delete a loose inventory item."""
+    try:
+        service.delete_inventory_item(inventory_id=inventory_id)
+        return InventoryDeletedResponse(id=inventory_id)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(e),
+                "code": "validation_error",
+            },
+        )
+
+
+@router.post("/loose/{inventory_id}/move", response_model=InventoryMovedResponse)
+def move_inventory(
+    inventory_id: int,
+    request: MoveInventoryRequest,
+    service: InventoryService = Depends(get_inventory_service),
+):
+    """Move a quantity of parts from one inventory item to another location."""
+    try:
+        service.move_inventory(
+            from_inventory_id=inventory_id,
+            to_container_id=request.to_container_id,
+            quantity=request.quantity,
+        )
+        return InventoryMovedResponse(
+            from_id=inventory_id,
+            to_container_id=request.to_container_id,
+            quantity=request.quantity,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(e),
+                "code": "validation_error",
+            },
+        )
 

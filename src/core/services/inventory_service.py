@@ -28,6 +28,18 @@ class InventoryRepo(Protocol):
 
     def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]: ...
 
+    def get_inventory_by_id(self, inventory_id: int) -> dict | None: ...
+
+    def update_inventory_quantity(self, inventory_id: int, quantity: int) -> None: ...
+
+    def update_inventory_location(self, inventory_id: int, container_id: int | None) -> None: ...
+
+    def delete_inventory(self, inventory_id: int) -> None: ...
+
+    def move_inventory(
+        self, from_inventory_id: int, to_container_id: int | None, quantity: int
+    ) -> None: ...
+
 
 class InventoryService:
     """
@@ -106,6 +118,74 @@ class InventoryService:
 
     def loose_inventory_for_part_color(self, design_id: str, color_id: int) -> list[dict]:
         return self._inventory.loose_inventory_for_part_color(design_id, color_id)
+
+    # Loose inventory CRUD operations
+    def get_inventory_item(self, inventory_id: int) -> dict:
+        """Get a single inventory item by id."""
+        if not isinstance(inventory_id, int) or inventory_id <= 0:
+            raise ValidationError("inventory_id must be a positive integer")
+        item = self._inventory.get_inventory_by_id(inventory_id)
+        if not item:
+            raise NotFoundError("Inventory item not found", details={"inventory_id": inventory_id})
+        return item
+
+    def update_inventory_quantity(self, *, inventory_id: int, quantity: int) -> None:
+        """Update the quantity of a specific inventory item."""
+        if not isinstance(inventory_id, int) or inventory_id <= 0:
+            raise ValidationError("inventory_id must be a positive integer")
+        if not isinstance(quantity, int) or quantity < 0:
+            raise ValidationError("quantity must be a non-negative integer")
+        try:
+            self._inventory.update_inventory_quantity(inventory_id, quantity)
+        except ValueError as e:
+            if "not found" in str(e).lower():
+                raise NotFoundError(str(e), details={"inventory_id": inventory_id}) from e
+            raise ValidationError(str(e)) from e
+
+    def update_inventory_location(
+        self, *, inventory_id: int, container_id: int | None
+    ) -> None:
+        """Update the location (container_id) of a specific inventory item."""
+        if not isinstance(inventory_id, int) or inventory_id <= 0:
+            raise ValidationError("inventory_id must be a positive integer")
+        if container_id is not None and (not isinstance(container_id, int) or container_id <= 0):
+            raise ValidationError("container_id must be a positive integer or None")
+        try:
+            self._inventory.update_inventory_location(inventory_id, container_id)
+        except ValueError as e:
+            if "not found" in str(e).lower():
+                raise NotFoundError(str(e), details={"inventory_id": inventory_id}) from e
+            raise ValidationError(str(e)) from e
+
+    def delete_inventory_item(self, *, inventory_id: int) -> None:
+        """Delete a specific inventory item."""
+        if not isinstance(inventory_id, int) or inventory_id <= 0:
+            raise ValidationError("inventory_id must be a positive integer")
+        try:
+            self._inventory.delete_inventory(inventory_id)
+        except ValueError as e:
+            if "not found" in str(e).lower():
+                raise NotFoundError(str(e), details={"inventory_id": inventory_id}) from e
+            raise ValidationError(str(e)) from e
+
+    def move_inventory(
+        self, *, from_inventory_id: int, to_container_id: int | None, quantity: int
+    ) -> None:
+        """Move a quantity of parts from one inventory item to another location."""
+        if not isinstance(from_inventory_id, int) or from_inventory_id <= 0:
+            raise ValidationError("from_inventory_id must be a positive integer")
+        if to_container_id is not None and (
+            not isinstance(to_container_id, int) or to_container_id <= 0
+        ):
+            raise ValidationError("to_container_id must be a positive integer or None")
+        if not isinstance(quantity, int) or quantity <= 0:
+            raise ValidationError("quantity must be a positive integer")
+        try:
+            self._inventory.move_inventory(from_inventory_id, to_container_id, quantity)
+        except ValueError as e:
+            if "not found" in str(e).lower():
+                raise NotFoundError(str(e), details={"from_inventory_id": from_inventory_id}) from e
+            raise ValidationError(str(e)) from e
 
 
 # --- Optional convenience helpers for handlers (duck-typed repos) ---

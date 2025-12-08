@@ -41,12 +41,12 @@ if [ "$DO_COV" -eq 1 ]; then
   rm -rf coverage_html_report htmlcov .pytest_cache
   # Remove any coverage files that might have been created (maxdepth 1 to avoid deleting files in subdirs)
   find . -maxdepth 1 -name ".coverage*" -delete 2>/dev/null || true
-  ALLOW_SMOKE_TESTS=1 pytest -q tests/unit/ \
+  ALLOW_SMOKE_TESTS=1 pytest -q tests/unit/ tests/infra/ \
     --cov=src --cov-config=pyproject.toml \
     --cov-report=term-missing --cov-report=html --cov-report=xml
 else
   echo "🧪 Running unit tests..."
-  ALLOW_SMOKE_TESTS=1 pytest -q --no-cov tests/unit/
+  ALLOW_SMOKE_TESTS=1 pytest -q --no-cov tests/unit/ tests/infra/
 fi
 
 # UI tests skipped - Next.js renders client-side, not server-side HTML

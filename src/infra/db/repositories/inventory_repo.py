@@ -529,3 +529,200 @@ class InventoryRepo(BaseRepo):
                 )
 
         self.conn.commit()
+
+    def get_inventory_by_id(self, inventory_id: int) -> dict | None:
+        """
+        Get a single inventory item by id.
+        Returns: dict with all inventory fields plus joined part/color/container/drawer info
+        """
+        return self._one(
+            """
+            SELECT 
+                i.id,
+                i.design_id AS part_id,
+                i.color_id,
+                col.name AS color_name,
+                col.hex AS color_hex,
+                i.quantity,
+                i.status,
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_label,
+                p.name AS part_name,
+                p.part_img_url AS image_url,
+                p.part_url AS rebrickable_url
+            FROM inventory i
+            JOIN parts p ON p.design_id = i.design_id
+            JOIN colors col ON col.id = i.color_id
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE i.id = ?
+            """,
+            [inventory_id],
+        )
+
+    def update_inventory_quantity(self, inventory_id: int, quantity: int) -> None:
+        """
+        Update the quantity of a specific inventory item.
+        Raises error if inventory_id doesn't exist.
+        """
+        if quantity < 0:
+            raise ValueError("Quantity cannot be negative")
+        
+        # Check if inventory exists
+        existing = self._one(
+            "SELECT id, quantity FROM inventory WHERE id = ?",
+            [inventory_id],
+        )
+        if not existing:
+            raise ValueError(f"Inventory item {inventory_id} not found")
+        
+        if quantity == 0:
+            # Delete the inventory item
+            self.conn.execute("DELETE FROM inventory WHERE id = ?", [inventory_id])
+        else:
+            # Update quantity
+            self.conn.execute(
+                "UPDATE inventory SET quantity = ? WHERE id = ?",
+                [quantity, inventory_id],
+            )
+        
+        self.conn.commit()
+
+    def update_inventory_location(
+        self, inventory_id: int, container_id: int | None
+    ) -> None:
+        """
+        Update the location (container_id) of a specific inventory item.
+        Raises error if inventory_id doesn't exist.
+        """
+        # Check if inventory exists
+        existing = self._one(
+            "SELECT id FROM inventory WHERE id = ?",
+            [inventory_id],
+        )
+        if not existing:
+            raise ValueError(f"Inventory item {inventory_id} not found")
+        
+        # Update container_id
+        self.conn.execute(
+            "UPDATE inventory SET container_id = ? WHERE id = ?",
+            [container_id, inventory_id],
+        )
+        
+        self.conn.commit()
+
+    def delete_inventory(self, inventory_id: int) -> None:
+        """
+        Delete a specific inventory item.
+        Raises error if inventory_id doesn't exist.
+        """
+        # Check if inventory exists
+        existing = self._one(
+            "SELECT id FROM inventory WHERE id = ?",
+            [inventory_id],
+        )
+        if not existing:
+            raise ValueError(f"Inventory item {inventory_id} not found")
+        
+        self.conn.execute("DELETE FROM inventory WHERE id = ?", [inventory_id])
+        self.conn.commit()
+
+    def move_inventory(
+        self,
+        from_inventory_id: int,
+        to_container_id: int | None,
+        quantity: int,
+    ) -> None:
+        """
+        Move a quantity of parts from one inventory item to another location.
+        
+        This will:
+        1. Check if the source inventory has enough quantity
+        2. Reduce the source inventory by the quantity
+        3. Find or create inventory at the destination location
+        4. Increase the destination inventory by the quantity
+        
+        If the source inventory quantity becomes 0, it will be deleted.
+        """
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        
+        # Get source inventory
+        source = self._one(
+            """
+            SELECT id, design_id, color_id, quantity, container_id
+            FROM inventory
+            WHERE id = ?
+            """,
+            [from_inventory_id],
+        )
+        if not source:
+            raise ValueError(f"Source inventory item {from_inventory_id} not found")
+        
+        if source["quantity"] < quantity:
+            raise ValueError(
+                f"Insufficient quantity. Available: {source['quantity']}, requested: {quantity}"
+            )
+        
+        design_id = source["design_id"]
+        color_id = source["color_id"]
+        new_source_quantity = source["quantity"] - quantity
+        
+        # Check if destination inventory exists
+        if to_container_id is not None:
+            dest = self._one(
+                """
+                SELECT id, quantity
+                FROM inventory
+                WHERE design_id = ? AND color_id = ? AND status = 'loose' AND container_id = ?
+                """,
+                [design_id, color_id, to_container_id],
+            )
+        else:
+            dest = self._one(
+                """
+                SELECT id, quantity
+                FROM inventory
+                WHERE design_id = ? AND color_id = ? AND status = 'loose' AND container_id IS NULL
+                """,
+                [design_id, color_id],
+            )
+        
+        # Update source inventory
+        if new_source_quantity == 0:
+            self.conn.execute("DELETE FROM inventory WHERE id = ?", [from_inventory_id])
+        else:
+            self.conn.execute(
+                "UPDATE inventory SET quantity = ? WHERE id = ?",
+                [new_source_quantity, from_inventory_id],
+            )
+        
+        # Update or create destination inventory
+        if dest:
+            new_dest_quantity = dest["quantity"] + quantity
+            self.conn.execute(
+                "UPDATE inventory SET quantity = ? WHERE id = ?",
+                [new_dest_quantity, dest["id"]],
+            )
+        else:
+            # Create new inventory at destination
+            if to_container_id is not None:
+                self.conn.execute(
+                    """
+                    INSERT INTO inventory (design_id, color_id, quantity, status, container_id)
+                    VALUES (?, ?, ?, 'loose', ?)
+                    """,
+                    [design_id, color_id, quantity, to_container_id],
+                )
+            else:
+                self.conn.execute(
+                    """
+                    INSERT INTO inventory (design_id, color_id, quantity, status)
+                    VALUES (?, ?, ?, 'loose')
+                    """,
+                    [design_id, color_id, quantity],
+                )
+        
+        self.conn.commit()

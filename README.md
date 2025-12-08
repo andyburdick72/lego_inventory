@@ -8,7 +8,12 @@ Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and sup
 ## **Features**
 - **Data import from Instabrick XML** with BrickLink → Rebrickable ID conversion  
 - **Alias reconciliation** between BrickLink/Instabrick IDs and Rebrickable part & color IDs  
-- **Full CRUD** for drawers, containers, and sets  
+- **Full CRUD** for drawers, containers, sets, and loose parts inventory
+- **Loose parts inventory management**:
+  - Update part quantities in drawers/containers
+  - Move parts between locations (with quantity control)
+  - Delete parts from inventory
+  - View loose parts by location with card and table views
 - **Merge / move inventory** between locations  
 - **Set management**:
   - Track multiple copies of a set
@@ -16,10 +21,14 @@ Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and sup
   - Set statuses: **Built**, **In Box**, **Work in Progress**, **Teardown**, **Loose Parts**
 - **Part-out** a set into loose inventory
 - **Move parts** between sets and loose inventory
+- **Location reconciliation** for Loose Parts sets (identifies missing/excess parts)
+- **Inventory mismatch detection** (compares required vs available parts)
+- **Put-away bin** functionality for organizing teardown sets
+- **Multiple view modes**: Card and table views for parts and inventory
 - **Hierarchical views** for loose parts and parts by set (collapsible, sortable, searchable)  
 - **CSV export** for any table, preserving current filters and sorting  
 - **Sanity checks** for inventory consistency (loose vs in-sets counts)  
-- **Web UI** (no external dependencies) to browse parts, locations, and sets  
+- **Web UI** (Next.js frontend + FastAPI backend) to browse parts, locations, and sets  
 
 ---
 
@@ -29,14 +38,29 @@ lego_inventory/
 ├── data/
 │   ├── lego_inventory.db                 # SQLite database
 │   ├── instabrick_inventory.xml          # Sample Instabrick export
+│   └── reports/                          # Generated CSV reports
+├── frontend/                             # Next.js frontend application
+│   ├── app/                              # Next.js App Router pages
+│   ├── components/                       # React components
+│   │   ├── ui/                           # shadcn/ui components
+│   │   ├── loose-parts/                  # Loose parts dialogs
+│   │   └── ...
+│   └── lib/                              # Utilities and hooks
 ├── src/
 │   ├── app/
 │   │   ├── api/                          # FastAPI REST API
-│   │   │   └── main.py                   # FastAPI application
-│   │   └── ...
+│   │   │   ├── main.py                   # FastAPI application
+│   │   │   └── v1/                       # API v1 endpoints
+│   │   ├── di.py                         # Dependency injection
+│   │   └── errors.py                     # Error handling
+│   ├── core/
+│   │   ├── services/                     # Business logic services
+│   │   ├── dtos.py                       # Data transfer objects
+│   │   └── enums.py                      # Status and other enums
 │   ├── infra/
 │   │   └── db/
-│   │       └── inventory_db.py           # DB creation & execution helpers
+│   │       ├── inventory_db.py           # DB creation & execution helpers
+│   │       └── repositories/             # Data access layer
 │   ├── scripts/
 │   │   ├── load_my_rebrickable_parts.py  # Load parts for all owned sets
 │   │   ├── load_rebrickable_colors.py    # Load Rebrickable colors
@@ -44,12 +68,16 @@ lego_inventory/
 │   │   ├── fix_alias_typos.py            # Fix typos from precheck step
 │   │   ├── load_instabrick_inventory.py  # Import Instabrick XML into DB
 │   │   └── inventory_sanity_checks.py    # Validate loose vs set inventories
-│   └── utils/
-│       ├── rebrickable_api.py            # API client helpers
-│       ├── rebrickable_generate_user_token.py
-│       └── common_functions.py           # .env loader for API keys
+│   └── integrations/
+│       └── rebrickable_api.py            # Rebrickable API client
+├── tests/
+│   ├── unit/                             # Unit tests
+│   ├── infra/repositories/               # Repository tests
+│   ├── contract/api/                     # API contract tests
+│   └── smoke/                            # Smoke tests
 ├── requirements.txt
 ├── requirements-dev.txt                  # Dev dependencies (code quality, testing)
+├── dev.sh                                # Development script (setup, test, run)
 └── README.md
 ```
 
@@ -150,6 +178,11 @@ python3 src/inventory_db.py
    ```
 
 ### **Ongoing Maintenance**
+- **Manage inventory via web UI**:
+  - Update part quantities in drawers/containers
+  - Move parts between locations
+  - Delete parts from inventory
+  - View and reconcile location counts
 - Add/edit drawers, containers, and sets via the web UI  
 - Import updated Instabrick XML after inventory changes  
 - Run sanity checks:
@@ -157,7 +190,8 @@ python3 src/inventory_db.py
   python3 src/inventory_sanity_checks.py
   ```
 - Part-out sets or move inventory  
-- Export any table to CSV for reporting  
+- Export any table to CSV for reporting
+- Use location reconciliation to identify missing/excess parts  
 
 ---
 
@@ -182,10 +216,61 @@ This will:
 - **API Docs**: http://localhost:8001/docs (Swagger UI)
 
 **UI Highlights:**
-- **Loose Parts by Location** and **Parts by Set**: collapsible hierarchical views  
+- **Loose Parts** page: Browse all loose inventory with card/table views and CRUD operations
+- **Location Counts** page: View inventory totals grouped by drawer/container
+- **Part Counts** page: Aggregate part counts across all sets
+- **Part Color Counts** page: Part counts grouped by part and color
+- **Container Detail** pages: View parts in a specific container with management actions
+- **Drawer Detail** pages: View containers and parts in a drawer
+- **Location Reconciliation** page: Identify missing/excess parts for Loose Parts sets
+- **Inventory Mismatches** page: Compare required vs available parts across sets
+- **Set Detail** pages: View parts in a set with full metadata
+- **Part Detail** pages: View all locations where a part appears
 - Column sorting & searching (per table)  
 - CSV export button for every table view
-- Modern React-based UI with responsive design  
+- Modern React-based UI with responsive design
+- Action buttons for inventory management (update quantity, move, delete)  
+
+---
+
+## **API Endpoints**
+
+The FastAPI backend provides RESTful endpoints for managing inventory. Full API documentation is available at http://localhost:8001/docs when the server is running.
+
+### **Inventory Management**
+- `GET /api/v1/inventory/loose` - List all loose inventory items
+- `GET /api/v1/inventory/loose/{id}` - Get a single inventory item by ID
+- `PATCH /api/v1/inventory/loose/{id}/quantity` - Update inventory quantity
+- `PATCH /api/v1/inventory/loose/{id}/location` - Update inventory location (container)
+- `DELETE /api/v1/inventory/loose/{id}` - Delete an inventory item
+- `POST /api/v1/inventory/loose/{id}/move` - Move parts between locations
+- `GET /api/v1/inventory/loose` - List all loose parts
+- `GET /api/v1/inventory/part-counts` - Get part counts across all sets
+- `GET /api/v1/inventory/part-color-counts` - Get part+color counts
+- `GET /api/v1/inventory/location-counts` - Get inventory totals by location
+
+### **Drawers & Containers**
+- `GET /api/v1/drawers` - List all drawers
+- `POST /api/v1/drawers/create` - Create a drawer
+- `POST /api/v1/drawers/rename` - Update drawer
+- `POST /api/v1/drawers/delete` - Soft delete drawer
+- `GET /api/v1/containers?drawer_id={id}` - List containers for a drawer
+- `POST /api/v1/containers/create` - Create a container
+- `GET /api/v1/containers/{id}` - Get container details
+- `GET /api/v1/containers/{id}/parts` - Get parts in a container
+- `GET /api/v1/containers/put-away-bin` - Get put-away bin container
+- `POST /api/v1/containers/put-away-bin` - Set put-away bin
+
+### **Sets & Parts**
+- `GET /api/v1/sets` - List all sets
+- `GET /api/v1/sets/{set_number}` - Get set details
+- `GET /api/v1/parts/{design_id}` - Get part details and locations
+- `GET /api/v1/parts/{design_id}/inventory` - Get inventory for a part
+
+### **Reconciliation & Mismatches**
+- `GET /api/v1/location-reconciliation/items/loose-parts` - Get reconciliation items for Loose Parts sets
+- `GET /api/v1/mismatches` - Get inventory mismatches summary
+- `GET /api/v1/mismatches/sets/{set_number}` - Get mismatches for a specific set
 
 ---
 
@@ -262,6 +347,11 @@ source .venv/bin/activate
   pytest tests/unit/
   ```
 
+- **Repository tests only**:
+  ```bash
+  pytest tests/infra/
+  ```
+
 - **Contract tests** (API endpoints, requires FastAPI server running):
   ```bash
   export API_BASE_URL=http://localhost:8001/api/v1
@@ -295,8 +385,9 @@ This will:
 Open `coverage_html_report/index.html` in a browser to view the detailed coverage report.
 
 **Test Structure:**
-- `tests/unit/` - Unit tests (fast, isolated)
-- `tests/contract/api/` - Contract tests for API endpoints
+- `tests/unit/` - Unit tests (fast, isolated) for services, adapters, utilities
+- `tests/infra/repositories/` - Repository tests for database operations
+- `tests/contract/api/` - Contract tests for API endpoints (requires running server)
 - `tests/smoke/` - Quick sanity checks
 
 ---

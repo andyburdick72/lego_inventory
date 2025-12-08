@@ -67,6 +67,7 @@ class LEGOSetDTO(DTOBase):
 
 
 class InventoryItemDTO(DTOBase):
+    id: int
     part_id: str
     color_id: int
     color_name: Optional[str] = None

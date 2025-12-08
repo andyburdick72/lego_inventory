@@ -16,6 +16,8 @@ def conn_rw():
     conn.row_factory = sqlite3.Row
     conn.executescript(
         """
+        PRAGMA foreign_keys = ON;
+
         CREATE TABLE IF NOT EXISTS colors (
           id INTEGER PRIMARY KEY,
           name TEXT NOT NULL,
@@ -24,7 +26,42 @@ def conn_rw():
 
         CREATE TABLE IF NOT EXISTS parts (
           design_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          part_url TEXT,
+          part_img_url TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS themes (
+          id INTEGER PRIMARY KEY,
           name TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS drawers (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          description TEXT,
+          kind TEXT,
+          cols INTEGER,
+          rows INTEGER,
+          sort_index INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          deleted_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS containers (
+          id INTEGER PRIMARY KEY,
+          drawer_id INTEGER NOT NULL REFERENCES drawers(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          description TEXT,
+          row_index INTEGER,
+          col_index INTEGER,
+          sort_index INTEGER DEFAULT 0,
+          is_put_away_bin INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          deleted_at TEXT,
+          UNIQUE(drawer_id, row_index, col_index)
         );
 
         CREATE TABLE IF NOT EXISTS inventory (
@@ -33,17 +70,18 @@ def conn_rw():
           color_id INTEGER NOT NULL REFERENCES colors(id),
           quantity INTEGER NOT NULL,
           status TEXT NOT NULL,
-          container_id INTEGER,
+          container_id INTEGER REFERENCES containers(id),
           drawer TEXT,
           container TEXT,
           set_number TEXT
         );
 
         CREATE TABLE IF NOT EXISTS sets (
-          set_num TEXT PRIMARY KEY,
+          id INTEGER PRIMARY KEY,
+          set_num TEXT,
           name TEXT NOT NULL,
           year INTEGER,
-          theme TEXT,
+          theme_id INTEGER REFERENCES themes(id),
           image_url TEXT,
           rebrickable_url TEXT,
           status TEXT,
@@ -58,7 +96,7 @@ def conn_rw():
         ("3001", 1, 10, "loose", None, None, None, None),
     )
     conn.execute(
-        "INSERT INTO sets(set_num, name, year, theme, image_url, rebrickable_url, status, added_at) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO sets(set_num, name, year, theme_id, image_url, rebrickable_url, status, added_at) VALUES (?,?,?,?,?,?,?,?)",
         ("80000-1", "Test Set", 2024, None, None, None, "wip", None),
     )
     conn.commit()
@@ -76,24 +114,114 @@ def test_inventory_repo_inventory_by_part_and_loose_total(conn_rw):
     assert inv.loose_total() >= 10
 
 
+def test_inventory_repo_crud_operations(conn_rw):
+    """Test CRUD operations on inventory items."""
+    inv = InventoryRepo(conn_rw)
+    
+    # Get inventory ID directly from database (iter_loose_parts requires containers/drawers)
+    cursor = conn_rw.execute(
+        "SELECT id FROM inventory WHERE status = 'loose' LIMIT 1"
+    )
+    row = cursor.fetchone()
+    if not row:
+        pytest.skip("No loose inventory items in test database")
+    inventory_id = row["id"]
+    
+    # Get the inventory item by ID
+    existing_item = inv.get_inventory_by_id(inventory_id)
+    assert existing_item is not None
+    
+    # Test get_inventory_by_id - verify it returns the correct structure
+    item = inv.get_inventory_by_id(inventory_id)
+    assert item is not None
+    assert item["part_id"] == existing_item["part_id"]
+    assert item["color_id"] == existing_item["color_id"]
+    
+    # Test update_inventory_quantity
+    original_quantity = item["quantity"]
+    new_quantity = original_quantity + 5
+    inv.update_inventory_quantity(inventory_id, new_quantity)
+    
+    updated_item = inv.get_inventory_by_id(inventory_id)
+    assert updated_item is not None
+    assert updated_item["quantity"] == new_quantity
+    
+    # Test update_inventory_location (set container_id)
+    inv.update_inventory_location(inventory_id, None)
+    item_no_location = inv.get_inventory_by_id(inventory_id)
+    assert item_no_location is not None
+    assert item_no_location.get("container_id") is None
+    
+    # Restore original quantity
+    inv.update_inventory_quantity(inventory_id, original_quantity)
+    
+    # Test move_inventory - create a second inventory item to move to
+    # First, create another inventory item
+    conn_rw.execute(
+        "INSERT INTO inventory(design_id, color_id, quantity, status) VALUES (?, ?, ?, ?)",
+        ("3001", 1, 5, "loose")
+    )
+    conn_rw.commit()
+    
+    # Get the new inventory ID
+    cursor = conn_rw.execute(
+        "SELECT id FROM inventory WHERE design_id = ? AND color_id = ? AND status = 'loose' AND id != ? LIMIT 1",
+        ("3001", 1, inventory_id)
+    )
+    new_inventory_id = cursor.fetchone()["id"]
+    
+    # Test move_inventory
+    move_quantity = 2
+    inv.move_inventory(new_inventory_id, None, move_quantity)
+    
+    # Verify source quantity decreased
+    source_item = inv.get_inventory_by_id(new_inventory_id)
+    assert source_item is not None
+    assert source_item["quantity"] == 5 - move_quantity
+    
+    # Test delete_inventory
+    inv.delete_inventory(new_inventory_id)
+    deleted_item = inv.get_inventory_by_id(new_inventory_id)
+    assert deleted_item is None
+    
+    # Test error cases
+    # get_inventory_by_id returns None for non-existent items (doesn't raise)
+    assert inv.get_inventory_by_id(999999) is None
+    
+    # Other methods raise ValueError for non-existent items
+    with pytest.raises(ValueError, match="not found"):
+        inv.update_inventory_quantity(999999, 10)
+    
+    with pytest.raises(ValueError, match="not found"):
+        inv.delete_inventory(999999)
+    
+    with pytest.raises(ValueError, match="not found"):
+        inv.move_inventory(999999, None, 1)
+    
+    # Test insufficient quantity for move
+    if updated_item["quantity"] > 0:
+        with pytest.raises(ValueError, match="Insufficient quantity"):
+            inv.move_inventory(inventory_id, None, updated_item["quantity"] + 100)
+
+
 def test_sets_repo_basic_and_total(conn_rw):
     # create set_parts table locally for this test
+    # Note: set_parts uses set_num as part of composite primary key, not a foreign key to sets.id
     conn_rw.executescript(
         """
         CREATE TABLE IF NOT EXISTS set_parts (
-          id INTEGER PRIMARY KEY,
-          set_num TEXT NOT NULL REFERENCES sets(set_num),
+          set_num TEXT NOT NULL,
           design_id TEXT NOT NULL REFERENCES parts(design_id),
           color_id INTEGER NOT NULL REFERENCES colors(id),
           quantity INTEGER NOT NULL,
-          is_spare INTEGER DEFAULT 0
+          PRIMARY KEY (set_num, design_id, color_id)
         );
         """
     )
     # seed a couple of set parts so total > 0
     conn_rw.execute(
-        "INSERT INTO set_parts(set_num, design_id, color_id, quantity, is_spare) VALUES (?,?,?,?,?)",
-        ("80000-1", "3001", 1, 3, 0),
+        "INSERT INTO set_parts(set_num, design_id, color_id, quantity) VALUES (?,?,?,?)",
+        ("80000-1", "3001", 1, 3),
     )
     conn_rw.commit()
 

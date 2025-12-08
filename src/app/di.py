@@ -288,6 +288,25 @@ class _InventoryRepoAdapter:
             design_id, color_id, quantity, drawer_id, container_id
         )
 
+    def get_inventory_by_id(self, inventory_id: int) -> dict | None:
+        return self._impl.get_inventory_by_id(inventory_id)
+
+    def update_inventory_quantity(self, inventory_id: int, quantity: int) -> None:
+        return self._impl.update_inventory_quantity(inventory_id, quantity)
+
+    def update_inventory_location(
+        self, inventory_id: int, container_id: int | None
+    ) -> None:
+        return self._impl.update_inventory_location(inventory_id, container_id)
+
+    def delete_inventory(self, inventory_id: int) -> None:
+        return self._impl.delete_inventory(inventory_id)
+
+    def move_inventory(
+        self, from_inventory_id: int, to_container_id: int | None, quantity: int
+    ) -> None:
+        return self._impl.move_inventory(from_inventory_id, to_container_id, quantity)
+
 
 class _SetsRepoAdapter:
     """

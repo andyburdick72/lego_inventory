@@ -21,9 +21,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink, Edit, Move, Trash2 } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
+import { useLooseParts, LoosePart } from '@/lib/hooks/use-inventory';
+import {
+  UpdateQuantityDialog,
+  MoveInventoryDialog,
+  DeleteInventoryDialog,
+} from '@/components/loose-parts/loose-parts-dialogs';
 
 type ViewMode = 'cards' | 'table';
 
@@ -44,8 +50,33 @@ export default function ContainerDetailPage() {
   const { data: parts, isLoading: partsLoading } = useContainerParts(containerId);
   const { data: putAwayBin } = usePutAwayBin();
   const setPutAwayBinMutation = useSetPutAwayBin();
+  const { data: allLooseParts } = useLooseParts();
   
   const isPutAwayBin = container?.is_put_away_bin === 1;
+  
+  // Map container parts to inventory items by matching design_id, color_id, and container_id
+  const inventoryMap = useMemo(() => {
+    if (!allLooseParts || !containerId) return new Map<string, LoosePart>();
+    const map = new Map<string, LoosePart>();
+    allLooseParts
+      .filter(item => item.container_id === containerId)
+      .forEach(item => {
+        const key = `${item.part_id}-${item.color_id}`;
+        map.set(key, item);
+      });
+    return map;
+  }, [allLooseParts, containerId]);
+  
+  const [selectedPart, setSelectedPart] = useState<LoosePart | null>(null);
+  const [updateQuantityOpen, setUpdateQuantityOpen] = useState(false);
+  const [moveInventoryOpen, setMoveInventoryOpen] = useState(false);
+  const [deleteInventoryOpen, setDeleteInventoryOpen] = useState(false);
+  
+  // Helper to get inventory item for a container part
+  const getInventoryItem = (part: ContainerPart): LoosePart | null => {
+    const key = `${part.design_id}-${part.color_id}`;
+    return inventoryMap.get(key) || null;
+  };
 
   // Determine back navigation based on referrer or query param
   useEffect(() => {
@@ -205,6 +236,55 @@ export default function ContainerDetailPage() {
             className="h-12 w-auto"
             onClick={(e) => e.stopPropagation()}
           />
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const part = row.original;
+        const inventoryItem = getInventoryItem(part);
+        if (!inventoryItem) return <span className="text-muted-foreground">—</span>;
+        return (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(inventoryItem);
+                setUpdateQuantityOpen(true);
+              }}
+              title="Update quantity"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(inventoryItem);
+                setMoveInventoryOpen(true);
+              }}
+              title="Move parts"
+            >
+              <Move className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPart(inventoryItem);
+                setDeleteInventoryOpen(true);
+              }}
+              title="Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         );
       },
     },
@@ -382,6 +462,53 @@ export default function ContainerDetailPage() {
                           </a>
                         </Button>
                       )}
+                      {(() => {
+                        const inventoryItem = getInventoryItem(part);
+                        if (!inventoryItem) return null;
+                        return (
+                          <div className="flex gap-2 pt-2 border-t">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => {
+                                setSelectedPart(inventoryItem);
+                                setUpdateQuantityOpen(true);
+                              }}
+                              title="Update quantity"
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => {
+                                setSelectedPart(inventoryItem);
+                                setMoveInventoryOpen(true);
+                              }}
+                              title="Move parts"
+                            >
+                              <Move className="h-3 w-3 mr-1" />
+                              Move
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => {
+                                setSelectedPart(inventoryItem);
+                                setDeleteInventoryOpen(true);
+                              }}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </CardContent>
@@ -449,6 +576,21 @@ export default function ContainerDetailPage() {
           </>
         )}
       </div>
+      <UpdateQuantityDialog
+        part={selectedPart}
+        open={updateQuantityOpen}
+        onOpenChange={setUpdateQuantityOpen}
+      />
+      <MoveInventoryDialog
+        part={selectedPart}
+        open={moveInventoryOpen}
+        onOpenChange={setMoveInventoryOpen}
+      />
+      <DeleteInventoryDialog
+        part={selectedPart}
+        open={deleteInventoryOpen}
+        onOpenChange={setDeleteInventoryOpen}
+      />
     </div>
   );
 }

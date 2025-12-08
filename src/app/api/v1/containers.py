@@ -287,65 +287,6 @@ def delete_container(
         )
 
 
-@router.get("/{container_id}")
-def get_container(
-    container_id: int,
-    conn: sqlite3.Connection = Depends(get_db_connection),
-):
-    """Get container details including drawer information."""
-    container = inventory_db.get_container(container_id)
-    if not container:
-        raise HTTPException(status_code=404, detail="Container not found")
-    return container
-
-
-@router.get("/{container_id}/parts")
-def get_container_parts(
-    container_id: int,
-    conn: sqlite3.Connection = Depends(get_db_connection),
-):
-    """Get all parts in a container with full details."""
-    parts = inventory_db.list_parts_in_container(container_id)
-    
-    # Enhance parts with URLs and images from parts table
-    result = []
-    for part in parts:
-        design_id = part.get("design_id")
-        if design_id:
-            # Get part metadata for URLs and images
-            part_row = conn.execute(
-                "SELECT part_url, part_img_url FROM parts WHERE design_id = ?",
-                (design_id,),
-            ).fetchone()
-            
-            part_url = None
-            part_img_url = None
-            if part_row:
-                part_url = part_row.get("part_url") if isinstance(part_row, dict) else part_row[0] if part_row else None
-                part_img_url = part_row.get("part_img_url") if isinstance(part_row, dict) else part_row[1] if part_row else None
-            
-            # Fallback to Rebrickable URL if not in DB
-            if not part_url and design_id:
-                part_url = f"https://rebrickable.com/parts/{design_id}/"
-            
-            # Fallback to default image if not in DB
-            if not part_img_url:
-                part_img_url = "https://rebrickable.com/static/img/nil.png"
-        
-        result.append({
-            "design_id": design_id,
-            "part_name": part.get("part_name"),
-            "color_id": part.get("color_id"),
-            "color_name": part.get("color_name"),
-            "hex": part.get("hex"),
-            "quantity": part.get("qty") or part.get("quantity") or 0,
-            "part_url": part_url,
-            "part_img_url": part_img_url,
-        })
-    
-    return result
-
-
 @router.get("/put-away-bin", response_model=PutAwayBinResponse)
 def get_put_away_bin(
     conn: sqlite3.Connection = Depends(get_db_connection),
@@ -417,4 +358,63 @@ def set_put_away_bin(
     repo = DrawersRepo(conn)
     repo.set_put_away_bin(request.container_id)
     return {"message": "Put away bin updated successfully"}
+
+
+@router.get("/{container_id}")
+def get_container(
+    container_id: int,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Get container details including drawer information."""
+    container = inventory_db.get_container(container_id)
+    if not container:
+        raise HTTPException(status_code=404, detail="Container not found")
+    return container
+
+
+@router.get("/{container_id}/parts")
+def get_container_parts(
+    container_id: int,
+    conn: sqlite3.Connection = Depends(get_db_connection),
+):
+    """Get all parts in a container with full details."""
+    parts = inventory_db.list_parts_in_container(container_id)
+    
+    # Enhance parts with URLs and images from parts table
+    result = []
+    for part in parts:
+        design_id = part.get("design_id")
+        if design_id:
+            # Get part metadata for URLs and images
+            part_row = conn.execute(
+                "SELECT part_url, part_img_url FROM parts WHERE design_id = ?",
+                (design_id,),
+            ).fetchone()
+            
+            part_url = None
+            part_img_url = None
+            if part_row:
+                part_url = part_row.get("part_url") if isinstance(part_row, dict) else part_row[0] if part_row else None
+                part_img_url = part_row.get("part_img_url") if isinstance(part_row, dict) else part_row[1] if part_row else None
+            
+            # Fallback to Rebrickable URL if not in DB
+            if not part_url and design_id:
+                part_url = f"https://rebrickable.com/parts/{design_id}/"
+            
+            # Fallback to default image if not in DB
+            if not part_img_url:
+                part_img_url = "https://rebrickable.com/static/img/nil.png"
+        
+        result.append({
+            "design_id": design_id,
+            "part_name": part.get("part_name"),
+            "color_id": part.get("color_id"),
+            "color_name": part.get("color_name"),
+            "hex": part.get("hex"),
+            "quantity": part.get("qty") or part.get("quantity") or 0,
+            "part_url": part_url,
+            "part_img_url": part_img_url,
+        })
+    
+    return result
 
