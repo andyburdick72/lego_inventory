@@ -121,16 +121,26 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
   const moveInventory = useMoveInventory();
   const { data: drawers } = useDrawers();
   const { data: containers } = useContainers(
-    selectedDrawerId ? parseInt(selectedDrawerId, 10) : 0
+    selectedDrawerId && selectedDrawerId !== 'none' ? parseInt(selectedDrawerId, 10) : 0
   );
 
   useEffect(() => {
     if (part) {
-      setQuantity('');
-      setSelectedDrawerId(part.drawer_id?.toString() || '');
-      setSelectedContainerId(part.container_id?.toString() || '');
+      setQuantity(part.quantity.toString());
+      setSelectedDrawerId(part.drawer_id?.toString() || 'none');
+      setSelectedContainerId(part.container_id?.toString() || 'none');
     }
   }, [part]);
+
+  // Auto-select container if drawer has only one container
+  useEffect(() => {
+    if (selectedDrawerId && selectedDrawerId !== 'none' && containers && containers.length === 1) {
+      setSelectedContainerId(containers[0].id.toString());
+    } else if (selectedDrawerId === 'none' || !selectedDrawerId) {
+      // Reset container selection when drawer is cleared
+      setSelectedContainerId('none');
+    }
+  }, [selectedDrawerId, containers]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +155,7 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
         alert(`Cannot move more than available quantity (${formatNumber(part.quantity)})`);
         return;
       }
-      const containerId = selectedContainerId ? parseInt(selectedContainerId, 10) : null;
+      const containerId = selectedContainerId && selectedContainerId !== 'none' ? parseInt(selectedContainerId, 10) : null;
       await moveInventory.mutateAsync({
         inventoryId: part.id,
         toContainerId: containerId,
@@ -193,7 +203,7 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
                   <SelectValue placeholder="Select a drawer" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No drawer</SelectItem>
+                  <SelectItem value="none">No drawer</SelectItem>
                   {drawers?.map((drawer) => (
                     <SelectItem key={drawer.id} value={drawer.id.toString()}>
                       {drawer.name}
@@ -202,7 +212,7 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
                 </SelectContent>
               </Select>
             </div>
-            {selectedDrawerId && (
+            {selectedDrawerId && selectedDrawerId !== 'none' && (
               <div className="grid gap-2">
                 <Label htmlFor="move-container">Container (Optional)</Label>
                 <Select value={selectedContainerId} onValueChange={setSelectedContainerId}>
@@ -210,7 +220,7 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
                     <SelectValue placeholder="Select a container" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No container</SelectItem>
+                    <SelectItem value="none">No container</SelectItem>
                     {containers?.map((container) => (
                       <SelectItem key={container.id} value={container.id.toString()}>
                         {container.name}

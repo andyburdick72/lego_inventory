@@ -175,6 +175,7 @@ export default function ContainerDetailPage() {
     {
       id: 'color',
       header: 'Color',
+      accessorFn: (row) => row.color_name || '',
       cell: ({ row }) => {
         const part = row.original;
         const bgColor = part.hex ? `#${part.hex}` : '#ffffff';
@@ -190,6 +191,22 @@ export default function ContainerDetailPage() {
           >
             {part.color_name}
           </div>
+        );
+      },
+    },
+    {
+      id: 'image',
+      header: 'Image',
+      cell: ({ row }) => {
+        const part = row.original;
+        if (!part.part_img_url) return <span className="text-muted-foreground">—</span>;
+        return (
+          <img
+            src={part.part_img_url}
+            alt={part.part_name}
+            className="h-12 w-auto"
+            onClick={(e) => e.stopPropagation()}
+          />
         );
       },
     },
@@ -220,22 +237,6 @@ export default function ContainerDetailPage() {
             >
               View <ExternalLink className="h-3 w-3" />
             </a>
-        );
-      },
-    },
-    {
-      id: 'image',
-      header: 'Image',
-      cell: ({ row }) => {
-        const part = row.original;
-        if (!part.part_img_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <img
-            src={part.part_img_url}
-            alt={part.part_name}
-            className="h-12 w-auto"
-            onClick={(e) => e.stopPropagation()}
-          />
         );
       },
     },
@@ -395,7 +396,7 @@ export default function ContainerDetailPage() {
           <DataTable
             columns={columns}
             data={parts || []}
-            searchKeys={['design_id', 'part_name', 'color_name']}
+            searchKeys={['design_id', 'part_name', 'color', 'color_name']}
             searchPlaceholder="Search by part ID, name, or color..."
             exportFilename={`container-${containerId}-parts`}
             defaultSorting={[{ id: 'quantity', desc: true }]}

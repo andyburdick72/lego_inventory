@@ -32,6 +32,8 @@ def test_get_part_by_id(design_id):
         assert data["design_id"] == design_id
         assert "name" in data
         assert isinstance(data["name"], str)
+        assert "ignore_in_inventory" in data
+        assert isinstance(data["ignore_in_inventory"], bool)
 
 
 def test_get_part_404():
@@ -90,4 +92,72 @@ def test_get_part_sets_404():
         data = r.json()
         assert isinstance(data, list)
         assert len(data) == 0
+
+
+@pytest.mark.parametrize("design_id", ["3001", "3023"])
+def test_patch_part_update_ignore_in_inventory(design_id):
+    """Test updating ignore_in_inventory flag for a part."""
+    _skip_if_no_api()
+    with _client() as c:
+        # Get current state
+        r = c.get(f"/parts/{design_id}")
+        assert r.status_code == 200
+        original_data = r.json()
+        original_flag = original_data.get("ignore_in_inventory", False)
+        
+        # Toggle the flag
+        new_flag = not original_flag
+        r = c.patch(
+            f"/parts/{design_id}",
+            json={"ignore_in_inventory": new_flag}
+        )
+        assert r.status_code == 200
+        updated_data = r.json()
+        assert updated_data["design_id"] == design_id
+        assert updated_data["ignore_in_inventory"] == new_flag
+        
+        # Verify it persisted
+        r = c.get(f"/parts/{design_id}")
+        assert r.status_code == 200
+        persisted_data = r.json()
+        assert persisted_data["ignore_in_inventory"] == new_flag
+        
+        # Restore original state
+        r = c.patch(
+            f"/parts/{design_id}",
+            json={"ignore_in_inventory": original_flag}
+        )
+        assert r.status_code == 200
+        restored_data = r.json()
+        assert restored_data["ignore_in_inventory"] == original_flag
+
+
+def test_patch_part_404():
+    """Test 404 for updating non-existent part."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.patch(
+            "/parts/invalid-part-id-99999",
+            json={"ignore_in_inventory": True}
+        )
+        assert r.status_code == 404
+
+
+def test_patch_part_empty_request():
+    """Test that patch with empty request body returns current part."""
+    _skip_if_no_api()
+    with _client() as c:
+        design_id = "3001"
+        # Get original
+        r = c.get(f"/parts/{design_id}")
+        assert r.status_code == 200
+        original_data = r.json()
+        
+        # Patch with empty body
+        r = c.patch(f"/parts/{design_id}", json={})
+        assert r.status_code == 200
+        data = r.json()
+        # Should return unchanged part
+        assert data["design_id"] == design_id
+        assert data["ignore_in_inventory"] == original_data["ignore_in_inventory"]
 

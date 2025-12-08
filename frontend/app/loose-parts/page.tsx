@@ -89,6 +89,7 @@ export default function LoosePartsPage() {
     {
       id: 'color',
       header: 'Color',
+      accessorFn: (row) => row.color_name || 'Unknown',
       cell: ({ row }) => {
         const part = row.original;
         const bgColor = part.color_hex ? `#${part.color_hex}` : '#ffffff';
@@ -108,8 +109,25 @@ export default function LoosePartsPage() {
       },
     },
     {
+      id: 'image',
+      header: 'Image',
+      cell: ({ row }) => {
+        const part = row.original;
+        if (!part.image_url) return <span className="text-muted-foreground">—</span>;
+        return (
+          <img
+            src={part.image_url}
+            alt={part.part_name || part.part_id}
+            className="h-12 w-auto"
+            onClick={(e) => e.stopPropagation()}
+          />
+        );
+      },
+    },
+    {
       id: 'drawer',
       header: 'Drawer',
+      accessorFn: (row) => row.drawer_name || '',
       cell: ({ row }) => {
         const part = row.original;
         if (!part.drawer_id || !part.drawer_name) {
@@ -129,6 +147,7 @@ export default function LoosePartsPage() {
     {
       id: 'container',
       header: 'Container',
+      accessorFn: (row) => row.container_label || '',
       cell: ({ row }) => {
         const part = row.original;
         if (!part.container_id || !part.container_label) {
@@ -222,22 +241,6 @@ export default function LoosePartsPage() {
         );
       },
     },
-    {
-      id: 'image',
-      header: 'Image',
-      cell: ({ row }) => {
-        const part = row.original;
-        if (!part.image_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <img
-            src={part.image_url}
-            alt={part.part_name || part.part_id}
-            className="h-12 w-auto"
-            onClick={(e) => e.stopPropagation()}
-          />
-        );
-      },
-    },
   ];
 
   return (
@@ -310,7 +313,7 @@ export default function LoosePartsPage() {
           <DataTable
             columns={columns}
             data={parts || []}
-            searchKeys={['part_id', 'part_name', 'color', 'color_name', 'drawer', 'drawer_name', 'container', 'container_label']}
+            searchKeys={['part_id', 'part_name', 'color', 'color_name', 'drawer', 'drawer_name', 'container', 'container_label', 'container_name']}
             searchPlaceholder="Search by part ID, name, color, drawer, or container..."
             exportFilename="loose-parts"
             defaultSorting={[{ id: 'quantity', desc: true }]}

@@ -109,9 +109,8 @@ class LocationReconciliationService:
 
             set_parts = list(self._set_parts.list_for_set(set_number=set_num))
             for part in set_parts:
-                # Skip sticker sheets - they don't get stored in inventory
-                part_name = str(part.get("name", ""))
-                if "sticker sheet" in part_name.lower():
+                # Skip parts marked to ignore in inventory
+                if part.get("ignore_in_inventory", 0) == 1:
                     continue
 
                 design_id = str(part.get("design_id", ""))
@@ -124,7 +123,7 @@ class LocationReconciliationService:
                 # Store part info
                 if key not in part_info_map:
                     part_info_map[key] = {
-                        "part_name": part_name,
+                        "part_name": str(part.get("name", "")),
                         "color_name": str(part.get("color_name", "")),
                         "color_hex": part.get("hex"),
                         "part_url": part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/",
@@ -222,9 +221,8 @@ class LocationReconciliationService:
 
             set_parts = list(self._set_parts.list_for_set(set_number=set_num))
             for part in set_parts:
-                # Skip sticker sheets - they don't get stored in inventory
-                part_name = str(part.get("name", ""))
-                if "sticker sheet" in part_name.lower():
+                # Skip parts marked to ignore in inventory
+                if part.get("ignore_in_inventory", 0) == 1:
                     continue
 
                 design_id = str(part.get("design_id", ""))
@@ -237,7 +235,7 @@ class LocationReconciliationService:
                 # Store part info
                 if key not in part_info_map:
                     part_info_map[key] = {
-                        "part_name": part_name,
+                        "part_name": str(part.get("name", "")),
                         "color_name": str(part.get("color_name", "")),
                         "color_hex": part.get("hex"),
                         "part_url": part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/",

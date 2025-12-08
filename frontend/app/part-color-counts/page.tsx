@@ -55,6 +55,7 @@ export default function PartColorCountsPage() {
       {
         id: 'color',
         header: 'Color',
+        accessorFn: (row) => row.color_name || '—',
         cell: ({ row }) => {
           const item = row.original;
           const hex = item.hex;
@@ -73,6 +74,24 @@ export default function PartColorCountsPage() {
             >
               {item.color_name || '—'}
             </div>
+          );
+        },
+      },
+      {
+        id: 'image',
+        header: 'Image',
+        cell: ({ row }) => {
+          const item = row.original;
+          if (!item.part_img_url) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return (
+            <img
+              src={item.part_img_url}
+              alt={item.part_name}
+              className="h-16 w-auto"
+              onClick={(e) => e.stopPropagation()}
+            />
           );
         },
       },
@@ -103,24 +122,6 @@ export default function PartColorCountsPage() {
             >
               View <ExternalLink className="h-3 w-3" />
             </a>
-          );
-        },
-      },
-      {
-        id: 'image',
-        header: 'Image',
-        cell: ({ row }) => {
-          const item = row.original;
-          if (!item.part_img_url) {
-            return <span className="text-muted-foreground">—</span>;
-          }
-          return (
-            <img
-              src={item.part_img_url}
-              alt={item.part_name}
-              className="h-16 w-auto"
-              onClick={(e) => e.stopPropagation()}
-            />
           );
         },
       },

@@ -20,7 +20,7 @@ class PartsRepo(BaseRepo):
         return self._one(
             """
             SELECT p.design_id, p.name, p.part_url, p.part_img_url,
-                   p.part_category_id,
+                   p.part_category_id, p.ignore_in_inventory,
                    pc.name AS part_category_name
             FROM parts p
             LEFT JOIN part_categories pc ON pc.id = p.part_category_id
@@ -48,3 +48,16 @@ class PartsRepo(BaseRepo):
             """,
             [alias],
         )
+
+    def update_part(self, design_id: str, **fields) -> None:
+        """Update part fields."""
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values())
+        values.append(design_id)
+        self.conn.execute(
+            f"UPDATE parts SET {set_clause} WHERE design_id = ?",
+            values,
+        )
+        self.conn.commit()

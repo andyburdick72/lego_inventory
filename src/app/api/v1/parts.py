@@ -24,9 +24,17 @@ class PartDTO(DTOBase):
     name: str
     part_url: str
     part_img_url: str
+    ignore_in_inventory: bool = False
     # TODO: Add part categories later - API fetching is too slow
     # part_category_id: Optional[int] = None
     # part_category_name: Optional[str] = None
+
+
+# Request models
+class UpdatePartDTO(DTOBase):
+    """Update part request DTO."""
+
+    ignore_in_inventory: Optional[bool] = None
 
 
 class PartInSetDTO(DTOBase):
@@ -65,6 +73,7 @@ def get_part(
             name=str(part_data.get("name", "")),
             part_url=part_url,
             part_img_url=part_img_url,
+            ignore_in_inventory=bool(part_data.get("ignore_in_inventory", 0)),
             # TODO: Add part categories later
             # part_category_id=part_data.get("part_category_id"),
             # part_category_name=part_data.get("part_category_name"),
@@ -120,6 +129,56 @@ def get_sets_for_part(
             for s in sets_data
         ]
         return [s.model_dump() for s in result]
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/{design_id}", response_model=PartDTO)
+def update_part(
+    design_id: str,
+    update_data: UpdatePartDTO,
+    service: PartsService = Depends(get_parts_service),
+):
+    """Update part metadata."""
+    try:
+        # Build update fields dict, excluding None values
+        update_fields = {}
+        if update_data.ignore_in_inventory is not None:
+            update_fields["ignore_in_inventory"] = 1 if update_data.ignore_in_inventory else 0
+        
+        if not update_fields:
+            # No fields to update, just return current part
+            part_data = service.get_part(design_id=design_id)
+        else:
+            # Update part
+            part_data = service.update_part(design_id=design_id, **update_fields)
+        
+        # Ensure URLs are present
+        part_url = part_data.get("part_url")
+        if not part_url:
+            part_url = f"https://rebrickable.com/parts/{part_data.get('design_id', '')}/"
+
+        part_img_url = part_data.get("part_img_url")
+        if not part_img_url:
+            part_img_url = "https://rebrickable.com/static/img/nil.png"
+
+        part = PartDTO(
+            design_id=str(part_data.get("design_id", "")),
+            name=str(part_data.get("name", "")),
+            part_url=part_url,
+            part_img_url=part_img_url,
+            ignore_in_inventory=bool(part_data.get("ignore_in_inventory", 0)),
+        )
+        return part.model_dump()
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

@@ -74,6 +74,7 @@ class SetsRepo(BaseRepo):
                 p.part_url,
                 p.part_img_url,
                 p.part_category_id,
+                p.ignore_in_inventory,
                 pc.name AS part_category_name
             FROM set_parts sp
             JOIN parts  p ON p.design_id = sp.design_id

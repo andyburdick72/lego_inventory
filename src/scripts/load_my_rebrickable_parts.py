@@ -239,6 +239,26 @@ def gather_and_insert_parts(
                 name = part["name"]
                 part_url = part.get("part_url")
                 part_img_url = part.get("part_img_url")
+                part_category_id = part.get("part_category_id")
+                
+                # Check if part already exists in database to preserve manual overrides
+                existing_part = cursor.execute(
+                    "SELECT ignore_in_inventory FROM parts WHERE design_id = ?",
+                    (rb_id,)
+                ).fetchone()
+                
+                # Determine if part should be ignored in inventory
+                # Priority: preserve existing manual override, then apply default rules
+                if existing_part and existing_part[0] == 1:
+                    # Part already marked to ignore - preserve this (user may have manually set it)
+                    ignore_in_inventory = 1
+                else:
+                    # Apply default rules for new parts or parts not yet marked
+                    ignore_in_inventory = 0
+                    if part_category_id == 327:  # Sticker sheet category
+                        ignore_in_inventory = 1
+                    elif rb_id in ("902221", "902222"):  # Specific parts to ignore
+                        ignore_in_inventory = 1
                 
                 # Track unique parts for category fetching
                 if rb_id not in seen_part_ids:
@@ -248,23 +268,25 @@ def gather_and_insert_parts(
                 if part_url is None:
                     part_url = f"https://rebrickable.com/parts/{rb_id}/"
                 # Opportunistically backfill part metadata
+                # Only update ignore_in_inventory if it changed (to avoid unnecessary updates)
                 cursor.execute(
                     """
                     UPDATE parts
                     SET name = COALESCE(?, name),
                         part_url = COALESCE(?, part_url),
-                        part_img_url = COALESCE(?, part_img_url)
+                        part_img_url = COALESCE(?, part_img_url),
+                        ignore_in_inventory = ?
                     WHERE design_id = ?
                     """,
-                    (name, part_url, part_img_url, rb_id),
+                    (name, part_url, part_img_url, ignore_in_inventory, rb_id),
                 )
                 if not insert_only_set_parts:
                     # Ensure the part exists
                     if rb_id not in seen_parts:
                         try:
                             cursor.execute(
-                                "INSERT OR IGNORE INTO parts (design_id, name) VALUES (?, ?)",
-                                (rb_id, name),
+                                "INSERT OR IGNORE INTO parts (design_id, name, ignore_in_inventory) VALUES (?, ?, ?)",
+                                (rb_id, name, ignore_in_inventory),
                             )
                             if cursor.rowcount == 1:
                                 new_parts += 1

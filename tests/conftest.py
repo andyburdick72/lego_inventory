@@ -109,7 +109,8 @@ def conn_rw(temp_db_path):
           design_id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           part_url TEXT,
-          part_img_url TEXT
+          part_img_url TEXT,
+          ignore_in_inventory INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS colors (
           id INTEGER PRIMARY KEY,

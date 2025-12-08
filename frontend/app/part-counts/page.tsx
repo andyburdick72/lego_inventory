@@ -53,6 +53,24 @@ export default function PartCountsPage() {
         },
       },
       {
+        id: 'image',
+        header: 'Image',
+        cell: ({ row }) => {
+          const part = row.original;
+          if (!part.part_img_url) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return (
+            <img
+              src={part.part_img_url}
+              alt={part.part_name}
+              className="h-16 w-auto"
+              onClick={(e) => e.stopPropagation()}
+            />
+          );
+        },
+      },
+      {
         accessorKey: 'total_qty',
         header: 'Total Quantity',
         cell: ({ row }) => {
@@ -79,24 +97,6 @@ export default function PartCountsPage() {
             >
               View <ExternalLink className="h-3 w-3" />
             </a>
-          );
-        },
-      },
-      {
-        id: 'image',
-        header: 'Image',
-        cell: ({ row }) => {
-          const part = row.original;
-          if (!part.part_img_url) {
-            return <span className="text-muted-foreground">—</span>;
-          }
-          return (
-            <img
-              src={part.part_img_url}
-              alt={part.part_name}
-              className="h-16 w-auto"
-              onClick={(e) => e.stopPropagation()}
-            />
           );
         },
       },

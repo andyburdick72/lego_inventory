@@ -182,6 +182,7 @@ export default function SetDetailPage() {
     {
       id: 'color',
       header: 'Color',
+      accessorFn: (row) => row.color_name || '',
       cell: ({ row }) => {
         const part = row.original;
         const bgColor = part.hex ? `#${part.hex}` : '#ffffff';
@@ -197,6 +198,22 @@ export default function SetDetailPage() {
           >
             {part.color_name}
           </div>
+        );
+      },
+    },
+    {
+      id: 'image',
+      header: 'Image',
+      cell: ({ row }) => {
+        const part = row.original;
+        if (!part.part_img_url) return <span className="text-muted-foreground">—</span>;
+        return (
+          <img
+            src={part.part_img_url}
+            alt={part.name}
+            className="h-12 w-auto"
+            onClick={(e) => e.stopPropagation()}
+          />
         );
       },
     },
@@ -230,22 +247,6 @@ export default function SetDetailPage() {
         );
       },
     },
-    {
-      id: 'image',
-      header: 'Image',
-      cell: ({ row }) => {
-        const part = row.original;
-        if (!part.part_img_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <img
-            src={part.part_img_url}
-            alt={part.name}
-            className="h-12 w-auto"
-            onClick={(e) => e.stopPropagation()}
-          />
-        );
-      },
-    },
   ];
 
   const partLocationsColumns: ColumnDef<SetPartWithLocations>[] = [
@@ -272,6 +273,7 @@ export default function SetDetailPage() {
     {
       id: 'color',
       header: 'Color',
+      accessorFn: (row) => row.color_name || '',
       cell: ({ row }) => {
         const part = row.original;
         const bgColor = part.hex ? `#${part.hex}` : '#ffffff';

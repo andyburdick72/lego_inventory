@@ -35,7 +35,7 @@ def sync_loose_parts_to_inventory(conn: sqlite3.Connection) -> dict:
     print("=" * 60)
 
     # Get aggregated quantities from set_parts for loose_parts sets
-    # Exclude sticker sheets (parts with "Sticker Sheet" in the name)
+    # Exclude parts marked to ignore in inventory
     set_parts_query = """
         SELECT 
             sp.design_id,
@@ -45,7 +45,7 @@ def sync_loose_parts_to_inventory(conn: sqlite3.Connection) -> dict:
         JOIN sets s ON s.set_num = sp.set_num
         LEFT JOIN parts p ON p.design_id = sp.design_id
         WHERE s.status = 'loose_parts'
-          AND (p.name IS NULL OR p.name NOT LIKE '%Sticker Sheet%')
+          AND COALESCE(p.ignore_in_inventory, 0) = 0
         GROUP BY sp.design_id, sp.color_id
     """
 

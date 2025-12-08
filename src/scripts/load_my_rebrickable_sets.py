@@ -16,7 +16,8 @@ if str(_ROOT) not in sys.path:
 from app.settings import get_settings  # noqa: E402
 from core.enums import Status  # noqa: E402
 from integrations.rebrickable_api import get_json  # noqa: E402
-from scripts.load_my_rebrickable_parts import fetch_owned_sets  # noqa: E402
+from scripts.load_my_rebrickable_parts import fetch_owned_sets, gather_and_insert_parts  # noqa: E402
+from infra.db.inventory_db import _connect  # noqa: E402
 
 # Centralized settings (cached)
 SETTINGS = get_settings()
@@ -28,7 +29,7 @@ if not API_KEY or not USER_TOKEN:
     )
 
 
-def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", update_themes: bool = False):
+def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", update_themes: bool = False, auto_load_parts: bool = True):
     """
     Non-interactive version that uses a default status for all new sets.
     Returns a summary string of what was done.
@@ -36,6 +37,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
     Args:
         default_status: Status to use for new sets
         update_themes: If True, update theme information for all sets (even existing ones)
+        auto_load_parts: If True, automatically load parts for newly discovered sets
     """
     if USER_TOKEN is None:
         raise ValueError("USER_TOKEN cannot be None")
@@ -52,6 +54,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
     set_nums = fetch_owned_sets(USER_TOKEN)
     owned_counts = Counter(set_nums)
     summary_lines = []
+    new_sets: list[str] = []  # Track sets that were newly inserted
 
     with sqlite3.connect(str(SETTINGS.db_path)) as conn:
         c = conn.cursor()
@@ -163,15 +166,45 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
             msg = f"✅ Added {to_insert} row(s) for set {set_num}: {name} (owned={owned_count}, was={db_count}); status='{chosen_status_value}'"
             print(msg)
             summary_lines.append(msg)
+            
+            # Track this set as newly inserted
+            if set_num not in new_sets:
+                new_sets.append(set_num)
+    
+    # Automatically load parts for newly discovered sets
+    if auto_load_parts and new_sets:
+        print(f"\n📦 Found {len(new_sets)} new set(s). Loading parts...")
+        try:
+            with _connect() as conn:
+                gather_and_insert_parts(
+                    new_sets,
+                    conn,
+                    insert_only_set_parts=False,  # Insert new parts too
+                    include_spares=True,  # Include spare parts
+                    include_minifig_parts=True,  # Include minifig parts
+                    skip_refresh=False,  # Refresh existing set_parts
+                )
+            summary_lines.append(f"\n✅ Automatically loaded parts for {len(new_sets)} new set(s)")
+        except Exception as e:
+            error_msg = f"\n⚠️ Warning: Failed to automatically load parts for new sets: {e}"
+            print(error_msg)
+            summary_lines.append(error_msg)
     
     return "\n".join(summary_lines) if summary_lines else "No new sets to import."
 
 
-def load_my_rebrickable_sets():
+def load_my_rebrickable_sets(auto_load_parts: bool = True):
+    """
+    Interactive version that prompts for status for each new set.
+    
+    Args:
+        auto_load_parts: If True, automatically load parts for newly discovered sets
+    """
     if USER_TOKEN is None:
         raise ValueError("USER_TOKEN cannot be None")
     set_nums = fetch_owned_sets(USER_TOKEN)
     owned_counts = Counter(set_nums)
+    new_sets: list[str] = []  # Track sets that were newly inserted
 
     with sqlite3.connect(str(SETTINGS.db_path)) as conn:
         c = conn.cursor()
@@ -302,6 +335,29 @@ def load_my_rebrickable_sets():
             print(
                 f"✅ Added {to_insert} row(s) for set {set_num}: {name} (owned={owned_count}, was={db_count}); status='{chosen_status_value}'"
             )
+            
+            # Track this set as newly inserted
+            if set_num not in new_sets:
+                new_sets.append(set_num)
+    
+    # Automatically load parts for newly discovered sets
+    if auto_load_parts and new_sets:
+        print(f"\n📦 Found {len(new_sets)} new set(s). Loading parts...")
+        try:
+            with _connect() as conn:
+                gather_and_insert_parts(
+                    new_sets,
+                    conn,
+                    insert_only_set_parts=False,  # Insert new parts too
+                    include_spares=True,  # Include spare parts
+                    include_minifig_parts=True,  # Include minifig parts
+                    skip_refresh=False,  # Refresh existing set_parts
+                )
+            print(f"\n✅ Automatically loaded parts for {len(new_sets)} new set(s)")
+        except Exception as e:
+            print(f"\n⚠️ Warning: Failed to automatically load parts for new sets: {e}")
+            import traceback
+            print(traceback.format_exc())
 
 
 if __name__ == "__main__":

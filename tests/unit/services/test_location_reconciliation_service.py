@@ -341,6 +341,7 @@ def test_compute_loose_parts_skips_sticker_sheets():
                 "quantity": 1,
                 "name": "Sticker Sheet",
                 "color_name": "Transparent",
+                "ignore_in_inventory": 1,
             }
         ]
     }

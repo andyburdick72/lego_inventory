@@ -28,7 +28,14 @@ def conn_rw():
           design_id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           part_url TEXT,
-          part_img_url TEXT
+          part_img_url TEXT,
+          ignore_in_inventory INTEGER DEFAULT 0,
+          part_category_id INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS part_categories (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS themes (
@@ -236,6 +243,37 @@ def test_sets_repo_basic_and_total(conn_rw):
 def test_parts_repo_fetch_name(conn_rw):
     parts = PartsRepo(conn_rw)
     assert parts.fetch_part_name("3001") == "Brick 2 x 4"
+
+
+def test_parts_repo_update_part(conn_rw):
+    """Test updating part fields."""
+    parts = PartsRepo(conn_rw)
+    
+    # Verify initial state
+    part = parts.get_part("3001")
+    assert part is not None
+    assert part.get("ignore_in_inventory", 0) == 0
+    
+    # Update ignore_in_inventory flag
+    parts.update_part("3001", ignore_in_inventory=1)
+    
+    # Verify update
+    updated_part = parts.get_part("3001")
+    assert updated_part is not None
+    assert updated_part["ignore_in_inventory"] == 1
+    
+    # Update back to 0
+    parts.update_part("3001", ignore_in_inventory=0)
+    restored_part = parts.get_part("3001")
+    assert restored_part is not None
+    assert restored_part["ignore_in_inventory"] == 0
+    
+    # Test updating multiple fields
+    parts.update_part("3001", ignore_in_inventory=1, name="Updated Name")
+    multi_updated = parts.get_part("3001")
+    assert multi_updated is not None
+    assert multi_updated["ignore_in_inventory"] == 1
+    assert multi_updated["name"] == "Updated Name"
 
 
 def test_colors_repo_resolve_alias(conn_rw):

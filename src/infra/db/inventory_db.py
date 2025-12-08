@@ -172,6 +172,7 @@ def init_db() -> None:
                 part_url  TEXT,
                 part_img_url TEXT,
                 part_category_id INTEGER,
+                ignore_in_inventory INTEGER DEFAULT 0,
                 FOREIGN KEY (part_category_id) REFERENCES part_categories(id)
             );
 
@@ -302,6 +303,10 @@ def init_db() -> None:
             pass
         try:
             conn.execute("ALTER TABLE containers ADD COLUMN deleted_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE parts ADD COLUMN ignore_in_inventory INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
         # Create soft-delete-aware index and active-only views once columns exist

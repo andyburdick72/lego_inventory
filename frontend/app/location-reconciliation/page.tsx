@@ -217,24 +217,6 @@ export default function LocationReconciliationPage() {
 
   const columns: ColumnDef<LocationReconciliationItem>[] = [
     {
-      accessorKey: 'part_img_url',
-      header: 'Image',
-      cell: ({ row }) => {
-        const item = row.original;
-        return (
-          <div className="flex items-center justify-center">
-            {item.part_img_url && (
-              <img
-                src={item.part_img_url}
-                alt={item.part_name}
-                className="w-12 h-12 object-contain"
-              />
-            )}
-          </div>
-        );
-      },
-    },
-    {
       accessorKey: 'design_id',
       header: 'Part ID',
       cell: ({ row }) => {
@@ -255,8 +237,10 @@ export default function LocationReconciliationPage() {
       cell: ({ row }) => row.original.part_name,
     },
     {
-      accessorKey: 'color_name',
+      id: 'color',
       header: 'Color',
+      accessorKey: 'color_name',
+      accessorFn: (row) => row.color_name || 'Unknown',
       cell: ({ row }) => {
         const item = row.original;
         const bgColor = item.color_hex ? `#${item.color_hex}` : '#ffffff';
@@ -271,6 +255,24 @@ export default function LocationReconciliationPage() {
             }}
           >
             {item.color_name || 'Unknown'}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: 'part_img_url',
+      header: 'Image',
+      cell: ({ row }) => {
+        const item = row.original;
+        return (
+          <div className="flex items-center justify-center">
+            {item.part_img_url && (
+              <img
+                src={item.part_img_url}
+                alt={item.part_name}
+                className="w-12 h-12 object-contain"
+              />
+            )}
           </div>
         );
       },
@@ -499,7 +501,7 @@ export default function LocationReconciliationPage() {
                 columns={columns} 
                 data={filteredItems} 
                 hideTopBar={true}
-                searchKeys={['design_id', 'part_name', 'color_name']}
+                searchKeys={['design_id', 'part_name', 'color', 'color_name']}
               />
             </CardContent>
           </Card>
@@ -595,7 +597,7 @@ export default function LocationReconciliationPage() {
                 columns={columns} 
                 data={filteredItems} 
                 hideTopBar={true}
-                searchKeys={['design_id', 'part_name', 'color_name']}
+                searchKeys={['design_id', 'part_name', 'color', 'color_name']}
               />
             </CardContent>
           </Card>
