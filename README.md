@@ -49,7 +49,6 @@ lego_inventory/
 ├── src/
 │   ├── app/
 │   │   ├── api/                          # FastAPI REST API
-│   │   │   ├── main.py                   # FastAPI application
 │   │   │   └── v1/                       # API v1 endpoints
 │   │   ├── di.py                         # Dependency injection
 │   │   └── errors.py                     # Error handling
@@ -217,6 +216,7 @@ This will:
 
 **UI Highlights:**
 - **Loose Parts** page: Browse all loose inventory with card/table views and CRUD operations
+- **Reporting & Analytics** page: Dashboard with links to part counts, part+color counts, and location counts
 - **Location Counts** page: View inventory totals grouped by drawer/container
 - **Part Counts** page: Aggregate part counts across all sets
 - **Part Color Counts** page: Part counts grouped by part and color
@@ -378,7 +378,7 @@ pytest
 
 This will:
 - Run all tests
-- Enforce a minimum coverage threshold (currently 70%)
+- Enforce a minimum coverage threshold of **70%** (fails if below threshold)
 - Print missing lines (skipping fully covered files)
 - Generate XML and HTML coverage reports
 
@@ -395,6 +395,8 @@ Open `coverage_html_report/index.html` in a browser to view the detailed coverag
 ## Roadmap Management (GitHub Issues + Project)
 
 This repo tracks the roadmap in GitHub Issues and a Project board (user project: **LEGO Inventory Management System Roadmap**). Issues include checklists, labels, and—when appropriate—a **Copilot** prompt and a **Recommended branch name**.
+
+**Note:** All GitHub issue operations (opening, closing, commenting, viewing) should be done via the GitHub CLI (`gh`). Use commands like `gh issue view`, `gh issue close`, `gh issue comment`, etc. The repository is auto-detected from git remote, or use `--repo andyburdick72/lego_inventory`.
 
 ### Labels
 - `type:*` → feature | refactor | test | bug | exploration  
@@ -427,13 +429,16 @@ git push
 ```
 
 ### Working an issue
-1. Open the issue and copy **🔀 Recommended branch** (e.g. `feature/route-write-endpoints`).
+1. View the issue using GitHub CLI and copy **🔀 Recommended branch** (e.g. `feature/route-write-endpoints`):
+   ```bash
+   gh issue view <issue_number>
+   ```
 2. Create the branch and reference the issue number in commits:
    ```bash
    git checkout -b feature/route-write-endpoints
    git commit -m "Implement create_drawer endpoint (#1)"
    ```
 3. Use the **💡 Copilot Prompt** in the issue body with Copilot Chat (VS Code) for multi-file changes.
-4. Move the card on the Project board using the **Status** field (Backlog → In Progress → Done). Closing the issue auto-moves it to **Done**.
+4. Move the card on the Project board using the **Status** field (Backlog → In Progress → Done). Closing the issue via `gh issue close` auto-moves it to **Done**.
 
 > Note: The Project board title and node id are managed by scripts; the node id is stored in the repo variable `LEGO_PROJECT_ID`.

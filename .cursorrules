@@ -80,6 +80,12 @@ SQLite-backed inventory management system for LEGO parts and sets. Integrates wi
 
 ## GitHub Workflow
 
+### Issue Management
+- **ALWAYS use GitHub CLI (`gh`) for opening, closing, commenting on, or viewing issues**
+- Never use browser automation or web UI for GitHub issue operations
+- Use `gh issue` commands (e.g., `gh issue view`, `gh issue close`, `gh issue comment`)
+- Repository is auto-detected from git remote, or use `--repo andyburdick72/lego_inventory`
+
 ### Creating Issues
 - **Always add new issues to Project #1**: "LEGO Inventory Management System Roadmap"
 - Use appropriate labels:
