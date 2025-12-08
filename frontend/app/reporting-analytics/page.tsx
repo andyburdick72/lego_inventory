@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/card';
 import Image from 'next/image';
 import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { usePartCounts, usePartColorCounts, useLocationCounts } from '@/lib/hooks/use-parts';
 import { formatNumber } from '@/lib/utils';
 
@@ -36,6 +37,14 @@ export default function ReportingAnalyticsPage() {
 
   return (
     <div className="container mx-auto py-8">
+      <div className="mb-6">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Home
+          </Link>
+        </Button>
+      </div>
       <h1 className="text-3xl font-bold mb-6">Reporting and Analytics</h1>
       <p className="text-muted-foreground mb-8">
         Tools for reviewing your inventory data.
@@ -76,14 +85,14 @@ export default function ReportingAnalyticsPage() {
         <Card className="flex flex-row items-center gap-4">
           <div className="flex-1">
             <CardHeader>
-              <CardTitle>Part + Color Counts</CardTitle>
-              <CardDescription>Parts by color totals</CardDescription>
+              <CardTitle>Element Counts</CardTitle>
+              <CardDescription>Elements (part + color) totals</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
               {partColorCounts && (
                 <div className="text-sm text-muted-foreground mb-3 space-y-1">
                   <div>
-                    Parts + Colors: <span className="font-medium text-foreground">{formatNumber(partColorCounts.length)}</span>
+                    Elements: <span className="font-medium text-foreground">{formatNumber(partColorCounts.length)}</span>
                   </div>
                   <div>
                     Total Quantity: <span className="font-medium text-foreground">{formatNumber(partColorCountsTotal)}</span>
@@ -91,13 +100,13 @@ export default function ReportingAnalyticsPage() {
                 </div>
               )}
               <Button asChild className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                <Link href="/part-color-counts">View Part + Color Counts</Link>
+                <Link href="/part-color-counts">View Element Counts</Link>
               </Button>
             </CardContent>
           </div>
           <Image
             src="/part-color-counts-icon.png"
-            alt="Part + Color Counts"
+            alt="Element Counts"
             width={120}
             height={120}
             className="object-contain shrink-0 pr-4"

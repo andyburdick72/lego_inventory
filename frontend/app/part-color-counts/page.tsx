@@ -148,7 +148,7 @@ export default function PartColorCountsPage() {
     return (
       <div className="container mx-auto py-8">
         <div className="text-red-600">
-          Error loading part color counts: {error instanceof Error ? error.message : 'Unknown error'}
+          Error loading element counts: {error instanceof Error ? error.message : 'Unknown error'}
         </div>
       </div>
     );
@@ -158,15 +158,15 @@ export default function PartColorCountsPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href="/">← Back to Home</Link>
+          <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
         </Button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Part + Color Counts</h1>
+            <h1 className="text-3xl font-bold">Element Counts</h1>
             {!isLoading && partColorCounts && (
               <div className="flex gap-4 mt-2 text-sm">
                 <div>
-                  <span className="text-muted-foreground">Parts + Colors: </span>
+                  <span className="text-muted-foreground">Elements: </span>
                   <span className="font-medium">{formatNumber(partColorCounts.length)}</span>
                 </div>
                 <div>
@@ -201,10 +201,10 @@ export default function PartColorCountsPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-muted-foreground">Loading part color counts...</div>
+        <div className="text-muted-foreground">Loading element counts...</div>
       ) : partColorCounts && partColorCounts.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          No parts found.
+          No elements found.
         </div>
       ) : viewMode === 'table' ? (
         <DataTable
@@ -306,7 +306,7 @@ export default function PartColorCountsPage() {
               <div className="text-sm text-muted-foreground">
                 Showing {cardPageIndex * cardPageSize + 1} to{' '}
                 {Math.min((cardPageIndex + 1) * cardPageSize, partColorCounts?.length || 0)} of{' '}
-                {formatNumber(partColorCounts?.length || 0)} parts
+                {formatNumber(partColorCounts?.length || 0)} elements
               </div>
               <div className="flex items-center gap-2">
                 <Button

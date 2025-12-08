@@ -74,7 +74,7 @@ export default function SetDetailPage() {
           label: 'Part',
         },
         'part-counts': { href: '/part-counts', label: 'Part Counts' },
-        'part-color-counts': { href: '/part-color-counts', label: 'Part + Color Counts' },
+        'part-color-counts': { href: '/part-color-counts', label: 'Element Counts' },
       };
       if (fromMap[fromParam]) {
         setBackLink(fromMap[fromParam]);
@@ -90,7 +90,7 @@ export default function SetDetailPage() {
       if (pathname.includes('/part-counts')) {
         setBackLink({ href: '/part-counts', label: 'Part Counts' });
       } else if (pathname.includes('/part-color-counts')) {
-        setBackLink({ href: '/part-color-counts', label: 'Part + Color Counts' });
+        setBackLink({ href: '/part-color-counts', label: 'Element Counts' });
       } else if (pathname.includes('/parts/')) {
         // Extract part design_id from referrer if possible
         const partMatch = pathname.match(/\/parts\/([^/]+)/);

@@ -389,20 +389,20 @@ export default function LocationReconciliationPage() {
 
   return (
     <div className="container mx-auto py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Location Reconciliation</h1>
-          <p className="text-muted-foreground mt-2">
-            Reconcile inventory locations for Loose Parts and Teardown sets. Review where parts are currently
-            stored and update locations as needed.
-          </p>
-        </div>
-        <Link href="/">
-          <Button variant="outline">
+      <div className="mb-6">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/inventory-updates">
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
-        </Link>
+            Back to Inventory Updates
+          </Link>
+        </Button>
+      </div>
+      <div>
+        <h1 className="text-3xl font-bold">Location Reconciliation</h1>
+        <p className="text-muted-foreground mt-2">
+          Reconcile inventory locations for Loose Parts and Teardown sets. Review where parts are currently
+          stored and update locations as needed.
+        </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'loose-parts' | 'teardown')}>
@@ -497,9 +497,9 @@ export default function LocationReconciliationPage() {
                   Export CSV
                 </Button>
               </div>
-              <DataTable 
-                columns={columns} 
-                data={filteredItems} 
+              <DataTable
+                columns={columns}
+                data={filteredItems}
                 hideTopBar={true}
                 searchKeys={['design_id', 'part_name', 'color', 'color_name']}
               />
@@ -593,9 +593,9 @@ export default function LocationReconciliationPage() {
                   Export CSV
                 </Button>
               </div>
-              <DataTable 
-                columns={columns} 
-                data={filteredItems} 
+              <DataTable
+                columns={columns}
+                data={filteredItems}
                 hideTopBar={true}
                 searchKeys={['design_id', 'part_name', 'color', 'color_name']}
               />

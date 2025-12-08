@@ -133,7 +133,7 @@ export default function PartCountsPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href="/">← Back to Home</Link>
+          <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
         </Button>
         <div className="flex items-center justify-between">
           <div>

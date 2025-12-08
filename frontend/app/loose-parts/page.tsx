@@ -259,7 +259,7 @@ export default function LoosePartsPage() {
                   <span className="font-medium">{formatNumber(stats.uniqueParts)}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Unique Part + Colors: </span>
+                  <span className="text-muted-foreground">Unique Elements: </span>
                   <span className="font-medium">{formatNumber(stats.uniquePartColors)}</span>
                 </div>
                 <div>
