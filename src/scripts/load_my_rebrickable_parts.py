@@ -88,7 +88,8 @@ def fetch_part_detail(
 
 
 def backfill_all_parts(conn: sqlite3.Connection) -> None:
-    """Backfill part_url and part_img_url for any parts missing them."""
+    """Backfill part_url and part_img_url for any parts missing them.
+    Also captures and stores alternate Rebrickable part IDs from external_ids."""
     api_key = get_api_key()
     cur = conn.cursor()
     total_missing = cur.execute(
@@ -99,6 +100,7 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
     ).fetchone()[0]
     print(f"Backfilling metadata for {total_missing} parts missing URLs/images…")
     checked = updated = skipped = errors = 0
+    new_aliases = 0
 
     missing_csv_path = Path(SETTINGS.reports_dir) / "missing_part_metadata.csv"
     # Prepare CSV with header
@@ -152,6 +154,44 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
                 updated += 1
             else:
                 skipped += 1
+            
+            # Capture alternate Rebrickable part IDs from external_ids
+            # Only capture LEGO and BrickLink aliases, and skip self-referential aliases
+            external_ids = data.get("external_ids", {})
+            
+            # Capture BrickLink IDs - these are commonly used in container names
+            # Only store if different from design_id (skip self-referential aliases)
+            bricklink_ids = external_ids.get("BrickLink", [])
+            for bl_id in bricklink_ids:
+                bl_id_str = str(bl_id)
+                # Only store if it's different from the design_id and looks like a valid part ID
+                if bl_id_str != design_id and len(bl_id_str) >= 2:
+                    try:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                            (bl_id_str, design_id),
+                        )
+                        if cur.rowcount == 1:
+                            new_aliases += 1
+                    except sqlite3.Error:
+                        pass  # Ignore errors (might be duplicate)
+            
+            # LEGO part numbers are alternate Rebrickable IDs (list, not dict)
+            # Only store if different from design_id (skip self-referential aliases)
+            lego_ids = external_ids.get("LEGO", [])
+            for alt_id in lego_ids:
+                alt_id_str = str(alt_id)
+                # Only store if it's different from the design_id and looks like a valid part ID
+                if alt_id_str != design_id and len(alt_id_str) >= 2:
+                    try:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                            (alt_id_str, design_id),
+                        )
+                        if cur.rowcount == 1:
+                            new_aliases += 1
+                    except sqlite3.Error:
+                        pass  # Ignore errors (might be duplicate)
         except sqlite3.Error:
             errors += 1
         # Slower pacing to avoid rate limits
@@ -161,6 +201,84 @@ def backfill_all_parts(conn: sqlite3.Connection) -> None:
     print("\n===== Part Metadata Backfill Summary =====")
     print(f"Checked: {checked}")
     print(f"Updated: {updated}")
+    print(f"Skipped: {skipped}")
+    print(f"Errors: {errors}")
+    if new_aliases > 0:
+        print(f"New alternate part IDs stored: {new_aliases}")
+
+
+def backfill_alternate_ids(conn: sqlite3.Connection) -> None:
+    """Backfill alternate Rebrickable part IDs for all parts.
+    Fetches part details and stores alternate IDs from external_ids.LEGO.ext_ids."""
+    api_key = get_api_key()
+    cur = conn.cursor()
+    total_parts = cur.execute("SELECT COUNT(*) FROM parts").fetchone()[0]
+    print(f"Backfilling alternate part IDs for {total_parts} parts…")
+    checked = new_aliases = skipped = errors = 0
+
+    rows = cur.execute(
+        """
+        SELECT design_id
+        FROM parts
+        ORDER BY design_id
+        """
+    ).fetchall()
+
+    for (design_id,) in rows:
+        checked += 1
+        if checked % 100 == 0:
+            print(f"Progress: {checked}/{total_parts} ({checked*100//total_parts}%)")
+        
+        data, status, reason = fetch_part_detail(design_id, api_key)
+        if not data:
+            skipped += 1
+            time.sleep(0.3)
+            continue
+        
+        # Capture alternate Rebrickable part IDs from external_ids
+        external_ids = data.get("external_ids", {})
+        
+        # Capture BrickLink IDs - these are commonly used in container names
+        # Only store if different from design_id (skip self-referential aliases)
+        bricklink_ids = external_ids.get("BrickLink", [])
+        for bl_id in bricklink_ids:
+            bl_id_str = str(bl_id)
+            # Only store if it's different from the design_id and looks like a valid part ID
+            if bl_id_str != design_id and len(bl_id_str) >= 2:
+                try:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                        (bl_id_str, design_id),
+                    )
+                    if cur.rowcount == 1:
+                        new_aliases += 1
+                except sqlite3.Error:
+                    pass  # Ignore errors (might be duplicate)
+        
+        # LEGO part numbers are alternate Rebrickable IDs (list, not dict)
+        # Only store if different from design_id (skip self-referential aliases)
+        lego_ids = external_ids.get("LEGO", [])
+        for alt_id in lego_ids:
+            alt_id_str = str(alt_id)
+            # Only store if it's different from the design_id and looks like a valid part ID
+            if alt_id_str != design_id and len(alt_id_str) >= 2:
+                try:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                        (alt_id_str, design_id),
+                    )
+                    if cur.rowcount == 1:
+                        new_aliases += 1
+                except sqlite3.Error:
+                    pass  # Ignore errors (might be duplicate)
+        
+        # Slower pacing to avoid rate limits
+        time.sleep(0.3)
+
+    conn.commit()
+    print("\n===== Alternate Part IDs Backfill Summary =====")
+    print(f"Checked: {checked}")
+    print(f"New alternate IDs stored: {new_aliases}")
     print(f"Skipped: {skipped}")
     print(f"Errors: {errors}")
 
@@ -294,9 +412,12 @@ def gather_and_insert_parts(
                         except sqlite3.IntegrityError as e:
                             print(f"Error inserting part {rb_id}: {e}")
                     # Insert BrickLink aliases if present
-                    for bl in part.get("external_ids", {}).get("BrickLink", []):
+                    # Only store if different from design_id (skip self-referential aliases)
+                    external_ids = part.get("external_ids", {})
+                    for bl in external_ids.get("BrickLink", []):
                         bl_str = str(bl)
-                        if bl_str not in seen_aliases:
+                        # Only store if it's different from the design_id and looks like a valid part ID
+                        if bl_str != rb_id and len(bl_str) >= 2 and bl_str not in seen_aliases:
                             try:
                                 cursor.execute(
                                     "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
@@ -307,6 +428,26 @@ def gather_and_insert_parts(
                                     seen_aliases.add(bl_str)
                             except sqlite3.IntegrityError as e:
                                 print(f"Error inserting alias {bl_str} → {rb_id}: {e}")
+                    
+                    # Insert alternate Rebrickable part IDs from LEGO external_ids
+                    # These are alternate part numbers that refer to the same physical part
+                    # Only store if different from design_id (skip self-referential aliases)
+                    # LEGO is a list, not a dict with ext_ids
+                    lego_ids = external_ids.get("LEGO", [])
+                    for alt_id in lego_ids:
+                        alt_id_str = str(alt_id)
+                        # Only store if it's different from the design_id and looks like a valid part ID
+                        if alt_id_str != rb_id and len(alt_id_str) >= 2 and alt_id_str not in seen_aliases:
+                            try:
+                                cursor.execute(
+                                    "INSERT OR IGNORE INTO part_aliases (alias, design_id) VALUES (?, ?)",
+                                    (alt_id_str, rb_id),
+                                )
+                                if cursor.rowcount == 1:
+                                    new_aliases += 1
+                                    seen_aliases.add(alt_id_str)
+                            except sqlite3.IntegrityError as e:
+                                print(f"Error inserting alternate ID {alt_id_str} → {rb_id}: {e}")
 
                 color_id = item["color"]["id"]
                 qty = int(item["quantity"]) or 0
@@ -402,6 +543,11 @@ def main():
         action="store_true",
         help="Backfill part URLs/images for parts missing metadata and exit.",
     )
+    parser.add_argument(
+        "--backfill-alternate-ids",
+        action="store_true",
+        help="Backfill alternate Rebrickable part IDs for all parts and exit.",
+    )
     args = parser.parse_args()
 
     user_token = get_user_token()
@@ -415,6 +561,10 @@ def main():
         # Flags
         if args.backfill_all_parts:
             backfill_all_parts(conn)
+            return
+        
+        if args.backfill_alternate_ids:
+            backfill_alternate_ids(conn)
             return
 
         # Fetch your sets and insert part mappings

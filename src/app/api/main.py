@@ -67,6 +67,17 @@ except Exception as e:
     print(f"❌ Failed to load location reconciliation router: {e}")
     traceback.print_exc()
 
+# Import storage hierarchy router with error handling
+try:
+    from app.api.v1 import storage_hierarchy
+    app.include_router(storage_hierarchy.router, prefix="/api/v1")
+    print("✅ Storage hierarchy router loaded successfully")
+except Exception as e:
+    # Log the error but don't crash the API
+    import traceback
+    print(f"❌ Failed to load storage hierarchy router: {e}")
+    traceback.print_exc()
+
 
 @app.get("/")
 def root():

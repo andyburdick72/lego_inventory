@@ -8,10 +8,12 @@ from pydantic import BaseModel
 from app.adapters import row_to_inventory_item, rows_to
 from app.di import get_db_connection, get_inventory_service, get_parts_service, get_set_parts_service
 from app.errors import NotFoundError, ValidationError
+from app.settings import get_settings
 from core.dtos import DTOBase, InventoryItemDTO
 from core.services.inventory_service import InventoryService
 from core.services.parts_service import PartsService
 from core.services.set_parts_service import SetPartsService
+from integrations.rebrickable_api import get_json
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -129,6 +131,49 @@ def get_sets_for_part(
             for s in sets_data
         ]
         return [s.model_dump() for s in result]
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/{design_id}/aliases", response_model=list[str])
+def get_part_aliases(
+    design_id: str,
+    service: PartsService = Depends(get_parts_service),
+):
+    """Get all aliases for a specific part design ID from the database.
+    
+    Returns all alternative IDs stored in the database, including:
+    - BrickLink IDs
+    - BrickOwl IDs
+    - Brickset IDs
+    - LEGO IDs
+    - LDraw IDs
+    - Alternate part numbers
+    
+    Note: The schema now supports one alias mapping to multiple design_ids
+    (e.g., BrickLink ID "3003" can map to both part 3003 and 6223).
+    """
+    try:
+        alias_rows = service.get_part_aliases(design_id=design_id)
+        # Extract alias strings from rows (which may be dicts or sqlite3.Row objects)
+        aliases = []
+        for row in alias_rows:
+            if isinstance(row, dict):
+                alias = row.get("alias", "")
+            else:
+                alias = row[0] if len(row) > 0 else ""
+            if alias:
+                aliases.append(str(alias))
+        return sorted(list(set(aliases)))  # Remove duplicates and sort
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": str(e),
+                "code": "not_found",
+                "details": getattr(e, "details", None),
+            },
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

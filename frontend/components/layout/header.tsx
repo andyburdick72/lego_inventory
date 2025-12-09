@@ -47,6 +47,12 @@ export function Header() {
             >
               Inventory Updates
             </Link>
+            <Link
+              href="/storage-hierarchy"
+              className="transition-colors hover:text-foreground/80 text-foreground/60"
+            >
+              Storage Rules
+            </Link>
           </nav>
         </div>
         <div className="flex flex-col items-end gap-1">

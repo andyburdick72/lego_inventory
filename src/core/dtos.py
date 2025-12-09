@@ -182,3 +182,67 @@ class LocationReconciliationItemDTO(DTOBase):
     needs_update: bool  # True if delta != 0 or put_away_quantity > 0 or no locations
     part_url: Optional[str] = None
     part_img_url: Optional[str] = None
+
+
+class StorageSuggestionDTO(DTOBase):
+    """A storage location suggestion with confidence level."""
+    container_id: Optional[int] = None
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_name: Optional[str] = None
+    confidence: str  # 'definitive', 'high', 'medium', 'low'
+    reason: str
+    quantity: int = 0
+
+
+class ElementStoragePatternDTO(DTOBase):
+    """Element-level storage pattern (design_id + color_id stored in a container)."""
+    container_id: int
+    drawer_id: int
+    drawer_name: str
+    container_name: str
+    element_count: int  # Number of distinct elements stored here
+    total_quantity: int
+    is_exclusive: int  # 1 if container only stores one element, 0 otherwise (SQL returns int)
+
+
+class PartStoragePatternDTO(DTOBase):
+    """Part-level storage pattern (design_id stored in a container, any color)."""
+    container_id: int
+    drawer_id: int
+    drawer_name: str
+    container_name: str
+    design_id: str
+    part_name: str
+    color_count: int  # Number of distinct colors for this part
+    total_quantity: int
+
+
+class CategoryStoragePatternDTO(DTOBase):
+    """Category-level storage pattern (parts from a category stored in a container)."""
+    container_id: int
+    drawer_id: int
+    drawer_name: str
+    container_name: str
+    part_category_id: int
+    part_category_name: Optional[str] = None
+    part_count: int  # Number of distinct parts in this category
+    element_count: int  # Number of distinct elements
+    total_quantity: int
+
+
+class ElementStorageStrategyDTO(DTOBase):
+    """How a specific element (design_id + color_id) is stored based on naming patterns."""
+    design_id: str
+    color_id: int
+    part_name: str
+    part_img_url: Optional[str] = None
+    color_name: str
+    color_hex: Optional[str] = None
+    storage_strategy: str  # 'by_element', 'by_part', 'by_category_size', 'by_category', 'unassigned', 'unknown', 'in_putaway_bin'
+    drawer_id: Optional[int] = None
+    drawer_name: Optional[str] = None
+    container_id: Optional[int] = None
+    container_name: Optional[str] = None
+    quantity: int
+    evidence: str  # Explanation of why it was categorized this way

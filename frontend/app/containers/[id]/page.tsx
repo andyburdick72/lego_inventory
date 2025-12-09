@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ColumnDef } from '@tanstack/react-table';
-import { useContainer, useContainerParts, ContainerPart } from '@/lib/hooks/use-containers';
-import { usePutAwayBin, useSetPutAwayBin } from '@/lib/hooks/use-location-reconciliation';
+import { DataTable } from '@/components/data-table';
+import {
+  DeleteInventoryDialog,
+  MoveInventoryDialog,
+  UpdateQuantityDialog,
+} from '@/components/loose-parts/loose-parts-dialogs';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -20,16 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink, Edit, Move, Trash2 } from 'lucide-react';
+import { ContainerPart, useContainer, useContainerParts } from '@/lib/hooks/use-containers';
+import { LoosePart, useLooseParts } from '@/lib/hooks/use-inventory';
+import { usePutAwayBin, useSetPutAwayBin } from '@/lib/hooks/use-location-reconciliation';
 import { formatNumber, isLightColor } from '@/lib/utils';
+import { ColumnDef } from '@tanstack/react-table';
+import { ChevronLeft, ChevronRight, Edit, ExternalLink, LayoutGrid, Move, Table as TableIcon, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useLooseParts, LoosePart } from '@/lib/hooks/use-inventory';
-import {
-  UpdateQuantityDialog,
-  MoveInventoryDialog,
-  DeleteInventoryDialog,
-} from '@/components/loose-parts/loose-parts-dialogs';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 
 type ViewMode = 'cards' | 'table';
 
@@ -51,9 +51,9 @@ export default function ContainerDetailPage() {
   const { data: putAwayBin } = usePutAwayBin();
   const setPutAwayBinMutation = useSetPutAwayBin();
   const { data: allLooseParts } = useLooseParts();
-  
+
   const isPutAwayBin = container?.is_put_away_bin === 1;
-  
+
   // Map container parts to inventory items by matching design_id, color_id, and container_id
   const inventoryMap = useMemo(() => {
     if (!allLooseParts || !containerId) return new Map<string, LoosePart>();
@@ -66,12 +66,12 @@ export default function ContainerDetailPage() {
       });
     return map;
   }, [allLooseParts, containerId]);
-  
+
   const [selectedPart, setSelectedPart] = useState<LoosePart | null>(null);
   const [updateQuantityOpen, setUpdateQuantityOpen] = useState(false);
   const [moveInventoryOpen, setMoveInventoryOpen] = useState(false);
   const [deleteInventoryOpen, setDeleteInventoryOpen] = useState(false);
-  
+
   // Helper to get inventory item for a container part
   const getInventoryItem = (part: ContainerPart): LoosePart | null => {
     const key = `${part.design_id}-${part.color_id}`;
@@ -89,6 +89,7 @@ export default function ContainerDetailPage() {
         'drawers': { href: `/drawers/${container.drawer_id}`, label: 'Drawer' },
         'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
         'location-counts': { href: '/location-counts', label: 'Location Counts' },
+        'storage-hierarchy': { href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' },
         'sets': { href: `/sets/${searchParams.get('set_number') || ''}`, label: 'Set' },
         'parts': {
           href: searchParams.get('design_id') ? `/parts/${searchParams.get('design_id')}` : '/loose-parts',
@@ -128,6 +129,8 @@ export default function ContainerDetailPage() {
         }
       } else if (pathname.includes('/drawers/')) {
         setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
+      } else if (pathname.includes('/storage-hierarchy')) {
+        setBackLink({ href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' });
       }
       // Default is already set to drawer
     } else {
@@ -180,7 +183,7 @@ export default function ContainerDetailPage() {
         const part = row.original;
         const bgColor = part.hex ? `#${part.hex}` : '#ffffff';
         const textColor = isLightColor(part.hex) ? '#000000' : '#ffffff';
-        
+
         return (
           <div
             className="inline-flex items-center px-2 py-1 rounded border"
@@ -233,10 +236,10 @@ export default function ContainerDetailPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View <ExternalLink className="h-3 w-3" />
-            </a>
+            onClick={(e) => e.stopPropagation()}
+          >
+            View <ExternalLink className="h-3 w-3" />
+          </a>
         );
       },
     },
@@ -407,112 +410,112 @@ export default function ContainerDetailPage() {
           <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {paginatedCards.map((part, index) => (
-              <Card key={`${part.design_id}-${part.color_id}-${index}`}>
-                <CardHeader>
-                  <CardTitle className="text-sm">
-                    <Link
-                      href={`/parts/${part.design_id}?from=containers&container_id=${containerId}`}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      {part.design_id}
-                    </Link>
-                  </CardTitle>
-                  <CardDescription className="text-xs">{part.part_name}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {part.part_img_url && (
-                      <div className="flex justify-center">
-                        <img
-                          src={part.part_img_url}
-                          alt={part.part_name}
-                          className="h-24 w-auto"
-                        />
-                      </div>
-                    )}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">Color:</span>
-                        <div
-                          className="inline-flex items-center px-2 py-1 rounded border"
-                          style={{
-                            backgroundColor: part.hex ? `#${part.hex}` : '#ffffff',
-                            color: isLightColor(part.hex) ? '#000000' : '#ffffff',
-                          }}
-                        >
-                          {part.color_name}
+                <Card key={`${part.design_id}-${part.color_id}-${index}`}>
+                  <CardHeader>
+                    <CardTitle className="text-sm">
+                      <Link
+                        href={`/parts/${part.design_id}?from=containers&container_id=${containerId}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {part.design_id}
+                      </Link>
+                    </CardTitle>
+                    <CardDescription className="text-xs">{part.part_name}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {part.part_img_url && (
+                        <div className="flex justify-center">
+                          <img
+                            src={part.part_img_url}
+                            alt={part.part_name}
+                            className="h-24 w-auto"
+                          />
                         </div>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Quantity:</span>
-                        <span className="font-medium">{formatNumber(part.quantity)}</span>
-                      </div>
-                      {part.part_url && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          asChild
-                        >
-                          <a
-                            href={part.part_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            View on Rebrickable <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </Button>
                       )}
-                      {(() => {
-                        const inventoryItem = getInventoryItem(part);
-                        if (!inventoryItem) return null;
-                        return (
-                          <div className="flex gap-2 pt-2 border-t">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => {
-                                setSelectedPart(inventoryItem);
-                                setUpdateQuantityOpen(true);
-                              }}
-                              title="Update quantity"
-                            >
-                              <Edit className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => {
-                                setSelectedPart(inventoryItem);
-                                setMoveInventoryOpen(true);
-                              }}
-                              title="Move parts"
-                            >
-                              <Move className="h-3 w-3 mr-1" />
-                              Move
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => {
-                                setSelectedPart(inventoryItem);
-                                setDeleteInventoryOpen(true);
-                              }}
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              Delete
-                            </Button>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">Color:</span>
+                          <div
+                            className="inline-flex items-center px-2 py-1 rounded border"
+                            style={{
+                              backgroundColor: part.hex ? `#${part.hex}` : '#ffffff',
+                              color: isLightColor(part.hex) ? '#000000' : '#ffffff',
+                            }}
+                          >
+                            {part.color_name}
                           </div>
-                        );
-                      })()}
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Quantity:</span>
+                          <span className="font-medium">{formatNumber(part.quantity)}</span>
+                        </div>
+                        {part.part_url && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            asChild
+                          >
+                            <a
+                              href={part.part_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              View on Rebrickable <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </Button>
+                        )}
+                        {(() => {
+                          const inventoryItem = getInventoryItem(part);
+                          if (!inventoryItem) return null;
+                          return (
+                            <div className="flex gap-2 pt-2 border-t">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => {
+                                  setSelectedPart(inventoryItem);
+                                  setUpdateQuantityOpen(true);
+                                }}
+                                title="Update quantity"
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => {
+                                  setSelectedPart(inventoryItem);
+                                  setMoveInventoryOpen(true);
+                                }}
+                                title="Move parts"
+                              >
+                                <Move className="h-3 w-3 mr-1" />
+                                Move
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => {
+                                  setSelectedPart(inventoryItem);
+                                  setDeleteInventoryOpen(true);
+                                }}
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
+                  </CardContent>
                 </Card>
               ))}
             </div>

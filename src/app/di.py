@@ -18,6 +18,7 @@ from core.services.location_reconciliation_service import LocationReconciliation
 from core.services.mismatch_service import MismatchService
 from core.services.parts_service import PartsService
 from core.services.set_parts_service import SetPartsService
+from core.services.storage_hierarchy_service import StorageHierarchyService
 
 # Concrete repos (your implementations)
 from infra.db.repositories.drawers_repo import DrawersRepo as DrawersRepoImpl
@@ -271,9 +272,7 @@ class _InventoryRepoAdapter:
     ) -> list[dict]:
         return self._impl.get_inventory_by_location(design_id, color_id, drawer_id, container_id)
 
-    def get_inventory_totals_by_location(
-        self, design_id: str, color_id: int
-    ) -> list[dict]:
+    def get_inventory_totals_by_location(self, design_id: str, color_id: int) -> list[dict]:
         return self._impl.get_inventory_totals_by_location(design_id, color_id)
 
     def set_inventory_quantity_at_location(
@@ -294,9 +293,7 @@ class _InventoryRepoAdapter:
     def update_inventory_quantity(self, inventory_id: int, quantity: int) -> None:
         return self._impl.update_inventory_quantity(inventory_id, quantity)
 
-    def update_inventory_location(
-        self, inventory_id: int, container_id: int | None
-    ) -> None:
+    def update_inventory_location(self, inventory_id: int, container_id: int | None) -> None:
         return self._impl.update_inventory_location(inventory_id, container_id)
 
     def delete_inventory(self, inventory_id: int) -> None:
@@ -306,6 +303,27 @@ class _InventoryRepoAdapter:
         self, from_inventory_id: int, to_container_id: int | None, quantity: int
     ) -> None:
         return self._impl.move_inventory(from_inventory_id, to_container_id, quantity)
+
+    def find_element_location(self, design_id: str, color_id: int) -> list[dict]:
+        return self._impl.find_element_location(design_id, color_id)
+
+    def find_part_location(self, design_id: str) -> list[dict]:
+        return self._impl.find_part_location(design_id)
+
+    def find_category_location(self, part_category_id: int) -> list[dict]:
+        return self._impl.find_category_location(part_category_id)
+
+    def analyze_element_storage_patterns(self) -> list[dict]:
+        return self._impl.analyze_element_storage_patterns()
+
+    def analyze_part_storage_patterns(self) -> list[dict]:
+        return self._impl.analyze_part_storage_patterns()
+
+    def analyze_category_storage_patterns(self) -> list[dict]:
+        return self._impl.analyze_category_storage_patterns()
+
+    def analyze_element_storage_strategies(self) -> list[dict]:
+        return self._impl.analyze_element_storage_strategies()
 
 
 class _SetsRepoAdapter:
@@ -447,4 +465,19 @@ def get_location_reconciliation_service(
     inventory = _InventoryRepoAdapter(inventory_impl)
     drawers = _DrawersRepoAdapter(drawers_impl)
 
-    return LocationReconciliationService(sets=sets, set_parts=set_parts, inventory=inventory, drawers=drawers)
+    return LocationReconciliationService(
+        sets=sets, set_parts=set_parts, inventory=inventory, drawers=drawers
+    )
+
+
+def get_storage_hierarchy_service(
+    conn: sqlite3.Connection = Depends(get_db_connection),
+) -> StorageHierarchyService:
+    """Get StorageHierarchyService with a connection from the current request context."""
+    inventory_impl = InventoryRepoImpl(conn)
+    parts_impl = PartsRepoImpl(conn)
+
+    inventory = _InventoryRepoAdapter(inventory_impl)
+    parts = parts_impl  # PartsRepoImpl already matches the Protocol
+
+    return StorageHierarchyService(inventory=inventory, parts=parts)

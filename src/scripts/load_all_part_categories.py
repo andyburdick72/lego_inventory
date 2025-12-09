@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Efficiently load part categories for all parts in set_parts."""
+"""Efficiently load part categories for all parts in the parts table (including loose inventory)."""
 
 import sqlite3
 import sys
@@ -28,11 +28,11 @@ def load_all_part_categories():
     with sqlite3.connect(str(SETTINGS.db_path)) as conn:
         c = conn.cursor()
         
-        # Get all unique design_ids from set_parts that don't have categories yet
+        # Get all unique design_ids from parts table that don't have categories yet
+        # This includes parts from sets AND loose inventory
         c.execute("""
-            SELECT DISTINCT sp.design_id
-            FROM set_parts sp
-            LEFT JOIN parts p ON p.design_id = sp.design_id
+            SELECT DISTINCT p.design_id
+            FROM parts p
             WHERE p.part_category_id IS NULL
         """)
         design_ids = [row[0] for row in c.fetchall()]

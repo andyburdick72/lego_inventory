@@ -9,18 +9,20 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { BarChart3, Wrench } from 'lucide-react';
+import { BarChart3, Wrench, Layers } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useDrawers } from '@/lib/hooks/use-drawers';
 import { useSetsCount } from '@/lib/hooks/use-sets';
 import { useLooseParts } from '@/lib/hooks/use-inventory';
+import { useElementStorageStrategies } from '@/lib/hooks/use-storage-hierarchy';
 import { formatNumber } from '@/lib/utils';
 
 export default function HomePage() {
   const { data: drawers } = useDrawers();
   const { data: setsCount } = useSetsCount();
   const { data: looseParts } = useLooseParts();
+  const { data: storageStrategies } = useElementStorageStrategies();
 
   const loosePartsStats = useMemo(() => {
     if (!looseParts) return { total: 0 };
@@ -142,6 +144,28 @@ export default function HomePage() {
           </div>
           <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
             <Wrench className="h-16 w-16 text-green-600" />
+          </div>
+        </Card>
+
+        <Card className="flex flex-row items-center gap-4">
+          <div className="flex-1">
+            <CardHeader>
+              <CardTitle>Storage Rules</CardTitle>
+              <CardDescription>Review storage hierarchy and patterns</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {storageStrategies && (
+                <div className="text-sm text-muted-foreground mb-3">
+                  Elements Analyzed: <span className="font-medium text-foreground">{formatNumber(storageStrategies.length)}</span>
+                </div>
+              )}
+              <Button asChild className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                <Link href="/storage-hierarchy">View Storage Rules</Link>
+              </Button>
+            </CardContent>
+          </div>
+          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
+            <Layers className="h-16 w-16 text-indigo-600" />
           </div>
         </Card>
       </div>

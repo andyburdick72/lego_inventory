@@ -10,6 +10,7 @@ const navItems = [
   { href: '/sets', label: 'Sets' },
   { href: '/reporting-analytics', label: 'Reporting & Analytics' },
   { href: '/inventory-updates', label: 'Inventory Updates' },
+  { href: '/storage-hierarchy', label: 'Storage Rules' },
 ];
 
 export function Sidebar() {

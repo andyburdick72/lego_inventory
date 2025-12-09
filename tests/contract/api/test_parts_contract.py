@@ -161,3 +161,28 @@ def test_patch_part_empty_request():
         assert data["design_id"] == design_id
         assert data["ignore_in_inventory"] == original_data["ignore_in_inventory"]
 
+
+@pytest.mark.parametrize("design_id", ["3001", "6223"])
+def test_get_part_aliases(design_id):
+    """Test getting aliases for a part."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get(f"/parts/{design_id}/aliases")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        # All items should be strings
+        for alias in data:
+            assert isinstance(alias, str)
+            assert len(alias) > 0
+        # Aliases should be sorted
+        assert data == sorted(data)
+
+
+def test_get_part_aliases_404():
+    """Test that invalid part returns 404 for aliases endpoint."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get("/parts/invalid-part-id-99999/aliases")
+        assert r.status_code == 404  # NotFoundError for non-existent part
+

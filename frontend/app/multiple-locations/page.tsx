@@ -12,17 +12,25 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { DataTable } from '@/components/data-table';
-import { ExternalLink, ChevronDown, ChevronRight, Move, ArrowLeft } from 'lucide-react';
+import { ExternalLink, ChevronDown, ChevronRight, Move, ArrowLeft, Edit, Trash2 } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
-import { MoveInventoryDialog } from '@/components/loose-parts/loose-parts-dialogs';
+import {
+  MoveInventoryDialog,
+  UpdateQuantityDialog,
+  DeleteInventoryDialog,
+} from '@/components/loose-parts/loose-parts-dialogs';
 import { LoosePart } from '@/lib/hooks/use-inventory';
 
 export default function MultipleLocationsPage() {
   const { data: elements, isLoading, error } = useMultipleLocationsElements();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedPartForMove, setSelectedPartForMove] = useState<LoosePart | null>(null);
+  const [selectedPartForEdit, setSelectedPartForEdit] = useState<LoosePart | null>(null);
+  const [selectedPartForDelete, setSelectedPartForDelete] = useState<LoosePart | null>(null);
 
   const toggleRow = (key: string) => {
     const newExpanded = new Set(expandedRows);
@@ -273,29 +281,50 @@ export default function MultipleLocationsPage() {
             <CardContent>
               <div className="space-y-2 text-sm">
                 {element.locations.map((loc, idx) => {
+                  // Helper function to create a LoosePart object from location data
+                  const createLoosePart = (): LoosePart | null => {
+                    if (!loc.inventory_id) return null;
+                    return {
+                      id: loc.inventory_id,
+                      part_id: element.design_id,
+                      color_id: element.color_id,
+                      color_name: element.color_name,
+                      color_hex: element.color_hex,
+                      quantity: loc.quantity,
+                      status: 'loose',
+                      drawer_id: loc.drawer_id,
+                      drawer_name: loc.drawer_name,
+                      container_id: loc.container_id,
+                      container_label: loc.container_name,
+                      set_number: null,
+                      set_name: null,
+                      part_name: element.part_name,
+                      image_url: element.part_img_url,
+                      rebrickable_url: element.part_url,
+                    };
+                  };
+
                   const handleMove = () => {
-                    if (loc.inventory_id) {
-                      // Create a LoosePart-like object for the Move dialog
-                      const partForMove: LoosePart = {
-                        id: loc.inventory_id,
-                        part_id: element.design_id,
-                        color_id: element.color_id,
-                        color_name: element.color_name,
-                        color_hex: element.color_hex,
-                        quantity: loc.quantity,
-                        status: 'loose',
-                        drawer_id: loc.drawer_id,
-                        drawer_name: loc.drawer_name,
-                        container_id: loc.container_id,
-                        container_label: loc.container_name,
-                        set_number: null,
-                        set_name: null,
-                        part_name: element.part_name,
-                        image_url: element.part_img_url,
-                        rebrickable_url: element.part_url,
-                      };
-                      setSelectedPartForMove(partForMove);
+                    const part = createLoosePart();
+                    if (part) {
+                      setSelectedPartForMove(part);
                       setMoveDialogOpen(true);
+                    }
+                  };
+
+                  const handleEdit = () => {
+                    const part = createLoosePart();
+                    if (part) {
+                      setSelectedPartForEdit(part);
+                      setEditDialogOpen(true);
+                    }
+                  };
+
+                  const handleDelete = () => {
+                    const part = createLoosePart();
+                    if (part) {
+                      setSelectedPartForDelete(part);
+                      setDeleteDialogOpen(true);
                     }
                   };
 
@@ -334,15 +363,35 @@ export default function MultipleLocationsPage() {
                           <span className="font-medium">{formatNumber(loc.quantity)}</span>
                         </div>
                         {loc.inventory_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleMove}
-                            className="flex items-center gap-1"
-                          >
-                            <Move className="h-4 w-4" />
-                            Move
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleEdit}
+                              className="flex items-center gap-1"
+                            >
+                              <Edit className="h-4 w-4" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleMove}
+                              className="flex items-center gap-1"
+                            >
+                              <Move className="h-4 w-4" />
+                              Move
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleDelete}
+                              className="flex items-center gap-1 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -358,6 +407,16 @@ export default function MultipleLocationsPage() {
         part={selectedPartForMove}
         open={moveDialogOpen}
         onOpenChange={setMoveDialogOpen}
+      />
+      <UpdateQuantityDialog
+        part={selectedPartForEdit}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
+      <DeleteInventoryDialog
+        part={selectedPartForDelete}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
       />
     </div>
   );

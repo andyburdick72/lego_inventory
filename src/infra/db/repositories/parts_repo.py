@@ -39,6 +39,18 @@ class PartsRepo(BaseRepo):
             """
         )
 
+    def get_part_aliases(self, design_id: str) -> list[dict]:
+        """Get all aliases for a part."""
+        return self._all(
+            """
+            SELECT alias
+            FROM part_aliases
+            WHERE design_id = ?
+            ORDER BY alias
+            """,
+            [design_id],
+        )
+
     def resolve_part_alias(self, alias: str) -> dict | None:
         return self._one(
             """

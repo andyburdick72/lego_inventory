@@ -294,3 +294,54 @@ def test_colors_repo_resolve_alias(conn_rw):
 
     colors = ColorsRepo(conn_rw)
     assert colors.resolve_color_alias(999) == 1
+
+
+def test_parts_repo_get_aliases(conn_rw):
+    """Test getting aliases for a part, including shared aliases."""
+    # Create part_aliases table with composite PRIMARY KEY (allows shared aliases)
+    conn_rw.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS part_aliases (
+          alias TEXT NOT NULL,
+          design_id TEXT NOT NULL REFERENCES parts(design_id),
+          PRIMARY KEY (alias, design_id)
+        );
+        """
+    )
+    
+    # Insert test parts
+    conn_rw.execute("INSERT OR IGNORE INTO parts(design_id, name) VALUES ('3003', 'Brick 2 x 2')")
+    conn_rw.execute("INSERT OR IGNORE INTO parts(design_id, name) VALUES ('6223', 'Brick 2 x 2 without Inside Ridges')")
+    
+    # Insert aliases - "3003" is a shared alias (BrickLink ID) for both parts
+    conn_rw.execute(
+        "INSERT OR IGNORE INTO part_aliases(alias, design_id) VALUES (?, ?)",
+        ("3003", "3003"),
+    )
+    conn_rw.execute(
+        "INSERT OR IGNORE INTO part_aliases(alias, design_id) VALUES (?, ?)",
+        ("3003", "6223"),  # Shared alias
+    )
+    conn_rw.execute(
+        "INSERT OR IGNORE INTO part_aliases(alias, design_id) VALUES (?, ?)",
+        ("35275", "6223"),  # Unique alias for 6223
+    )
+    conn_rw.commit()
+    
+    parts = PartsRepo(conn_rw)
+    
+    # Test getting aliases for part 3003
+    aliases_3003 = parts.get_part_aliases("3003")
+    assert len(aliases_3003) == 1
+    assert aliases_3003[0]["alias"] == "3003"
+    
+    # Test getting aliases for part 6223 (should include shared alias "3003")
+    aliases_6223 = parts.get_part_aliases("6223")
+    assert len(aliases_6223) == 2
+    alias_values = [a["alias"] for a in aliases_6223]
+    assert "3003" in alias_values  # Shared alias
+    assert "35275" in alias_values  # Unique alias
+    
+    # Test getting aliases for part with no aliases
+    aliases_none = parts.get_part_aliases("3001")
+    assert len(aliases_none) == 0

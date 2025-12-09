@@ -177,8 +177,9 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS part_aliases(
-                alias     TEXT PRIMARY KEY,
-                design_id TEXT REFERENCES parts(design_id)
+                alias     TEXT NOT NULL,
+                design_id TEXT NOT NULL REFERENCES parts(design_id),
+                PRIMARY KEY (alias, design_id)
             );
 
             CREATE TABLE IF NOT EXISTS drawers(
@@ -277,6 +278,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_inv_part_color   ON inventory(design_id,color_id);
             CREATE INDEX IF NOT EXISTS idx_color_alias      ON color_aliases(alias_id);
             CREATE INDEX IF NOT EXISTS idx_part_alias       ON part_aliases(alias);
+            CREATE INDEX IF NOT EXISTS idx_part_alias_design_id ON part_aliases(design_id);
             """
         )
         try:

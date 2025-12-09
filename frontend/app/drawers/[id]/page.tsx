@@ -51,6 +51,7 @@ export default function DrawerDetailPage() {
         'drawers': { href: '/drawers', label: 'Drawers' },
         'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
         'location-counts': { href: '/location-counts', label: 'Location Counts' },
+        'storage-hierarchy': { href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' },
         'containers': { href: `/containers/${searchParams.get('container_id') || ''}`, label: 'Container' },
         'sets': { href: `/sets/${searchParams.get('set_number') || ''}`, label: 'Set' },
         'parts': {
@@ -99,6 +100,8 @@ export default function DrawerDetailPage() {
         }
       } else if (pathname.includes('/drawers')) {
         setBackLink({ href: '/drawers', label: 'Drawers' });
+      } else if (pathname.includes('/storage-hierarchy')) {
+        setBackLink({ href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' });
       }
       // Default is already set to drawers
     }
