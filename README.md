@@ -163,9 +163,14 @@ python3 src/inventory_db.py
    ```
 2. **Load Rebrickable parts & colors**
    ```bash
-   python3 src/load_my_rebrickable_parts.py
-   python3 src/load_rebrickable_colors.py
+   python3 src/scripts/load_my_rebrickable_parts.py
+   python3 src/scripts/load_rebrickable_colors.py
    ```
+3. **Load part categories** (fetches category information for all parts)
+   ```bash
+   python3 src/scripts/load_all_part_categories.py
+   ```
+   Note: This script automatically fetches categories for parts that don't have them yet. New parts loaded from sets will automatically get their categories when `load_my_rebrickable_parts.py` runs.
 3. **Pre-check Instabrick XML** for missing aliases (optional but recommended)
    ```bash
    python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml
@@ -225,7 +230,8 @@ This will:
 - **Location Reconciliation** page: Identify missing/excess parts for Loose Parts sets
 - **Inventory Mismatches** page: Compare required vs available parts across sets
 - **Set Detail** pages: View parts in a set with full metadata
-- **Part Detail** pages: View all locations where a part appears
+- **Part Detail** pages: View all locations where a part appears (includes part category)
+- **Storage Hierarchy Rules** page: View storage strategies for elements, including part categories
 - Column sorting & searching (per table)  
 - CSV export button for every table view
 - Modern React-based UI with responsive design
@@ -277,7 +283,8 @@ The FastAPI backend provides RESTful endpoints for managing inventory. Full API 
 ## **Database Schema Overview**
 - **colors** — Rebrickable colors  
 - **color_aliases** — BrickLink → Rebrickable color mapping  
-- **parts** — Canonical Rebrickable part IDs and names  
+- **parts** — Canonical Rebrickable part IDs and names (includes `part_category_id`)  
+- **part_categories** — Rebrickable part category names (e.g., "Bricks", "Plates", "Minifig Accessories")  
 - **part_aliases** — BrickLink/Instabrick → Rebrickable part mapping  
 - **sets** — One row per owned set copy, with status & metadata  
 - **set_parts** — Mapping of parts to sets  
@@ -289,8 +296,10 @@ The FastAPI backend provides RESTful endpoints for managing inventory. Full API 
 | Script | Purpose |
 |--------|---------|
 | `inventory_db.py` | Create/initialize DB schema |
-| `load_my_rebrickable_parts.py` | Load parts for all owned sets |
+| `load_my_rebrickable_parts.py` | Load parts for all owned sets (automatically fetches categories for new parts) |
 | `load_rebrickable_colors.py` | Load Rebrickable color data |
+| `load_all_part_categories.py` | Load part categories for all parts in inventory |
+| `cleanup_orphaned_parts.py` | Remove parts that don't belong to any sets |
 | `precheck_instabrick_inventory.py` | Detect/fix missing aliases before import |
 | `fix_alias_typos.py` | Correct typos from precheck step |
 | `load_instabrick_inventory.py` | Import Instabrick XML into DB |

@@ -110,7 +110,12 @@ def conn_rw(temp_db_path):
           name TEXT NOT NULL,
           part_url TEXT,
           part_img_url TEXT,
-          ignore_in_inventory INTEGER DEFAULT 0
+          ignore_in_inventory INTEGER DEFAULT 0,
+          part_category_id INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS part_categories (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS colors (
           id INTEGER PRIMARY KEY,

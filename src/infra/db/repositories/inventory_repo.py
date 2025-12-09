@@ -1235,6 +1235,8 @@ class InventoryRepo(BaseRepo):
                     i.color_id,
                     p.name AS part_name,
                     p.part_img_url,
+                    p.part_category_id,
+                    pc.name AS part_category_name,
                     col.name AS color_name,
                     col.hex AS color_hex,
                     d.id AS drawer_id,
@@ -1255,11 +1257,12 @@ class InventoryRepo(BaseRepo):
                 FROM inventory i
                 JOIN parts p ON p.design_id = i.design_id
                 JOIN colors col ON col.id = i.color_id
+                LEFT JOIN part_categories pc ON pc.id = p.part_category_id
                 LEFT JOIN containers c ON c.id = i.container_id
                 LEFT JOIN drawers d ON d.id = c.drawer_id
                 WHERE i.status = 'loose'
                   AND COALESCE(p.ignore_in_inventory, 0) = 0
-                GROUP BY i.design_id, i.color_id, d.id, d.name, c.id, c.name, p.name, p.part_img_url, col.name, col.hex, c.is_put_away_bin, c.deleted_at, d.deleted_at, i.container_id
+                GROUP BY i.design_id, i.color_id, d.id, d.name, c.id, c.name, p.name, p.part_img_url, p.part_category_id, pc.name, col.name, col.hex, c.is_put_away_bin, c.deleted_at, d.deleted_at, i.container_id
             ),
             putaway_only_check AS (
                 -- Check if element is ONLY in putaway bin (no other locations)
@@ -1300,6 +1303,8 @@ class InventoryRepo(BaseRepo):
                 ae.color_id,
                 COALESCE(el.part_name, p.name) AS part_name,
                 COALESCE(el.part_img_url, p.part_img_url) AS part_img_url,
+                COALESCE(el.part_category_id, p.part_category_id) AS part_category_id,
+                COALESCE(el.part_category_name, pc.name) AS part_category_name,
                 COALESCE(el.color_name, col.name) AS color_name,
                 COALESCE(el.color_hex, col.hex) AS color_hex,
                 COALESCE(el.drawer_id, pl.drawer_id) AS drawer_id,
@@ -1311,6 +1316,7 @@ class InventoryRepo(BaseRepo):
             FROM all_elements ae
             JOIN parts p ON p.design_id = ae.design_id
             JOIN colors col ON col.id = ae.color_id
+            LEFT JOIN part_categories pc ON pc.id = p.part_category_id
             LEFT JOIN element_locations el ON el.design_id = ae.design_id 
                 AND el.color_id = ae.color_id 
                 AND el.rn = 1
@@ -1633,6 +1639,8 @@ class InventoryRepo(BaseRepo):
                 'color_id': elem['color_id'],
                 'part_name': elem['part_name'],
                 'part_img_url': elem.get('part_img_url'),
+                'part_category_id': elem.get('part_category_id'),
+                'part_category_name': elem.get('part_category_name'),
                 'color_name': elem['color_name'],
                 'color_hex': elem.get('color_hex'),
                 'storage_strategy': storage_strategy,

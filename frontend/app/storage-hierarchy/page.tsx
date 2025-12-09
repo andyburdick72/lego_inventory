@@ -72,6 +72,17 @@ export default function StorageHierarchyPage() {
         header: 'Part Name',
       },
       {
+        accessorKey: 'part_category_name',
+        header: 'Category',
+        cell: ({ row }) => {
+          const strategy = row.original;
+          if (!strategy.part_category_name) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return <span>{strategy.part_category_name}</span>;
+        },
+      },
+      {
         id: 'color',
         header: 'Color',
         accessorFn: (row) => row.color_name || 'Unknown',
@@ -210,9 +221,7 @@ export default function StorageHierarchyPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Storage Hierarchy Rules</h1>
         <p className="text-muted-foreground">
-          How each element (part + color) is stored, based on container and drawer naming patterns.
-          This analysis determines the storage strategy by examining container names for part numbers
-          and color descriptions, and drawer names for "Really Useful" patterns.
+          This analysis determines the storage strategy for each element (part + color), based on container and drawer naming patterns.
         </p>
         {strategies && (
           <p className="text-sm text-muted-foreground mt-2">
@@ -251,7 +260,7 @@ export default function StorageHierarchyPage() {
         <DataTable
           columns={strategyColumns}
           data={filteredStrategies}
-          searchKeys={['design_id', 'part_name', 'color', 'color_name', 'drawer_name', 'container_name']}
+          searchKeys={['design_id', 'part_name', 'part_category_name', 'color', 'color_name', 'drawer_name', 'container_name']}
           searchPlaceholder="Search by part ID, name, color, drawer, or container..."
           exportFilename="storage-strategies"
           defaultSorting={[{ id: 'storage_strategy', desc: false }, { id: 'design_id', desc: false }]}

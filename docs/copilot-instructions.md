@@ -65,7 +65,8 @@ This project is a SQLite-backed inventory management system for LEGO parts and s
 ## Project-Specific Conventions
 - **Database Schema**: The schema is defined in `src/infra/db/inventory_db.py`. Key tables include:
   - `colors`: Rebrickable colors
-  - `parts`: Canonical Rebrickable part IDs
+  - `parts`: Canonical Rebrickable part IDs (includes `part_category_id` for category-based storage)
+  - `part_categories`: Rebrickable part category names
   - `inventory`: Tracks quantities by part, color, and location
 - **Scripts**: Each script in `src/scripts/` has a specific purpose (e.g., `load_instabrick_inventory.py` for importing XML data).
 - **Web UI**: Templates in `src/app/templates/` follow a consistent structure for displaying inventory data.

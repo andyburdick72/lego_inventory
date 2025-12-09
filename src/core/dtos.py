@@ -237,6 +237,8 @@ class ElementStorageStrategyDTO(DTOBase):
     color_id: int
     part_name: str
     part_img_url: Optional[str] = None
+    part_category_id: Optional[int] = None
+    part_category_name: Optional[str] = None
     color_name: str
     color_hex: Optional[str] = None
     storage_strategy: str  # 'by_element', 'by_part', 'by_category_size', 'by_category', 'unassigned', 'unknown', 'in_putaway_bin'

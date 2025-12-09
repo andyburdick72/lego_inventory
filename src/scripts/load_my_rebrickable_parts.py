@@ -357,7 +357,8 @@ def gather_and_insert_parts(
                 name = part["name"]
                 part_url = part.get("part_url")
                 part_img_url = part.get("part_img_url")
-                part_category_id = part.get("part_category_id")
+                # API may return 'part_cat_id' or 'part_category_id' - check both
+                part_category_id = part.get("part_cat_id") or part.get("part_category_id")
                 
                 # Check if part already exists in database to preserve manual overrides
                 existing_part = cursor.execute(
@@ -385,26 +386,55 @@ def gather_and_insert_parts(
                 # Deterministic fallback for part_url if missing (safe canonical URL)
                 if part_url is None:
                     part_url = f"https://rebrickable.com/parts/{rb_id}/"
+                # Store category name if we have a category ID
+                if part_category_id:
+                    # Check if category name is already cached
+                    if part_category_id not in category_name_cache:
+                        # Fetch category name from API
+                        try:
+                            category_url = f"https://rebrickable.com/api/v3/lego/part_categories/{part_category_id}/"
+                            category_data = get_json(category_url)
+                            category_name = category_data.get("name")
+                            if category_name:
+                                category_name_cache[part_category_id] = category_name
+                                # Insert or update category in database
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO part_categories (id, name)
+                                    VALUES (?, ?)
+                                    """,
+                                    (part_category_id, category_name),
+                                )
+                        except Exception as e:
+                            # If category fetch fails, continue without it
+                            # (we'll still store the category_id, name can be fetched later)
+                            pass
+                
                 # Opportunistically backfill part metadata
                 # Only update ignore_in_inventory if it changed (to avoid unnecessary updates)
+                # Update part_category_id if we have it and it's not already set
                 cursor.execute(
                     """
                     UPDATE parts
                     SET name = COALESCE(?, name),
                         part_url = COALESCE(?, part_url),
                         part_img_url = COALESCE(?, part_img_url),
-                        ignore_in_inventory = ?
+                        ignore_in_inventory = ?,
+                        part_category_id = COALESCE(part_category_id, ?)
                     WHERE design_id = ?
                     """,
-                    (name, part_url, part_img_url, ignore_in_inventory, rb_id),
+                    (name, part_url, part_img_url, ignore_in_inventory, part_category_id, rb_id),
                 )
                 if not insert_only_set_parts:
                     # Ensure the part exists
                     if rb_id not in seen_parts:
                         try:
                             cursor.execute(
-                                "INSERT OR IGNORE INTO parts (design_id, name, ignore_in_inventory) VALUES (?, ?, ?)",
-                                (rb_id, name, ignore_in_inventory),
+                                """
+                                INSERT OR IGNORE INTO parts (design_id, name, ignore_in_inventory, part_category_id)
+                                VALUES (?, ?, ?, ?)
+                                """,
+                                (rb_id, name, ignore_in_inventory, part_category_id),
                             )
                             if cursor.rowcount == 1:
                                 new_parts += 1
@@ -473,9 +503,8 @@ def gather_and_insert_parts(
                     else:
                         set_parts_unchanged += 1
             
-            # Note: Category fetching is now done separately via load_all_part_categories.py
-            # This avoids making individual API calls for each part during set processing,
-            # which was causing the script to be very slow
+            # Categories are now fetched and stored as we process parts
+            # This ensures new parts get their categories immediately
             
             # Commit after inserting all parts for this set
             conn.commit()

@@ -34,6 +34,11 @@ def test_get_part_by_id(design_id):
         assert isinstance(data["name"], str)
         assert "ignore_in_inventory" in data
         assert isinstance(data["ignore_in_inventory"], bool)
+        # Part category fields (may be None)
+        assert "part_category_id" in data
+        assert data["part_category_id"] is None or isinstance(data["part_category_id"], int)
+        assert "part_category_name" in data
+        assert data["part_category_name"] is None or isinstance(data["part_category_name"], str)
 
 
 def test_get_part_404():
@@ -80,6 +85,11 @@ def test_get_part_sets(design_id):
             assert "quantity" in item
             assert isinstance(item["quantity"], int)
             assert item["quantity"] > 0
+            # Part category fields (may be None)
+            assert "part_category_id" in item
+            assert item["part_category_id"] is None or isinstance(item["part_category_id"], int)
+            assert "part_category_name" in item
+            assert item["part_category_name"] is None or isinstance(item["part_category_name"], str)
 
 
 def test_get_part_sets_404():

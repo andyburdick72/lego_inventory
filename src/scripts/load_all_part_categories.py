@@ -52,12 +52,28 @@ def load_all_part_categories():
         def fetch_part_category(design_id: str) -> tuple[str, int | None, Exception | None]:
             """Fetch category for a single part. Returns (design_id, category_id, error)."""
             try:
+                # Try individual part endpoint first
                 part_url = f"https://rebrickable.com/api/v3/lego/parts/{design_id}/"
                 part_data = get_json(part_url, params={"key": API_KEY})
-                part_category_id = part_data.get("part_category_id")
+                # API returns 'part_cat_id', not 'part_category_id'
+                part_category_id = part_data.get("part_cat_id") or part_data.get("part_category_id")
                 return (design_id, part_category_id, None)
             except Exception as e:
-                return (design_id, None, e)
+                # If individual endpoint fails (e.g., 404 for print variants), try bulk endpoint
+                try:
+                    bulk_data = get_json(
+                        "/parts/",
+                        params={"part_nums": design_id, "key": API_KEY}
+                    )
+                    results = bulk_data.get("results", [])
+                    if results and len(results) > 0:
+                        part_data = results[0]
+                        part_category_id = part_data.get("part_cat_id") or part_data.get("part_category_id")
+                        return (design_id, part_category_id, None)
+                    else:
+                        return (design_id, None, e)  # Return original error if not found in bulk either
+                except Exception:
+                    return (design_id, None, e)  # Return original error if bulk also fails
         
         def fetch_category_name(category_id: int) -> tuple[int, str | None, Exception | None]:
             """Fetch category name. Returns (category_id, name, error)."""

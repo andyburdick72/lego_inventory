@@ -27,9 +27,8 @@ class PartDTO(DTOBase):
     part_url: str
     part_img_url: str
     ignore_in_inventory: bool = False
-    # TODO: Add part categories later - API fetching is too slow
-    # part_category_id: Optional[int] = None
-    # part_category_name: Optional[str] = None
+    part_category_id: Optional[int] = None
+    part_category_name: Optional[str] = None
 
 
 # Request models
@@ -76,9 +75,8 @@ def get_part(
             part_url=part_url,
             part_img_url=part_img_url,
             ignore_in_inventory=bool(part_data.get("ignore_in_inventory", 0)),
-            # TODO: Add part categories later
-            # part_category_id=part_data.get("part_category_id"),
-            # part_category_name=part_data.get("part_category_name"),
+            part_category_id=part_data.get("part_category_id"),
+            part_category_name=part_data.get("part_category_name"),
         )
         return part.model_dump()
     except NotFoundError as e:
@@ -213,6 +211,8 @@ def update_part(
             part_url=part_url,
             part_img_url=part_img_url,
             ignore_in_inventory=bool(part_data.get("ignore_in_inventory", 0)),
+            part_category_id=part_data.get("part_category_id"),
+            part_category_name=part_data.get("part_category_name"),
         )
         return part.model_dump()
     except NotFoundError as e:
