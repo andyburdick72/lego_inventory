@@ -26,7 +26,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { handleApiError } from '@/lib/api';
 import {
   SetPart,
   SetPartWithLocations,
@@ -35,7 +34,7 @@ import {
   useSetPartsWithLocations,
   useUpdateSetStatus,
 } from '@/lib/hooks/use-sets';
-import { formatNumber, getStatusLabel, isLightColor } from '@/lib/utils';
+import { formatNumber, getStatusLabel, isLightColor, showApiErrorToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -111,6 +110,9 @@ export default function SetDetailPage() {
   const [cardPageSize, setCardPageSize] = useState(20);
   const [editStatusDialogOpen, setEditStatusDialogOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [confirmationDialogOpen, setConfirmationDialogOpen] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState('');
+  const [confirmationAction, setConfirmationAction] = useState<(() => Promise<void>) | null>(null);
 
   const { data: set, isLoading: setLoading } = useSet(setNumber);
   const { data: parts, isLoading: partsLoading } = useSetParts(setNumber);
@@ -1174,86 +1176,127 @@ export default function SetDetailPage() {
             </Button>
             <Button
               onClick={async () => {
-                try {
-                  const previousStatus = set?.status;
+                const previousStatus = set?.status;
 
-                  // Check for status transitions that trigger inventory changes
-                  const isLooseStatus = (status: string) => status === 'loose_parts' || status === 'loose';
-                  const isTeardownStatus = (status: string) => status === 'teardown';
-                  const isNonLooseStatus = (status: string) =>
-                    status && !isLooseStatus(status) && !isTeardownStatus(status);
+                // Check for status transitions that trigger inventory changes
+                const isLooseStatus = (status: string) => status === 'loose_parts' || status === 'loose';
+                const isTeardownStatus = (status: string) => status === 'teardown';
+                const isNonLooseStatus = (status: string) =>
+                  status && !isLooseStatus(status) && !isTeardownStatus(status);
 
-                  let confirmed = true;
-                  let message = '';
-                  let shouldOpenWizard = false;
+                // Create the action to execute after confirmation
+                const executeStatusUpdate = async (shouldOpenWizard: boolean) => {
+                  try {
+                    await updateStatus.mutateAsync({
+                      setNumber,
+                      status: selectedStatus,
+                    });
+                    setEditStatusDialogOpen(false);
 
-                  // Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
-                  if (previousStatus && isLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
-                    confirmed = confirm(
-                      'This will move all parts from this set from their current storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Continue?'
-                    );
-                    message = 'Moving parts to Put Away bin...';
+                    // Auto-trigger putaway wizard if status changed to loose_parts and user confirmed
+                    if (shouldOpenWizard) {
+                      router.push(`/putaway-wizard/parts?source=set&setNumber=${encodeURIComponent(setNumber)}`);
+                    }
+                  } catch (error) {
+                    showApiErrorToast(error);
                   }
-                  // Trigger 2: Loose → Other: Remove all set parts from storage locations
-                  else if (previousStatus && isLooseStatus(previousStatus) && isNonLooseStatus(selectedStatus)) {
-                    confirmed = confirm(
-                      'This will remove all parts from this set from loose inventory. Continue?'
-                    );
-                    message = 'Removing parts from inventory...';
-                  }
-                  // Trigger 3: Other → Teardown: Add all set parts to Put Away bin
-                  else if (previousStatus && isNonLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
-                    confirmed = confirm(
-                      'This will add all parts from this set to the Put Away bin. Continue?'
-                    );
-                    message = 'Adding parts to Put Away bin...';
-                  }
-                  // Trigger 4: Teardown → Loose: Move all parts to Put Away bin, then offer wizard
-                  else if (
-                    previousStatus &&
-                    isTeardownStatus(previousStatus) &&
-                    (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
-                  ) {
-                    confirmed = confirm(
-                      'This will move any parts from this set that are in storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Would you like to open the Put-Away Wizard afterward to assign them to storage locations?'
-                    );
-                    message = 'Moving parts to Put Away bin...';
-                    shouldOpenWizard = confirmed; // Only open wizard if user confirmed
-                  }
-                  // Trigger 5: Other → Loose: Offer wizard (parts not yet in inventory)
-                  else if (
-                    previousStatus &&
-                    isNonLooseStatus(previousStatus) &&
-                    (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
-                  ) {
-                    confirmed = confirm(
-                      'Set status changed to Loose. Would you like to open the Put-Away Wizard to organize these parts into storage locations?'
-                    );
-                    message = '';
-                    shouldOpenWizard = confirmed; // Only open wizard if user confirmed
-                  }
+                };
 
-                  if (!confirmed) {
-                    return; // User cancelled
-                  }
-
-                  await updateStatus.mutateAsync({
-                    setNumber,
-                    status: selectedStatus,
-                  });
-                  setEditStatusDialogOpen(false);
-
-                  // Auto-trigger putaway wizard if status changed to loose_parts and user confirmed
-                  if (shouldOpenWizard) {
-                    router.push(`/putaway-wizard/parts?source=set&setNumber=${encodeURIComponent(setNumber)}`);
-                  }
-                } catch (error) {
-                  alert(handleApiError(error));
+                // Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
+                if (previousStatus && isLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
+                  setConfirmationMessage(
+                    'This will move all parts from this set from their current storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Continue?'
+                  );
+                  setConfirmationAction(() => executeStatusUpdate(false));
+                  setConfirmationDialogOpen(true);
+                  return;
                 }
+                // Trigger 2: Loose → Other: Remove all set parts from storage locations
+                else if (previousStatus && isLooseStatus(previousStatus) && isNonLooseStatus(selectedStatus)) {
+                  setConfirmationMessage(
+                    'This will remove all parts from this set from loose inventory. Continue?'
+                  );
+                  setConfirmationAction(() => executeStatusUpdate(false));
+                  setConfirmationDialogOpen(true);
+                  return;
+                }
+                // Trigger 3: Other → Teardown: Add all set parts to Put Away bin
+                else if (previousStatus && isNonLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
+                  setConfirmationMessage(
+                    'This will add all parts from this set to the Put Away bin. Continue?'
+                  );
+                  setConfirmationAction(() => executeStatusUpdate(false));
+                  setConfirmationDialogOpen(true);
+                  return;
+                }
+                // Trigger 4: Teardown → Loose: Move all parts to Put Away bin, then offer wizard
+                else if (
+                  previousStatus &&
+                  isTeardownStatus(previousStatus) &&
+                  (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
+                ) {
+                  setConfirmationMessage(
+                    'This will move any parts from this set that are in storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Would you like to open the Put-Away Wizard afterward to assign them to storage locations?'
+                  );
+                  setConfirmationAction(() => executeStatusUpdate(true));
+                  setConfirmationDialogOpen(true);
+                  return;
+                }
+                // Trigger 5: Other → Loose: Offer wizard (parts not yet in inventory)
+                else if (
+                  previousStatus &&
+                  isNonLooseStatus(previousStatus) &&
+                  (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
+                ) {
+                  setConfirmationMessage(
+                    'Set status changed to Loose. Would you like to open the Put-Away Wizard to organize these parts into storage locations?'
+                  );
+                  setConfirmationAction(() => executeStatusUpdate(true));
+                  setConfirmationDialogOpen(true);
+                  return;
+                }
+
+                // No confirmation needed, execute directly
+                await executeStatusUpdate(false);
               }}
               disabled={!selectedStatus || updateStatus.isPending}
             >
               {updateStatus.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmationDialogOpen} onOpenChange={setConfirmationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Action</DialogTitle>
+            <DialogDescription>{confirmationMessage}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConfirmationDialogOpen(false);
+                setConfirmationAction(null);
+                setConfirmationMessage('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (confirmationAction) {
+                  setConfirmationDialogOpen(false);
+                  const action = confirmationAction;
+                  setConfirmationAction(null);
+                  setConfirmationMessage('');
+                  await action();
+                }
+              }}
+            >
+              Continue
             </Button>
           </DialogFooter>
         </DialogContent>

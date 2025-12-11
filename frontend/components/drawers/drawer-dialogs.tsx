@@ -20,8 +20,7 @@ import {
   useDeleteDrawer,
   DrawerSummary,
 } from '@/lib/hooks/use-drawers';
-import { handleApiError } from '@/lib/api';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, showApiErrorToast } from '@/lib/utils';
 
 interface CreateDrawerDialogProps {
   open: boolean;
@@ -50,7 +49,7 @@ export function CreateDrawerDialog({ open, onOpenChange }: CreateDrawerDialogPro
       setCols('');
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -157,7 +156,7 @@ export function EditDrawerDialog({ drawer, open, onOpenChange }: EditDrawerDialo
       });
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -247,7 +246,7 @@ export function DeleteDrawerDialog({ drawer, open, onOpenChange }: DeleteDrawerD
       onOpenChange(false);
       router.push('/drawers');
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import { useSets, LEGOSet } from '@/lib/hooks/use-sets';
 import { Button } from '@/components/ui/button';
-import { api, handleApiError } from '@/lib/api';
+import { api } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/card';
 import { DataTable } from '@/components/data-table';
 import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
-import { formatNumber, getStatusLabel } from '@/lib/utils';
+import { formatNumber, getStatusLabel, showSuccessToast, showErrorToast, showApiErrorToast } from '@/lib/utils';
 import Link from 'next/link';
 
 type ViewMode = 'cards' | 'table';
@@ -182,7 +182,7 @@ export default function SetsPage() {
         all_sets: reloadAllSets,
       });
       if (response.data.success) {
-        alert(`Success: ${response.data.message}`);
+        showSuccessToast(response.data.message);
         setSyncPartsDialogOpen(false);
         setReloadAllSets(false);
         // Refresh sets data
@@ -192,10 +192,10 @@ export default function SetsPage() {
         const errorMsg = response.data.output 
           ? `${response.data.message}\n\n${response.data.output}`
           : response.data.message;
-        alert(`Error: ${errorMsg}`);
+        showErrorToast(errorMsg);
       }
     } catch (error) {
-      alert(`Error: ${handleApiError(error)}`);
+      showApiErrorToast(error);
     } finally {
       setIsRunning(false);
     }
@@ -207,12 +207,12 @@ export default function SetsPage() {
       const response = await api.post('/api/v1/scripts/sync-rebrickable-sets', {
         default_status: defaultStatus,
       });
-      alert(`Success: ${response.data.message}`);
+      showSuccessToast(response.data.message);
       setSyncSetsDialogOpen(false);
       // Refresh sets data
       window.location.reload();
     } catch (error) {
-      alert(`Error: ${handleApiError(error)}`);
+      showApiErrorToast(error);
     } finally {
       setIsRunning(false);
     }

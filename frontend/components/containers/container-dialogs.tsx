@@ -21,7 +21,7 @@ import {
   ContainerSummary,
 } from '@/lib/hooks/use-containers';
 import { handleApiError } from '@/lib/api';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, showApiErrorToast, showWarningToast } from '@/lib/utils';
 
 interface CreateContainerDialogProps {
   drawerId: number;
@@ -56,7 +56,7 @@ export function CreateContainerDialog({
       setColIndex('');
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -200,7 +200,7 @@ export function EditContainerDialog({
       }
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -298,12 +298,12 @@ export function DeleteContainerDialog({
       const errorMessage = handleApiError(error);
       // Check if it's a conflict error (container has inventory)
       if (errorMessage.includes('inventory') || errorMessage.includes('merge')) {
-        alert(
+        showWarningToast(
           `Cannot delete container "${container.name}" because it contains parts. ` +
             'Please move or merge the parts first.'
         );
       } else {
-        alert(errorMessage);
+        showApiErrorToast(error);
       }
     }
   };
