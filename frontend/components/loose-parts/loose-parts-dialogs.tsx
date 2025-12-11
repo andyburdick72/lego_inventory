@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { handleApiError } from '@/lib/api';
 import { useContainers } from '@/lib/hooks/use-containers';
 import { useDrawers } from '@/lib/hooks/use-drawers';
 import {
@@ -27,7 +26,7 @@ import {
   useMoveInventory,
   useUpdateInventoryQuantity,
 } from '@/lib/hooks/use-inventory';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, showWarningToast, showApiErrorToast } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 
 interface UpdateQuantityDialogProps {
@@ -52,7 +51,7 @@ export function UpdateQuantityDialog({ part, open, onOpenChange }: UpdateQuantit
     try {
       const qty = parseInt(quantity, 10);
       if (isNaN(qty) || qty < 0) {
-        alert('Quantity must be a non-negative number');
+        showWarningToast('Quantity must be a non-negative number');
         return;
       }
       await updateQuantity.mutateAsync({
@@ -61,7 +60,7 @@ export function UpdateQuantityDialog({ part, open, onOpenChange }: UpdateQuantit
       });
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -148,11 +147,11 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
     try {
       const qty = parseInt(quantity, 10);
       if (isNaN(qty) || qty <= 0) {
-        alert('Quantity must be a positive number');
+        showWarningToast('Quantity must be a positive number');
         return;
       }
       if (qty > part.quantity) {
-        alert(`Cannot move more than available quantity (${formatNumber(part.quantity)})`);
+        showWarningToast(`Cannot move more than available quantity (${formatNumber(part.quantity)})`);
         return;
       }
       const containerId = selectedContainerId && selectedContainerId !== 'none' ? parseInt(selectedContainerId, 10) : null;
@@ -163,7 +162,7 @@ export function MoveInventoryDialog({ part, open, onOpenChange }: MoveInventoryD
       });
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
@@ -263,7 +262,7 @@ export function DeleteInventoryDialog({ part, open, onOpenChange }: DeleteInvent
       await deleteInventory.mutateAsync(part.id);
       onOpenChange(false);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 

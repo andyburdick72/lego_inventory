@@ -40,7 +40,7 @@ import {
   usePutAwayBin,
   useUpdateInventoryLocation,
 } from '@/lib/hooks/use-location-reconciliation';
-import { formatNumber, isLightColor } from '@/lib/utils';
+import { formatNumber, isLightColor, showWarningToast, showErrorToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { AlertCircle, ArrowLeft, Download, Edit2, RefreshCw, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -113,7 +113,7 @@ export default function LocationReconciliationPage() {
 
     const quantityValue = parseInt(quantity, 10);
     if (isNaN(quantityValue) || quantityValue < 0) {
-      alert('Please enter a valid non-negative quantity');
+      showWarningToast('Please enter a valid non-negative quantity');
       return;
     }
 
@@ -136,7 +136,7 @@ export default function LocationReconciliationPage() {
       setQuantity('');
     } catch (err) {
       console.error('Failed to update inventory location:', err);
-      alert('Failed to update inventory location. Please try again.');
+      showErrorToast('Failed to update inventory location. Please try again.');
     }
   };
 

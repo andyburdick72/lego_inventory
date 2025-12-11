@@ -30,8 +30,7 @@ import {
 } from '@/lib/hooks/use-putaway';
 import { useSets, LEGOSet } from '@/lib/hooks/use-sets';
 import { useDrawers } from '@/lib/hooks/use-drawers';
-import { handleApiError } from '@/lib/api';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, showApiErrorToast } from '@/lib/utils';
 import {
   Package,
   Box,
@@ -120,7 +119,7 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
         handleClose();
       }, 2000);
     } catch (error) {
-      alert(handleApiError(error));
+      showApiErrorToast(error);
     }
   };
 
