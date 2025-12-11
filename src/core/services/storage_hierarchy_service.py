@@ -22,6 +22,12 @@ class InventoryRepo(Protocol):
     def find_part_location(self, design_id: str) -> list[dict]: ...
     def find_category_location(self, part_category_id: int) -> list[dict]: ...
 
+    # Optional analysis methods (checked with hasattr at runtime)
+    def analyze_element_storage_patterns(self) -> list[dict]: ...
+    def analyze_part_storage_patterns(self) -> list[dict]: ...
+    def analyze_category_storage_patterns(self) -> list[dict]: ...
+    def analyze_element_storage_strategies(self) -> list[dict]: ...
+
 
 class PartsRepo(Protocol):
     """Protocol for parts repository."""
@@ -46,7 +52,7 @@ class StorageSuggestion:
         self.drawer_id = drawer_id
         self.drawer_name = drawer_name
         self.container_name = container_name
-        self.confidence = confidence  # 'definitive', 'high', 'medium', 'low'
+        self.confidence = confidence  # 'high', 'medium', 'low', 'none'
         self.reason = reason
         self.quantity = quantity
 
@@ -82,10 +88,10 @@ class StorageHierarchyService:
         Suggest a storage location for a specific element (design_id + color_id).
 
         Returns a StorageSuggestion with confidence level:
-        - 'definitive': Exact element match found (highest confidence)
-        - 'high': Part match found (same design_id, different color)
-        - 'medium': Category match found
-        - 'low': No match found (returns None)
+        - 'high': Exact element match found (highest confidence)
+        - 'medium': Part match found (same design_id, different color)
+        - 'low': Category match found
+        - 'none': No match found (returns None)
 
         Args:
             design_id: Part design ID
@@ -97,22 +103,23 @@ class StorageHierarchyService:
         if not design_id or not isinstance(color_id, int):
             raise ValidationError("design_id and color_id are required")
 
-        # Level 1: Check for exact element match (definitive)
+        # Level 1: Check for exact element match (high confidence)
         element_locations = self._inventory.find_element_location(design_id, color_id)
         if element_locations:
             # Use the location with the highest quantity
             best_location = max(element_locations, key=lambda x: x.get("quantity", 0))
+            color_name = best_location.get("color_name", f"color {color_id}")
             return StorageSuggestion(
                 container_id=best_location.get("container_id"),
                 drawer_id=best_location.get("drawer_id"),
                 drawer_name=best_location.get("drawer_name"),
                 container_name=best_location.get("container_name"),
-                confidence="definitive",
-                reason=f"Exact element match: {design_id} in color {color_id} already stored here",
+                confidence="high",
+                reason=f"Exact element match: {design_id} in {color_name} already stored here",
                 quantity=best_location.get("quantity", 0),
             )
 
-        # Level 2: Check for part match (high confidence)
+        # Level 2: Check for part match (medium confidence)
         part_locations = self._inventory.find_part_location(design_id)
         if part_locations:
             # Use the location with the highest total quantity
@@ -122,12 +129,12 @@ class StorageHierarchyService:
                 drawer_id=best_location.get("drawer_id"),
                 drawer_name=best_location.get("drawer_name"),
                 container_name=best_location.get("container_name"),
-                confidence="high",
+                confidence="medium",
                 reason=f"Part match: {design_id} (any color) already stored here",
                 quantity=best_location.get("total_quantity", 0),
             )
 
-        # Level 3: Check for category match (medium confidence)
+        # Level 3: Check for category match (low confidence)
         part_info = self._parts.get_part(design_id)
         if part_info and part_info.get("part_category_id"):
             category_id = part_info["part_category_id"]
@@ -141,7 +148,7 @@ class StorageHierarchyService:
                     drawer_id=best_location.get("drawer_id"),
                     drawer_name=best_location.get("drawer_name"),
                     container_name=best_location.get("container_name"),
-                    confidence="medium",
+                    confidence="low",
                     reason=f"Category match: parts from '{category_name}' category stored here",
                     quantity=best_location.get("total_quantity", 0),
                 )
@@ -157,7 +164,7 @@ class StorageHierarchyService:
         """
         suggestions: list[StorageSuggestion] = []
 
-        # Level 1: Element matches (definitive)
+        # Level 1: Element matches (high confidence)
         element_locations = self._inventory.find_element_location(design_id, color_id)
         for loc in element_locations:
             suggestions.append(
@@ -166,7 +173,7 @@ class StorageHierarchyService:
                     drawer_id=loc.get("drawer_id"),
                     drawer_name=loc.get("drawer_name"),
                     container_name=loc.get("container_name"),
-                    confidence="definitive",
+                    confidence="high",
                     reason=f"Exact element match: {design_id} in color {color_id}",
                     quantity=loc.get("quantity", 0),
                 )
@@ -188,7 +195,7 @@ class StorageHierarchyService:
                     drawer_id=loc.get("drawer_id"),
                     drawer_name=loc.get("drawer_name"),
                     container_name=loc.get("container_name"),
-                    confidence="high",
+                    confidence="medium",
                     reason=f"Part match: {design_id} (any color)",
                     quantity=loc.get("total_quantity", 0),
                 )
@@ -214,14 +221,14 @@ class StorageHierarchyService:
                         drawer_id=loc.get("drawer_id"),
                         drawer_name=loc.get("drawer_name"),
                         container_name=loc.get("container_name"),
-                        confidence="medium",
+                        confidence="low",
                         reason=f"Category match: '{category_name}' category",
                         quantity=loc.get("total_quantity", 0),
                     )
                 )
 
-        # Sort by confidence (definitive > high > medium) and then by quantity
-        confidence_order = {"definitive": 0, "high": 1, "medium": 2}
+        # Sort by confidence (high > medium > low) and then by quantity
+        confidence_order = {"high": 0, "medium": 1, "low": 2}
         suggestions.sort(
             key=lambda s: (
                 confidence_order.get(s.confidence, 99),

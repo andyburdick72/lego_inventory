@@ -26,9 +26,9 @@ def suggest_location(
     Get a storage location suggestion for a specific element (design_id + color_id).
 
     Returns the best suggestion based on storage hierarchy:
-    - Definitive: Exact element match found
-    - High: Part match found (same design_id, different color)
-    - Medium: Category match found
+    - High: Exact element match found
+    - Medium: Part match found (same design_id, different color)
+    - Low: Category match found
     - None: No match found
 
     Args:
@@ -66,9 +66,9 @@ def suggest_all_locations(
     Get all possible storage location suggestions for an element, ordered by confidence.
 
     Returns a list of suggestions from highest to lowest confidence:
-    - Definitive: Exact element matches
-    - High: Part matches (same design_id, different color)
-    - Medium: Category matches
+    - High: Exact element matches
+    - Medium: Part matches (same design_id, different color)
+    - Low: Category matches
 
     Args:
         design_id: Part design ID

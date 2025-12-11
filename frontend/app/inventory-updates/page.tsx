@@ -123,17 +123,17 @@ export default function InventoryUpdatesPage() {
         <Card className="flex flex-row items-center gap-4">
           <div className="flex-1">
             <CardHeader>
-              <CardTitle>Part-Out Wizard</CardTitle>
-              <CardDescription>Break down sets into loose parts (Coming soon)</CardDescription>
+              <CardTitle>Put-Away Wizard</CardTitle>
+              <CardDescription>Organize parts from sets or the putaway bin into storage locations</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white" disabled>
-                <Link href="#">Coming Soon</Link>
+              <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white">
+                <Link href="/putaway-wizard">Start Wizard</Link>
               </Button>
             </CardContent>
           </div>
           <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <Package className="h-16 w-16 text-blue-600 opacity-50" />
+            <Package className="h-16 w-16 text-blue-600" />
           </div>
         </Card>
 

@@ -1,7 +1,6 @@
 """FastAPI router for sets endpoints."""
 
 import sqlite3
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from core.dtos import LEGOSetDTO
 from core.enums import Status
 from core.services.inventory_service import InventoryService
 from core.services.set_parts_service import SetPartsService
+from infra.db.repositories.drawers_repo import DrawersRepo
 from infra.db.repositories.sets_repo import SetsRepo
 
 router = APIRouter(prefix="/sets", tags=["sets"])
@@ -24,17 +24,17 @@ class SetPartDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: Optional[str] = None
+    hex: str | None = None
     quantity: int
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    part_url: str | None = None
+    part_img_url: str | None = None
 
 
 class PartLocationDTO(BaseModel):
-    drawer_id: Optional[int] = None
-    drawer_name: Optional[str] = None
-    container_id: Optional[int] = None
-    container_name: Optional[str] = None
+    drawer_id: int | None = None
+    drawer_name: str | None = None
+    container_id: int | None = None
+    container_name: str | None = None
     quantity: int
 
 
@@ -43,12 +43,12 @@ class SetPartWithLocationsDTO(BaseModel):
     name: str
     color_id: int
     color_name: str
-    hex: Optional[str] = None
+    hex: str | None = None
     required_quantity: int
     available_quantity: int
     locations: list[PartLocationDTO]
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    part_url: str | None = None
+    part_img_url: str | None = None
 
 
 # Request models
@@ -57,7 +57,7 @@ class UpdateSetStatusRequest(BaseModel):
 
 
 @router.get("/count")
-def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):
+def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B008
     """Get the total count of sets."""
     row = conn.execute("SELECT COUNT(*) AS count FROM sets").fetchone()
     count = row["count"] if isinstance(row, dict) else row[0] if row else 0
@@ -65,7 +65,7 @@ def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):
 
 
 @router.get("", response_model=list[LEGOSetDTO])
-def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):
+def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B008
     """List all sets with their metadata."""
     rows = conn.execute(
         """
@@ -98,7 +98,7 @@ def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):
 @router.get("/{set_number}", response_model=LEGOSetDTO)
 def get_set(
     set_number: str,
-    service: SetPartsService = Depends(get_set_parts_service),
+    service: SetPartsService = Depends(get_set_parts_service),  # noqa: B008
 ):
     """Get a specific set by set number."""
     try:
@@ -127,15 +127,15 @@ def get_set(
                 "code": "not_found",
                 "details": getattr(e, "details", None),
             },
-        )
+        ) from e
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.get("/{set_number}/parts", response_model=list[SetPartDTO])
 def get_set_parts(
     set_number: str,
-    service: SetPartsService = Depends(get_set_parts_service),
+    service: SetPartsService = Depends(get_set_parts_service),  # noqa: B008
 ):
     """Get all parts for a specific set."""
     try:
@@ -165,7 +165,7 @@ def get_set_parts(
             )
         return [p.model_dump() for p in result]
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except NotFoundError as e:
         raise HTTPException(
             status_code=404,
@@ -174,14 +174,15 @@ def get_set_parts(
                 "code": "not_found",
                 "details": getattr(e, "details", None),
             },
-        )
+        ) from e
 
 
 @router.patch("/{set_number}/status")
 def update_set_status(
     set_number: str,
     request: UpdateSetStatusRequest,
-    conn: sqlite3.Connection = Depends(get_db_connection),
+    conn: sqlite3.Connection = Depends(get_db_connection),  # noqa: B008
+    inventory_service: InventoryService = Depends(get_inventory_service),  # noqa: B008
 ):
     """Update the status of a set."""
     # Validate status first
@@ -194,7 +195,7 @@ def update_set_status(
                 "message": f"Invalid status: {str(e)}",
                 "code": "validation_error",
             },
-        )
+        ) from e
 
     # Check if set exists
     sets_repo = SetsRepo(conn)
@@ -210,7 +211,7 @@ def update_set_status(
                     "message": "Database schema error: sets table not found",
                     "code": "internal_error",
                 },
-            )
+            ) from e
         # Other operational errors
         raise HTTPException(
             status_code=500,
@@ -218,7 +219,7 @@ def update_set_status(
                 "message": f"Database error: {error_msg}",
                 "code": "internal_error",
             },
-        )
+        ) from e
     except Exception as e:
         # Other database errors - return 500
         raise HTTPException(
@@ -227,7 +228,7 @@ def update_set_status(
                 "message": f"Error checking set existence: {str(e)}",
                 "code": "internal_error",
             },
-        )
+        ) from e
 
     if not existing_set:
         raise HTTPException(
@@ -238,9 +239,13 @@ def update_set_status(
             },
         )
 
+    # Get previous status for status change triggers
+    previous_status = existing_set.get("status")
+    new_status = status_enum.value
+
     # Update status
     try:
-        sets_repo.update_set_by_num(set_number, status=status_enum.value)
+        sets_repo.update_set_by_num(set_number, status=new_status)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -248,7 +253,162 @@ def update_set_status(
                 "message": f"Error updating set status: {str(e)}",
                 "code": "internal_error",
             },
-        )
+        ) from e
+
+    # Handle status change triggers
+    try:
+        drawers_repo = DrawersRepo(conn)
+
+        # Get putaway bin container_id if needed
+        putaway_bin = drawers_repo.get_put_away_bin()
+        putaway_bin_container_id = putaway_bin.get("container_id") if putaway_bin else None
+
+        # Get all parts for the set
+        set_parts = list(sets_repo.list_parts_for_set(set_number))
+
+        # Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
+        if previous_status in ("loose_parts", "loose") and new_status == "teardown":
+            if putaway_bin_container_id:
+                for part in set_parts:
+                    design_id = str(part.get("design_id", ""))
+                    color_id = int(part.get("color_id", 0))
+                    # Get all inventory items for this part+color (with IDs)
+                    inventory_rows = conn.execute(
+                        """
+                        SELECT i.id, i.container_id, i.quantity
+                        FROM inventory i
+                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                        """,
+                        (design_id, color_id),
+                    ).fetchall()
+                    for row in inventory_rows:
+                        inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                        container_id = row["container_id"] if isinstance(row, dict) else row[1]
+                        quantity = row["quantity"] if isinstance(row, dict) else row[2]
+                        # Only move if not already in putaway bin
+                        if (
+                            inventory_id
+                            and container_id != putaway_bin_container_id
+                            and quantity > 0
+                        ):
+                            inventory_service.move_inventory(
+                                from_inventory_id=inventory_id,
+                                to_container_id=putaway_bin_container_id,
+                                quantity=quantity,
+                            )
+
+        # Trigger 2: Loose → Other: Remove all set parts from storage locations
+        elif previous_status in ("loose_parts", "loose") and new_status not in (
+            "loose_parts",
+            "loose",
+            "teardown",
+        ):
+            for part in set_parts:
+                design_id = str(part.get("design_id", ""))
+                color_id = int(part.get("color_id", 0))
+                # Get all inventory items for this part+color (with IDs)
+                inventory_rows = conn.execute(
+                    """
+                    SELECT i.id
+                    FROM inventory i
+                    WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                    """,
+                    (design_id, color_id),
+                ).fetchall()
+                for row in inventory_rows:
+                    inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                    if inventory_id:
+                        inventory_service.delete_inventory_item(inventory_id=inventory_id)
+
+        # Trigger 3: Other → Teardown: Add all set parts to Put Away bin
+        elif (
+            previous_status not in ("loose_parts", "loose", "teardown") and new_status == "teardown"
+        ):
+            if putaway_bin_container_id:
+                for part in set_parts:
+                    design_id = str(part.get("design_id", ""))
+                    color_id = int(part.get("color_id", 0))
+                    quantity = int(part.get("quantity", 0))
+                    # Check if ignore_in_inventory flag is set
+                    if part.get("ignore_in_inventory", 0) == 1:
+                        continue
+                    # Check if inventory item already exists for this part+color in putaway bin
+                    existing_row = conn.execute(
+                        """
+                        SELECT i.id, i.quantity
+                        FROM inventory i
+                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose' 
+                          AND i.container_id = ?
+                        LIMIT 1
+                        """,
+                        (design_id, color_id, putaway_bin_container_id),
+                    ).fetchone()
+                    if existing_row:
+                        # Update quantity
+                        existing_id = (
+                            existing_row["id"]
+                            if isinstance(existing_row, dict)
+                            else existing_row[0]
+                        )
+                        existing_qty = (
+                            existing_row["quantity"]
+                            if isinstance(existing_row, dict)
+                            else existing_row[1]
+                        )
+                        new_qty = existing_qty + quantity
+                        inventory_service.update_inventory_quantity(
+                            inventory_id=existing_id, quantity=new_qty
+                        )
+                    else:
+                        # Create new inventory item
+                        conn.execute(
+                            """
+                            INSERT INTO inventory (design_id, color_id, quantity, status, container_id)
+                            VALUES (?, ?, ?, 'loose', ?)
+                            """,
+                            (design_id, color_id, quantity, putaway_bin_container_id),
+                        )
+                        conn.commit()
+
+        # Trigger 4: Teardown → Loose: Move all set parts from storage to Put Away bin
+        elif previous_status == "teardown" and new_status in ("loose_parts", "loose"):
+            if putaway_bin_container_id:
+                for part in set_parts:
+                    design_id = str(part.get("design_id", ""))
+                    color_id = int(part.get("color_id", 0))
+                    # Check if ignore_in_inventory flag is set
+                    if part.get("ignore_in_inventory", 0) == 1:
+                        continue
+                    # Get all inventory items for this part+color
+                    inventory_rows = conn.execute(
+                        """
+                        SELECT i.id, i.container_id, i.quantity
+                        FROM inventory i
+                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                        """,
+                        (design_id, color_id),
+                    ).fetchall()
+                    for row in inventory_rows:
+                        inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                        container_id = row["container_id"] if isinstance(row, dict) else row[1]
+                        quantity = row["quantity"] if isinstance(row, dict) else row[2]
+                        # Only move if not already in putaway bin
+                        if (
+                            inventory_id
+                            and container_id != putaway_bin_container_id
+                            and quantity > 0
+                        ):
+                            inventory_service.move_inventory(
+                                from_inventory_id=inventory_id,
+                                to_container_id=putaway_bin_container_id,
+                                quantity=quantity,
+                            )
+    except Exception as e:
+        # Log error but don't fail the status update
+        import traceback
+
+        print(f"Warning: Error handling status change triggers: {e}")
+        traceback.print_exc()
 
     return {"updated": set_number, "status": status_enum.value}
 
@@ -256,8 +416,8 @@ def update_set_status(
 @router.get("/{set_number}/parts-locations", response_model=list[SetPartWithLocationsDTO])
 def get_set_parts_with_locations(
     set_number: str,
-    set_parts_service: SetPartsService = Depends(get_set_parts_service),
-    inventory_service: InventoryService = Depends(get_inventory_service),
+    set_parts_service: SetPartsService = Depends(get_set_parts_service),  # noqa: B008
+    inventory_service: InventoryService = Depends(get_inventory_service),  # noqa: B008
 ):
     """Get all parts for a set with their inventory locations.
 
@@ -269,7 +429,7 @@ def get_set_parts_with_locations(
     try:
         # First verify the set exists
         set_parts_service.get_set(set_number=set_number)
-        
+
         # Get all parts required by the set
         parts = list(set_parts_service.list_parts(set_number=set_number))
 
@@ -327,7 +487,7 @@ def get_set_parts_with_locations(
 
         return [p.model_dump() for p in result]
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except NotFoundError as e:
         raise HTTPException(
             status_code=404,
@@ -336,4 +496,4 @@ def get_set_parts_with_locations(
                 "code": "not_found",
                 "details": getattr(e, "details", None),
             },
-        )
+        ) from e

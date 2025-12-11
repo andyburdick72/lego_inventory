@@ -90,6 +90,7 @@ export default function ContainerDetailPage() {
         'loose-parts': { href: '/loose-parts', label: 'Loose Parts' },
         'location-counts': { href: '/location-counts', label: 'Location Counts' },
         'storage-hierarchy': { href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' },
+        'putaway-wizard': { href: '/putaway-wizard', label: 'Put-Away Wizard' },
         'sets': { href: `/sets/${searchParams.get('set_number') || ''}`, label: 'Set' },
         'parts': {
           href: searchParams.get('design_id') ? `/parts/${searchParams.get('design_id')}` : '/loose-parts',
@@ -131,6 +132,8 @@ export default function ContainerDetailPage() {
         setBackLink({ href: `/drawers/${container.drawer_id}`, label: 'Drawer' });
       } else if (pathname.includes('/storage-hierarchy')) {
         setBackLink({ href: '/storage-hierarchy', label: 'Storage Hierarchy Rules' });
+      } else if (pathname.includes('/putaway-wizard')) {
+        setBackLink({ href: '/putaway-wizard', label: 'Put-Away Wizard' });
       }
       // Default is already set to drawer
     } else {
