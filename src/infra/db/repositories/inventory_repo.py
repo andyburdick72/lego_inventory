@@ -198,6 +198,70 @@ class InventoryRepo(BaseRepo):
             [design_id, color_id],
         )
 
+    def get_putaway_bin_parts(self, search: str | None = None) -> list[dict]:
+        """
+        Return all parts currently in the putaway bin, with part and color details.
+        Optionally filters by search_query matching part name or design_id.
+        Excludes parts flagged with ignore_in_inventory.
+        
+        Returns: inventory_id, design_id, part_name, color_id, color_name, hex,
+                 quantity, drawer_id, drawer_name, container_id, container_name,
+                 part_url, part_img_url
+        """
+        # First, get the putaway bin container_id
+        putaway_bin = self._one(
+            """
+            SELECT c.id AS container_id
+            FROM containers c
+            JOIN drawers d ON d.id = c.drawer_id
+            WHERE c.is_put_away_bin = 1 
+              AND c.deleted_at IS NULL 
+              AND d.deleted_at IS NULL
+            LIMIT 1
+            """,
+            [],
+        )
+        
+        if not putaway_bin:
+            return []
+        
+        container_id = putaway_bin.get("container_id")
+        
+        clauses = ["i.status = 'loose'", "i.container_id = ?", "COALESCE(p.ignore_in_inventory, 0) = 0"]
+        params: list[Any] = [container_id]
+        
+        if search:
+            clauses.append("(p.name LIKE ? OR p.design_id LIKE ?)")
+            like = f"%{search}%"
+            params.extend([like, like])
+        
+        where = " AND ".join(clauses)
+        
+        sql = f"""
+            SELECT 
+                i.id AS inventory_id,
+                i.design_id,
+                p.name AS part_name,
+                i.color_id,
+                col.name AS color_name,
+                col.hex,
+                i.quantity,
+                d.id AS drawer_id,
+                d.name AS drawer_name,
+                c.id AS container_id,
+                c.name AS container_name,
+                p.part_url,
+                p.part_img_url
+            FROM inventory i
+            JOIN parts p ON p.design_id = i.design_id
+            JOIN colors col ON col.id = i.color_id
+            LEFT JOIN containers c ON c.id = i.container_id
+            LEFT JOIN drawers d ON d.id = c.drawer_id
+            WHERE {where}
+            ORDER BY p.name COLLATE NOCASE, i.design_id, i.color_id
+        """
+        return self._all(sql, params)
+
     def locations_rows_new(self) -> list[dict]:
         """
         Rows for the 'new path': inventory linked to containers/drawers (container_id not null).
@@ -995,7 +1059,7 @@ class InventoryRepo(BaseRepo):
         Find all locations where a specific element (design_id + color_id) is stored.
         Excludes put-away bin.
 
-        Returns: list of dicts with container_id, drawer_id, drawer_name, container_name, quantity
+        Returns: list of dicts with container_id, drawer_id, drawer_name, container_name, color_name, quantity
         """
         # Get put-away bin container_id
         put_away_bin = self._one(
@@ -1020,8 +1084,10 @@ class InventoryRepo(BaseRepo):
                     d.id AS drawer_id,
                     d.name AS drawer_name,
                     c.name AS container_name,
+                    col.name AS color_name,
                     SUM(i.quantity) AS quantity
                 FROM inventory i
+                JOIN colors col ON col.id = i.color_id
                 LEFT JOIN containers c ON c.id = i.container_id
                 LEFT JOIN drawers d ON d.id = c.drawer_id
                 WHERE i.design_id = ? 
@@ -1030,7 +1096,7 @@ class InventoryRepo(BaseRepo):
                   AND (i.container_id IS NULL OR i.container_id != ?)
                   AND (c.deleted_at IS NULL OR c.id IS NULL)
                   AND (d.deleted_at IS NULL OR d.id IS NULL)
-                GROUP BY c.id, d.id, d.name, c.name
+                GROUP BY c.id, d.id, d.name, c.name, col.name
                 ORDER BY quantity DESC, d.name, c.name
                 """,
                 [design_id, color_id, put_away_container_id],
@@ -1043,8 +1109,10 @@ class InventoryRepo(BaseRepo):
                     d.id AS drawer_id,
                     d.name AS drawer_name,
                     c.name AS container_name,
+                    col.name AS color_name,
                     SUM(i.quantity) AS quantity
                 FROM inventory i
+                JOIN colors col ON col.id = i.color_id
                 LEFT JOIN containers c ON c.id = i.container_id
                 LEFT JOIN drawers d ON d.id = c.drawer_id
                 WHERE i.design_id = ? 
@@ -1052,7 +1120,7 @@ class InventoryRepo(BaseRepo):
                   AND i.status = 'loose'
                   AND (c.deleted_at IS NULL OR c.id IS NULL)
                   AND (d.deleted_at IS NULL OR d.id IS NULL)
-                GROUP BY c.id, d.id, d.name, c.name
+                GROUP BY c.id, d.id, d.name, c.name, col.name
                 ORDER BY quantity DESC, d.name, c.name
                 """,
                 [design_id, color_id],

@@ -190,7 +190,7 @@ class StorageSuggestionDTO(DTOBase):
     drawer_id: Optional[int] = None
     drawer_name: Optional[str] = None
     container_name: Optional[str] = None
-    confidence: str  # 'definitive', 'high', 'medium', 'low'
+    confidence: str  # 'high', 'medium', 'low', 'none'
     reason: str
     quantity: int = 0
 
@@ -248,3 +248,54 @@ class ElementStorageStrategyDTO(DTOBase):
     container_name: Optional[str] = None
     quantity: int
     evidence: str  # Explanation of why it was categorized this way
+
+
+class PutawayPartDTO(DTOBase):
+    """A part that needs to be put away (from set part-out or putaway bin)."""
+    design_id: str
+    part_name: str
+    color_id: int
+    color_name: str
+    color_hex: Optional[str] = None
+    quantity: int
+    part_url: Optional[str] = None
+    part_img_url: Optional[str] = None
+    inventory_id: Optional[int] = None  # Only for putaway bin entry point
+
+
+class PutawayPartWithSuggestionDTO(PutawayPartDTO):
+    """A part with its location suggestion."""
+    suggestion: Optional[StorageSuggestionDTO] = None
+
+
+class BatchAssignmentRequestDTO(DTOBase):
+    """Request to assign multiple parts to containers."""
+    assignments: list["PartAssignmentDTO"]
+
+
+class PartAssignmentDTO(DTOBase):
+    """Assignment of a part to a container."""
+    design_id: str
+    color_id: int
+    quantity: int
+    container_id: Optional[int] = None  # None = unassign (skip)
+    inventory_id: Optional[int] = None  # Only for putaway bin entry point (to identify source inventory item)
+
+
+class BatchAssignmentResultDTO(DTOBase):
+    """Result of a batch assignment operation."""
+    total_requested: int
+    total_assigned: int
+    total_skipped: int
+    assignments: list["AssignmentResultDTO"]
+    errors: list[str]
+
+
+class AssignmentResultDTO(DTOBase):
+    """Result of a single part assignment."""
+    design_id: str
+    color_id: int
+    quantity: int
+    container_id: Optional[int] = None
+    success: bool
+    message: Optional[str] = None

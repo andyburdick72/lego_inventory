@@ -39,7 +39,7 @@ import { formatNumber, getStatusLabel, isLightColor } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 type ViewMode = 'cards' | 'table';
@@ -56,6 +56,7 @@ const STATUS_OPTIONS = [
 export default function SetDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const setNumber = params.setNumber as string;
   const [backLink, setBackLink] = useState<{ href: string; label: string }>({
     href: '/sets',
@@ -364,7 +365,7 @@ export default function SetDetailPage() {
           ) : (
             <span>{loc.container_name || ''}</span>
           );
-          
+
           if (loc.drawer_name && loc.container_name) {
             return (
               <div className="text-sm">
@@ -406,7 +407,7 @@ export default function SetDetailPage() {
               ) : (
                 <span>{loc.container_name || ''}</span>
               );
-              
+
               return (
                 <li key={idx} className="text-sm">
                   {loc.drawer_name && loc.container_name ? (
@@ -695,16 +696,16 @@ export default function SetDetailPage() {
                 <div className="text-muted-foreground">Loading part locations...</div>
               ) : partsWithLocations && partsWithLocations.length > 0 ? (
                 viewMode === 'table' ? (
-                <DataTable
-                  columns={partLocationsColumns}
-                  data={partsWithLocations}
-                  searchKeys={['design_id', 'name', 'color', 'color_name', 'locations']}
-                  searchPlaceholder="Search by part ID, name, color, or location..."
-                  exportFilename={`set-${setNumber}-part-locations`}
-                  defaultSorting={[{ id: 'required_quantity', desc: true }]}
-                  numericColumns={['required_quantity', 'available_quantity']}
-                  defaultPageSize={20}
-                />
+                  <DataTable
+                    columns={partLocationsColumns}
+                    data={partsWithLocations}
+                    searchKeys={['design_id', 'name', 'color', 'color_name', 'locations']}
+                    searchPlaceholder="Search by part ID, name, color, or location..."
+                    exportFilename={`set-${setNumber}-part-locations`}
+                    defaultSorting={[{ id: 'required_quantity', desc: true }]}
+                    numericColumns={['required_quantity', 'available_quantity']}
+                    defaultPageSize={20}
+                  />
                 ) : (
                   <>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -754,11 +755,10 @@ export default function SetDetailPage() {
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">Available:</span>
                                   <span
-                                    className={`font-medium ${
-                                      part.available_quantity >= part.required_quantity
-                                        ? ''
-                                        : 'text-orange-600'
-                                    }`}
+                                    className={`font-medium ${part.available_quantity >= part.required_quantity
+                                      ? ''
+                                      : 'text-orange-600'
+                                      }`}
                                   >
                                     {formatNumber(part.available_quantity)}
                                   </span>
@@ -792,7 +792,7 @@ export default function SetDetailPage() {
                                           ) : (
                                             <span>{loc.container_name || ''}</span>
                                           );
-                                          
+
                                           if (loc.drawer_name && loc.container_name) {
                                             return (
                                               <>
@@ -833,7 +833,7 @@ export default function SetDetailPage() {
                                           ) : (
                                             <span>{loc.container_name || ''}</span>
                                           );
-                                          
+
                                           return (
                                             <li key={idx} className="text-xs">
                                               {loc.drawer_name && loc.container_name ? (
@@ -1175,11 +1175,78 @@ export default function SetDetailPage() {
             <Button
               onClick={async () => {
                 try {
+                  const previousStatus = set?.status;
+
+                  // Check for status transitions that trigger inventory changes
+                  const isLooseStatus = (status: string) => status === 'loose_parts' || status === 'loose';
+                  const isTeardownStatus = (status: string) => status === 'teardown';
+                  const isNonLooseStatus = (status: string) =>
+                    status && !isLooseStatus(status) && !isTeardownStatus(status);
+
+                  let confirmed = true;
+                  let message = '';
+                  let shouldOpenWizard = false;
+
+                  // Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
+                  if (previousStatus && isLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
+                    confirmed = confirm(
+                      'This will move all parts from this set from their current storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Continue?'
+                    );
+                    message = 'Moving parts to Put Away bin...';
+                  }
+                  // Trigger 2: Loose → Other: Remove all set parts from storage locations
+                  else if (previousStatus && isLooseStatus(previousStatus) && isNonLooseStatus(selectedStatus)) {
+                    confirmed = confirm(
+                      'This will remove all parts from this set from loose inventory. Continue?'
+                    );
+                    message = 'Removing parts from inventory...';
+                  }
+                  // Trigger 3: Other → Teardown: Add all set parts to Put Away bin
+                  else if (previousStatus && isNonLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {
+                    confirmed = confirm(
+                      'This will add all parts from this set to the Put Away bin. Continue?'
+                    );
+                    message = 'Adding parts to Put Away bin...';
+                  }
+                  // Trigger 4: Teardown → Loose: Move all parts to Put Away bin, then offer wizard
+                  else if (
+                    previousStatus &&
+                    isTeardownStatus(previousStatus) &&
+                    (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
+                  ) {
+                    confirmed = confirm(
+                      'This will move any parts from this set that are in storage locations to the Put Away bin. (Parts already in the Put Away bin will remain there.) Would you like to open the Put-Away Wizard afterward to assign them to storage locations?'
+                    );
+                    message = 'Moving parts to Put Away bin...';
+                    shouldOpenWizard = confirmed; // Only open wizard if user confirmed
+                  }
+                  // Trigger 5: Other → Loose: Offer wizard (parts not yet in inventory)
+                  else if (
+                    previousStatus &&
+                    isNonLooseStatus(previousStatus) &&
+                    (selectedStatus === 'loose_parts' || selectedStatus === 'loose')
+                  ) {
+                    confirmed = confirm(
+                      'Set status changed to Loose. Would you like to open the Put-Away Wizard to organize these parts into storage locations?'
+                    );
+                    message = '';
+                    shouldOpenWizard = confirmed; // Only open wizard if user confirmed
+                  }
+
+                  if (!confirmed) {
+                    return; // User cancelled
+                  }
+
                   await updateStatus.mutateAsync({
                     setNumber,
                     status: selectedStatus,
                   });
                   setEditStatusDialogOpen(false);
+
+                  // Auto-trigger putaway wizard if status changed to loose_parts and user confirmed
+                  if (shouldOpenWizard) {
+                    router.push(`/putaway-wizard/parts?source=set&setNumber=${encodeURIComponent(setNumber)}`);
+                  }
                 } catch (error) {
                   alert(handleApiError(error));
                 }

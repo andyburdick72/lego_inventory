@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import Mock
 
 import pytest
 
-from core.services.storage_hierarchy_service import StorageHierarchyService, StorageSuggestion
+from app.errors import ValidationError
+from core.services.storage_hierarchy_service import StorageHierarchyService
 
 
 class DummyInventoryRepo:
@@ -27,6 +27,18 @@ class DummyInventoryRepo:
     def find_category_location(self, part_category_id: int) -> list[dict]:
         return self.category_locations
 
+    def analyze_element_storage_patterns(self) -> list[dict]:
+        return []
+
+    def analyze_part_storage_patterns(self) -> list[dict]:
+        return []
+
+    def analyze_category_storage_patterns(self) -> list[dict]:
+        return []
+
+    def analyze_element_storage_strategies(self) -> list[dict]:
+        return []
+
 
 class DummyPartsRepo:
     """Dummy parts repository for testing."""
@@ -39,7 +51,7 @@ class DummyPartsRepo:
 
 
 def test_suggest_location_definitive_match():
-    """Test that definitive match (element-level) is returned."""
+    """Test that high confidence match (element-level) is returned."""
     element_locations = [
         {
             "container_id": 1,
@@ -55,7 +67,7 @@ def test_suggest_location_definitive_match():
 
     suggestion = service.suggest_location("3001", 1)
     assert suggestion is not None
-    assert suggestion.confidence == "definitive"
+    assert suggestion.confidence == "high"
     assert suggestion.container_id == 1
     assert suggestion.drawer_id == 1
     assert suggestion.quantity == 10
@@ -63,7 +75,7 @@ def test_suggest_location_definitive_match():
 
 
 def test_suggest_location_part_match():
-    """Test that part match (high confidence) is returned when no element match."""
+    """Test that part match (medium confidence) is returned when no element match."""
     part_locations = [
         {
             "container_id": 2,
@@ -79,13 +91,13 @@ def test_suggest_location_part_match():
 
     suggestion = service.suggest_location("3001", 5)
     assert suggestion is not None
-    assert suggestion.confidence == "high"
+    assert suggestion.confidence == "medium"
     assert suggestion.container_id == 2
     assert "Part match" in suggestion.reason
 
 
 def test_suggest_location_category_match():
-    """Test that category match (medium confidence) is returned when no element/part match."""
+    """Test that category match (low confidence) is returned when no element/part match."""
     category_locations = [
         {
             "container_id": 3,
@@ -102,7 +114,7 @@ def test_suggest_location_category_match():
 
     suggestion = service.suggest_location("3001", 1)
     assert suggestion is not None
-    assert suggestion.confidence == "medium"
+    assert suggestion.confidence == "low"
     assert suggestion.container_id == 3
     assert "Category match" in suggestion.reason
     assert "Bricks" in suggestion.reason
@@ -124,7 +136,7 @@ def test_suggest_location_validation_error():
     parts = DummyPartsRepo()
     service = StorageHierarchyService(inventory=inventory, parts=parts)
 
-    with pytest.raises(Exception):  # ValidationError
+    with pytest.raises(ValidationError):
         service.suggest_location("", 1)
 
 
@@ -169,9 +181,9 @@ def test_get_all_suggestions_ordered():
 
     suggestions = service.get_all_suggestions("3001", 1)
     assert len(suggestions) == 3
-    assert suggestions[0].confidence == "definitive"
-    assert suggestions[1].confidence == "high"
-    assert suggestions[2].confidence == "medium"
+    assert suggestions[0].confidence == "high"  # Element match
+    assert suggestions[1].confidence == "medium"  # Part match
+    assert suggestions[2].confidence == "low"  # Category match
 
 
 def test_get_all_suggestions_deduplicates():
@@ -204,5 +216,4 @@ def test_get_all_suggestions_deduplicates():
     suggestions = service.get_all_suggestions("3001", 1)
     # Should only have one suggestion (element match), not duplicate from part match
     assert len(suggestions) == 1
-    assert suggestions[0].confidence == "definitive"
-
+    assert suggestions[0].confidence == "high"

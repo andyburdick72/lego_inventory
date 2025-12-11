@@ -78,6 +78,17 @@ except Exception as e:
     print(f"❌ Failed to load storage hierarchy router: {e}")
     traceback.print_exc()
 
+# Import putaway wizard router with error handling
+try:
+    from app.api.v1 import putaway
+    app.include_router(putaway.router, prefix="/api/v1")
+    print("✅ Putaway wizard router loaded successfully")
+except Exception as e:
+    # Log the error but don't crash the API
+    import traceback
+    print(f"❌ Failed to load putaway wizard router: {e}")
+    traceback.print_exc()
+
 
 @app.get("/")
 def root():
