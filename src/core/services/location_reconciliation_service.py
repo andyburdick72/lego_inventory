@@ -11,7 +11,6 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
 from app.errors import ValidationError
-from core.enums import Status
 
 
 class SetsRepo(Protocol):
@@ -33,9 +32,7 @@ class InventoryRepo(Protocol):
         self, design_id: str, color_id: int, drawer_id: int | None, container_id: int | None
     ) -> list[dict]: ...
 
-    def get_inventory_totals_by_location(
-        self, design_id: str, color_id: int
-    ) -> list[dict]: ...
+    def get_inventory_totals_by_location(self, design_id: str, color_id: int) -> list[dict]: ...
 
     def set_inventory_quantity_at_location(
         self,
@@ -56,7 +53,7 @@ class DrawersRepo(Protocol):
 class LocationReconciliationService:
     """
     Service for reconciling inventory with set parts based on storage location rules.
-    
+
     Rules:
     - Teardown sets: parts should be in Put Away bin
     - Loose Parts sets: parts should be in inventory but NOT in Put Away bin
@@ -91,7 +88,7 @@ class LocationReconciliationService:
         - Delta
         """
         put_away_drawer_id, put_away_container_id = self._get_put_away_bin()
-        
+
         # Get all Loose Parts sets
         loose_sets = self._sets.list_sets_with_statuses(["loose_parts"])
 
@@ -126,8 +123,10 @@ class LocationReconciliationService:
                         "part_name": str(part.get("name", "")),
                         "color_name": str(part.get("color_name", "")),
                         "color_hex": part.get("hex"),
-                        "part_url": part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/",
-                        "part_img_url": part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
+                        "part_url": part.get("part_url")
+                        or f"https://rebrickable.com/parts/{design_id}/",
+                        "part_img_url": part.get("part_img_url")
+                        or "https://rebrickable.com/static/img/nil.png",
                     }
 
         # Now get current inventory locations for each part+color
@@ -138,7 +137,7 @@ class LocationReconciliationService:
 
             # Get all current inventory locations for this part+color
             all_locations = self._inventory.get_inventory_totals_by_location(design_id, color_id)
-            
+
             # Filter out Put Away bin (shouldn't be there for Loose Parts)
             current_locations = [
                 {
@@ -168,24 +167,26 @@ class LocationReconciliationService:
             # Calculate totals
             current_total = sum(loc["quantity"] for loc in current_locations)
             delta = required_qty - current_total
-            
+
             # Only include if there's a mismatch: loose sets total != non-put-away total
             if delta != 0:
-                reconciliation_items.append({
-                    "design_id": design_id,
-                    "part_name": part_info.get("part_name", design_id),
-                    "color_id": color_id,
-                    "color_name": part_info.get("color_name", f"Color {color_id}"),
-                    "color_hex": part_info.get("color_hex"),
-                    "required_quantity": required_qty,
-                    "current_locations": current_locations,
-                    "current_total": current_total,
-                    "put_away_quantity": put_away_quantity,
-                    "delta": delta,
-                    "needs_update": True,
-                    "part_url": part_info.get("part_url"),
-                    "part_img_url": part_info.get("part_img_url"),
-                })
+                reconciliation_items.append(
+                    {
+                        "design_id": design_id,
+                        "part_name": part_info.get("part_name", design_id),
+                        "color_id": color_id,
+                        "color_name": part_info.get("color_name", f"Color {color_id}"),
+                        "color_hex": part_info.get("color_hex"),
+                        "required_quantity": required_qty,
+                        "current_locations": current_locations,
+                        "current_total": current_total,
+                        "put_away_quantity": put_away_quantity,
+                        "delta": delta,
+                        "needs_update": True,
+                        "part_url": part_info.get("part_url"),
+                        "part_img_url": part_info.get("part_img_url"),
+                    }
+                )
 
         return sorted(reconciliation_items, key=lambda x: (x["design_id"], x["color_id"]))
 
@@ -199,7 +200,7 @@ class LocationReconciliationService:
         - Delta
         """
         put_away_drawer_id, put_away_container_id = self._get_put_away_bin()
-        
+
         if put_away_drawer_id is None or put_away_container_id is None:
             # No put away bin configured, return empty list
             return []
@@ -238,8 +239,10 @@ class LocationReconciliationService:
                         "part_name": str(part.get("name", "")),
                         "color_name": str(part.get("color_name", "")),
                         "color_hex": part.get("hex"),
-                        "part_url": part.get("part_url") or f"https://rebrickable.com/parts/{design_id}/",
-                        "part_img_url": part.get("part_img_url") or "https://rebrickable.com/static/img/nil.png",
+                        "part_url": part.get("part_url")
+                        or f"https://rebrickable.com/parts/{design_id}/",
+                        "part_img_url": part.get("part_img_url")
+                        or "https://rebrickable.com/static/img/nil.png",
                     }
 
         # Now get current inventory locations for each part+color
@@ -250,7 +253,7 @@ class LocationReconciliationService:
 
             # Get all current inventory locations for this part+color
             all_locations = self._inventory.get_inventory_totals_by_location(design_id, color_id)
-            
+
             # Get quantity in Put Away bin (required location for Teardown)
             put_away_locations = self._inventory.get_inventory_by_location(
                 design_id, color_id, put_away_drawer_id, put_away_container_id
@@ -276,32 +279,38 @@ class LocationReconciliationService:
 
             # Calculate totals
             delta = required_qty - current_qty_at_location
-            
+
             # Only include if there's a mismatch: teardown sets total != put-away total
             if delta != 0:
-                reconciliation_items.append({
-                    "design_id": design_id,
-                    "part_name": part_info.get("part_name", design_id),
-                    "color_id": color_id,
-                    "color_name": part_info.get("color_name", f"Color {color_id}"),
-                    "color_hex": part_info.get("color_hex"),
-                    "required_quantity": required_qty,
-                    "current_locations": [
-                        {
-                            "drawer_id": put_away_drawer_id,
-                            "drawer_name": "Put Away",
-                            "container_id": put_away_container_id,
-                            "container_name": "Put Away",
-                            "quantity": current_qty_at_location,
-                        }
-                    ] if current_qty_at_location > 0 else [],
-                    "current_total": current_qty_at_location,
-                    "put_away_quantity": current_qty_elsewhere,  # For Teardown, this is quantity in wrong locations
-                    "delta": delta,
-                    "needs_update": True,
-                    "part_url": part_info.get("part_url"),
-                    "part_img_url": part_info.get("part_img_url"),
-                })
+                reconciliation_items.append(
+                    {
+                        "design_id": design_id,
+                        "part_name": part_info.get("part_name", design_id),
+                        "color_id": color_id,
+                        "color_name": part_info.get("color_name", f"Color {color_id}"),
+                        "color_hex": part_info.get("color_hex"),
+                        "required_quantity": required_qty,
+                        "current_locations": (
+                            [
+                                {
+                                    "drawer_id": put_away_drawer_id,
+                                    "drawer_name": "Put Away",
+                                    "container_id": put_away_container_id,
+                                    "container_name": "Put Away",
+                                    "quantity": current_qty_at_location,
+                                }
+                            ]
+                            if current_qty_at_location > 0
+                            else []
+                        ),
+                        "current_total": current_qty_at_location,
+                        "put_away_quantity": current_qty_elsewhere,  # For Teardown, this is quantity in wrong locations
+                        "delta": delta,
+                        "needs_update": True,
+                        "part_url": part_info.get("part_url"),
+                        "part_img_url": part_info.get("part_img_url"),
+                    }
+                )
 
         return sorted(reconciliation_items, key=lambda x: (x["design_id"], x["color_id"]))
 
@@ -316,26 +325,95 @@ class LocationReconciliationService:
     ) -> None:
         """
         Update inventory location for a part+color.
-        
+
         This will:
         - Set the quantity at the specified location
         - Remove inventory from other locations for this part+color
-        
+
         Args:
             is_teardown: If True, allows putting parts in Put Away bin. If False, prevents it.
         """
         if quantity < 0:
             raise ValidationError("Quantity cannot be negative")
-        
+
+        # Get all sets this part belongs to
+        all_sets = self._sets.list_sets_with_statuses(
+            ["built", "in_box", "wip", "loose_parts", "teardown"]
+        )
+        part_sets_by_status: dict[str, list[str]] = {
+            "built": [],
+            "in_box": [],
+            "wip": [],
+            "loose_parts": [],
+            "teardown": [],
+        }
+
+        for set_data in all_sets:
+            set_num = str(set_data.get("set_num") or set_data.get("set_number") or "")
+            if not set_num:
+                continue
+            set_status = str(set_data.get("status", "")).lower()
+            set_parts = list(self._set_parts.list_for_set(set_number=set_num))
+            for part in set_parts:
+                if (
+                    str(part.get("design_id", "")) == design_id
+                    and int(part.get("color_id", 0)) == color_id
+                ):
+                    if set_status in part_sets_by_status:
+                        part_sets_by_status[set_status].append(set_num)
+                    break
+
         # Check if trying to put in Put Away bin
         put_away_drawer_id, put_away_container_id = self._get_put_away_bin()
         if put_away_drawer_id is not None and put_away_container_id is not None:
             if drawer_id == put_away_drawer_id and container_id == put_away_container_id:
-                if not is_teardown:
-                    raise ValidationError("Loose Parts cannot be stored in Put Away bin")
+                # Put Away bin: only teardown parts allowed
+                if not is_teardown and not part_sets_by_status["teardown"]:
+                    raise ValidationError(
+                        "This part cannot be stored in the Put Away bin because it doesn't belong to any teardown sets. "
+                        "Only parts from teardown sets should be in the Put Away bin."
+                    )
             elif is_teardown:
                 # Teardown parts must be in Put Away bin
                 raise ValidationError("Teardown parts must be stored in Put Away bin")
+
+        # Check if trying to put in loose inventory (not Put Away bin)
+        if put_away_drawer_id is not None and put_away_container_id is not None:
+            is_put_away_bin = (
+                drawer_id == put_away_drawer_id and container_id == put_away_container_id
+            )
+        else:
+            is_put_away_bin = False
+
+        if not is_put_away_bin and (drawer_id is not None or container_id is not None):
+            # Moving to loose inventory location
+            # Check if part belongs to Built/In Box/WIP sets (shouldn't be in loose inventory)
+            if part_sets_by_status["built"]:
+                raise ValidationError(
+                    f"This part belongs to built set(s): {', '.join(part_sets_by_status['built'][:3])}"
+                    f"{'...' if len(part_sets_by_status['built']) > 3 else ''}. "
+                    "Parts from built sets should remain with the set, not in loose inventory."
+                )
+            if part_sets_by_status["in_box"]:
+                raise ValidationError(
+                    f"This part belongs to in-box set(s): {', '.join(part_sets_by_status['in_box'][:3])}"
+                    f"{'...' if len(part_sets_by_status['in_box']) > 3 else ''}. "
+                    "Parts from in-box sets should remain with the set, not in loose inventory."
+                )
+            if part_sets_by_status["wip"]:
+                raise ValidationError(
+                    f"This part belongs to work-in-progress set(s): {', '.join(part_sets_by_status['wip'][:3])}"
+                    f"{'...' if len(part_sets_by_status['wip']) > 3 else ''}. "
+                    "Parts from work-in-progress sets should remain with the set, not in loose inventory."
+                )
+
+            # Check if part belongs to Loose Parts sets (should be in loose inventory)
+            if not part_sets_by_status["loose_parts"] and not part_sets_by_status["teardown"]:
+                # Part doesn't belong to any sets that should have loose inventory
+                raise ValidationError(
+                    "This part doesn't belong to any sets with status 'Loose Parts'. "
+                    "Only parts from Loose Parts sets should be stored in loose inventory bins."
+                )
 
         self._inventory.set_inventory_quantity_at_location(
             design_id, color_id, quantity, drawer_id, container_id

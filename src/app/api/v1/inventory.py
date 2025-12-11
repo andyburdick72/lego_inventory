@@ -1,9 +1,8 @@
 """FastAPI router for inventory endpoints."""
 
 import sqlite3
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.adapters import row_to_inventory_item, rows_to
@@ -21,8 +20,10 @@ class PartCountDTO(BaseModel):
     design_id: str
     part_name: str
     total_qty: int
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    part_url: str | None = None
+    part_img_url: str | None = None
+    part_category_id: int | None = None
+    part_category_name: str | None = None
 
 
 class PartColorCountDTO(BaseModel):
@@ -30,28 +31,28 @@ class PartColorCountDTO(BaseModel):
     part_name: str
     color_id: int
     color_name: str
-    hex: Optional[str] = None
+    hex: str | None = None
     total_qty: int
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    part_url: str | None = None
+    part_img_url: str | None = None
 
 
 class LocationCountDTO(BaseModel):
     location: str
     total_qty: int
-    drawer_id: Optional[int] = None
-    drawer_name: Optional[str] = None
-    container_id: Optional[int] = None
-    container_name: Optional[str] = None
+    drawer_id: int | None = None
+    drawer_name: str | None = None
+    container_id: int | None = None
+    container_name: str | None = None
 
 
 class ElementLocationDTO(BaseModel):
-    drawer_id: Optional[int] = None
-    drawer_name: Optional[str] = None
-    container_id: Optional[int] = None
-    container_name: Optional[str] = None
+    drawer_id: int | None = None
+    drawer_name: str | None = None
+    container_id: int | None = None
+    container_name: str | None = None
     quantity: int
-    inventory_id: Optional[int] = None
+    inventory_id: int | None = None
 
 
 class MultipleLocationsElementDTO(BaseModel):
@@ -59,9 +60,9 @@ class MultipleLocationsElementDTO(BaseModel):
     part_name: str
     color_id: int
     color_name: str
-    color_hex: Optional[str] = None
-    part_url: Optional[str] = None
-    part_img_url: Optional[str] = None
+    color_hex: str | None = None
+    part_url: str | None = None
+    part_img_url: str | None = None
     location_count: int
     total_quantity: int
     locations: list[ElementLocationDTO]
@@ -130,7 +131,7 @@ def list_loose_inventory(conn: sqlite3.Connection = Depends(get_db_connection)):
 @router.get("/part-counts", response_model=list[PartCountDTO])
 def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
     """Get total part counts across all sets (all set parts, regardless of set status).
-    
+
     This matches the calculation used by the Part Detail page: join with sets table.
     """
     rows = conn.execute(
@@ -139,10 +140,13 @@ def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
                MAX(p.name) AS part_name,
                MAX(p.part_url) AS part_url,
                MAX(p.part_img_url) AS part_img_url,
+               MAX(p.part_category_id) AS part_category_id,
+               MAX(pc.name) AS part_category_name,
                SUM(sp.quantity) AS total_qty
         FROM set_parts sp
         JOIN sets s ON s.set_num = sp.set_num
         LEFT JOIN parts p ON sp.design_id = p.design_id
+        LEFT JOIN part_categories pc ON pc.id = p.part_category_id
         GROUP BY sp.design_id
         ORDER BY total_qty DESC
         """
@@ -160,6 +164,9 @@ def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
         if not part_img_url:
             part_img_url = "https://rebrickable.com/static/img/nil.png"
 
+        part_category_id = row_dict.get("part_category_id")
+        part_category_name = row_dict.get("part_category_name")
+
         result.append(
             PartCountDTO(
                 design_id=str(row_dict.get("design_id", "")),
@@ -167,6 +174,8 @@ def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
                 total_qty=int(row_dict.get("total_qty", 0)),
                 part_url=part_url,
                 part_img_url=part_img_url,
+                part_category_id=int(part_category_id) if part_category_id is not None else None,
+                part_category_name=str(part_category_name) if part_category_name else None,
             )
         )
     return result
@@ -175,7 +184,7 @@ def get_part_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
 @router.get("/part-color-counts", response_model=list[PartColorCountDTO])
 def get_part_color_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
     """Get part counts grouped by part and color across all sets (all set parts, regardless of set status).
-    
+
     This matches the calculation used by the Part Counts page: join with sets table.
     """
     rows = conn.execute(
@@ -261,7 +270,7 @@ def get_location_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
         drawer_name = row_dict.get("drawer_name") or ""
         container_id = row_dict.get("container_id")
         container_name = row_dict.get("container_name") or ""
-        
+
         if drawer_name and container_name:
             location = f"{drawer_name} / {container_name}"
         elif drawer_name:
@@ -290,11 +299,11 @@ class UpdateInventoryQuantityRequest(BaseModel):
 
 
 class UpdateInventoryLocationRequest(BaseModel):
-    container_id: Optional[int] = None
+    container_id: int | None = None
 
 
 class MoveInventoryRequest(BaseModel):
-    to_container_id: Optional[int] = None
+    to_container_id: int | None = None
     quantity: int
 
 
@@ -311,7 +320,7 @@ class InventoryDeletedResponse(BaseModel):
 
 class InventoryMovedResponse(BaseModel):
     from_id: int
-    to_container_id: Optional[int] = None
+    to_container_id: int | None = None
     quantity: int
     message: str = "Inventory moved successfully"
 
@@ -468,7 +477,7 @@ def get_elements_in_multiple_locations(conn: sqlite3.Connection = Depends(get_db
     """Get elements (part + color) that exist in multiple non-put-away-bin locations."""
     repo = InventoryRepo(conn)
     elements = repo.elements_in_multiple_locations()
-    
+
     # Convert to DTOs
     result = []
     for elem in elements:
@@ -483,7 +492,7 @@ def get_elements_in_multiple_locations(conn: sqlite3.Connection = Depends(get_db
             )
             for loc in elem.get("locations", [])
         ]
-        
+
         result.append(
             MultipleLocationsElementDTO(
                 design_id=elem["design_id"],
@@ -498,6 +507,5 @@ def get_elements_in_multiple_locations(conn: sqlite3.Connection = Depends(get_db
                 locations=locations,
             )
         )
-    
-    return result
 
+    return result

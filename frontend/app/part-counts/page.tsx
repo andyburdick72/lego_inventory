@@ -1,9 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { ColumnDef } from '@tanstack/react-table';
-import { usePartCounts, PartCount } from '@/lib/hooks/use-parts';
+import { DataTable } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -12,10 +9,20 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { PartCount, usePartCounts } from '@/lib/hooks/use-parts';
 import { formatNumber } from '@/lib/utils';
+import { ColumnDef } from '@tanstack/react-table';
+import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 
 type ViewMode = 'cards' | 'table';
 
@@ -23,8 +30,31 @@ export default function PartCountsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const router = useRouter();
   const { data: partCounts, isLoading, error } = usePartCounts();
+
+  // Extract unique categories for filter dropdown
+  const categories = useMemo(() => {
+    if (!partCounts) return [];
+    const categoryMap = new Map<number, string>();
+    partCounts.forEach((part) => {
+      if (part.part_category_id && part.part_category_name) {
+        categoryMap.set(part.part_category_id, part.part_category_name);
+      }
+    });
+    return Array.from(categoryMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [partCounts]);
+
+  // Filter parts by selected category
+  const filteredPartCounts = useMemo(() => {
+    if (!partCounts) return [];
+    if (selectedCategoryId === 'all') return partCounts;
+    const categoryId = parseInt(selectedCategoryId, 10);
+    return partCounts.filter((part) => part.part_category_id === categoryId);
+  }, [partCounts, selectedCategoryId]);
 
   // Table columns
   const columns: ColumnDef<PartCount>[] = useMemo(
@@ -50,6 +80,18 @@ export default function PartCountsPage() {
         header: 'Part Name',
         cell: ({ row }) => {
           return <span>{row.original.part_name}</span>;
+        },
+      },
+      {
+        accessorKey: 'part_category_name',
+        header: 'Category',
+        cell: ({ row }) => {
+          const category = row.original.part_category_name;
+          return (
+            <span className={category ? '' : 'text-muted-foreground'}>
+              {category || '—'}
+            </span>
+          );
         },
       },
       {
@@ -104,15 +146,20 @@ export default function PartCountsPage() {
     []
   );
 
-  // Pagination for card view
+  // Pagination for card view (using filtered data)
   const paginatedCards = useMemo(() => {
-    if (!partCounts) return [];
+    if (!filteredPartCounts) return [];
     const start = cardPageIndex * cardPageSize;
     const end = start + cardPageSize;
-    return partCounts.slice(start, end);
-  }, [partCounts, cardPageIndex, cardPageSize]);
+    return filteredPartCounts.slice(start, end);
+  }, [filteredPartCounts, cardPageIndex, cardPageSize]);
 
-  const totalPages = Math.ceil((partCounts?.length || 0) / cardPageSize);
+  const totalPages = Math.ceil((filteredPartCounts?.length || 0) / cardPageSize);
+
+  // Reset to first page when filter changes
+  useEffect(() => {
+    setCardPageIndex(0);
+  }, [selectedCategoryId]);
 
   if (error) {
     return (
@@ -125,8 +172,8 @@ export default function PartCountsPage() {
   }
 
   const totalParts = useMemo(
-    () => partCounts?.reduce((sum, p) => sum + p.total_qty, 0) || 0,
-    [partCounts]
+    () => filteredPartCounts?.reduce((sum, p) => sum + p.total_qty, 0) || 0,
+    [filteredPartCounts]
   );
 
   return (
@@ -142,7 +189,12 @@ export default function PartCountsPage() {
               <div className="flex gap-4 mt-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Parts: </span>
-                  <span className="font-medium">{formatNumber(partCounts.length)}</span>
+                  <span className="font-medium">{formatNumber(filteredPartCounts.length)}</span>
+                  {selectedCategoryId !== 'all' && (
+                    <span className="text-muted-foreground ml-1">
+                      (of {formatNumber(partCounts.length)})
+                    </span>
+                  )}
                 </div>
                 <div>
                   <span className="text-muted-foreground">Total Quantity: </span>
@@ -155,6 +207,21 @@ export default function PartCountsPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {categories.length > 0 && (
+              <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Filter by category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id.toString()}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               variant={viewMode === 'table' ? 'default' : 'outline'}
               size="sm"
@@ -184,9 +251,9 @@ export default function PartCountsPage() {
       ) : viewMode === 'table' ? (
         <DataTable
           columns={columns}
-          data={partCounts || []}
-          searchKeys={['design_id', 'part_name']}
-          searchPlaceholder="Search by part ID or name..."
+          data={filteredPartCounts || []}
+          searchKeys={['design_id', 'part_name', 'part_category_name']}
+          searchPlaceholder="Search by part ID, name, or category..."
           numericColumns={['total_qty']}
           defaultSorting={[{ id: 'total_qty', desc: true }]}
           onRowClick={(row) => {
@@ -217,6 +284,11 @@ export default function PartCountsPage() {
                       <CardDescription className="mt-1 line-clamp-2">
                         {part.part_name}
                       </CardDescription>
+                      {part.part_category_name && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {part.part_category_name}
+                        </div>
+                      )}
                     </div>
                     {part.part_img_url && (
                       <img
@@ -258,8 +330,8 @@ export default function PartCountsPage() {
             <div className="flex items-center justify-between mt-6">
               <div className="text-sm text-muted-foreground">
                 Showing {cardPageIndex * cardPageSize + 1} to{' '}
-                {Math.min((cardPageIndex + 1) * cardPageSize, partCounts?.length || 0)} of{' '}
-                {formatNumber(partCounts?.length || 0)} parts
+                {Math.min((cardPageIndex + 1) * cardPageSize, filteredPartCounts?.length || 0)} of{' '}
+                {formatNumber(filteredPartCounts?.length || 0)} parts
               </div>
               <div className="flex items-center gap-2">
                 <Button

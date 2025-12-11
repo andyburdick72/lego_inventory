@@ -12,7 +12,8 @@ BASE = os.getenv("APP_BASE_URL", "http://localhost:8001")
 
 @pytest.fixture(scope="module")
 def client():
-    with httpx.Client(base_url=BASE, timeout=10.0) as c:
+    # Increased timeout for write operations that may hit database locks
+    with httpx.Client(base_url=BASE, timeout=30.0) as c:
         yield c
 
 

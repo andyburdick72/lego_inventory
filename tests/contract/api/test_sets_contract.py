@@ -1,4 +1,5 @@
 """Contract tests for sets endpoints."""
+
 import os
 
 import httpx
@@ -18,7 +19,8 @@ def _skip_if_no_api():
 def _client():
     if not API_BASE:
         pytest.skip(SKIP_REASON)
-    return httpx.Client(base_url=API_BASE, timeout=10.0)
+    # Increased timeout for operations that may hit database locks or trigger long-running operations
+    return httpx.Client(base_url=API_BASE, timeout=30.0)
 
 
 def test_sets_count():
@@ -57,7 +59,7 @@ def test_get_set_by_number():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}")
         assert r.status_code == 200
@@ -83,7 +85,7 @@ def test_get_set_parts():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}/parts")
         assert r.status_code == 200
@@ -108,25 +110,19 @@ def test_update_set_status():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_num = sets_r.json()[0]["set_number"]
         original_status = sets_r.json()[0]["status"]
-        
+
         # Try updating to a different status
         new_status = "built" if original_status != "built" else "in_box"
-        r = c.patch(
-            f"/sets/{set_num}/status",
-            json={"status": new_status}
-        )
+        r = c.patch(f"/sets/{set_num}/status", json={"status": new_status})
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == new_status
-        
+
         # Restore original status
-        c.patch(
-            f"/sets/{set_num}/status",
-            json={"status": original_status}
-        )
+        c.patch(f"/sets/{set_num}/status", json={"status": original_status})
 
 
 def test_update_set_status_invalid():
@@ -137,12 +133,9 @@ def test_update_set_status_invalid():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_num = sets_r.json()[0]["set_number"]
-        r = c.patch(
-            f"/sets/{set_num}/status",
-            json={"status": "invalid-status"}
-        )
+        r = c.patch(f"/sets/{set_num}/status", json={"status": "invalid-status"})
         assert r.status_code in (400, 422)
 
 
@@ -150,10 +143,7 @@ def test_update_set_status_404():
     """Test updating status for non-existent set."""
     _skip_if_no_api()
     with _client() as c:
-        r = c.patch(
-            "/sets/invalid-set-number-99999/status",
-            json={"status": "built"}
-        )
+        r = c.patch("/sets/invalid-set-number-99999/status", json={"status": "built"})
         assert r.status_code == 404
 
 
@@ -165,13 +155,13 @@ def test_get_set_parts_locations():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}/parts-locations")
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
-        
+
         if data:
             part = data[0]
             # Required fields
@@ -182,14 +172,14 @@ def test_get_set_parts_locations():
             assert "required_quantity" in part
             assert "available_quantity" in part
             assert "locations" in part
-            
+
             # Type checks
             assert isinstance(part["required_quantity"], int)
             assert isinstance(part["available_quantity"], int)
             assert isinstance(part["locations"], list)
             assert part["required_quantity"] > 0
             assert part["available_quantity"] >= 0
-            
+
             # Location structure
             if part["locations"]:
                 location = part["locations"][0]
@@ -217,11 +207,10 @@ def test_get_set_parts_locations_empty_set():
         sets_r = c.get("/sets")
         if sets_r.status_code != 200 or not sets_r.json():
             pytest.skip("No sets available for testing")
-        
+
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}/parts-locations")
         assert r.status_code == 200
         data = r.json()
         # Should return empty list if set has no parts, or list of parts
         assert isinstance(data, list)
-

@@ -15,9 +15,12 @@ if str(_ROOT) not in sys.path:
 
 from app.settings import get_settings  # noqa: E402
 from core.enums import Status  # noqa: E402
-from integrations.rebrickable_api import get_json  # noqa: E402
-from scripts.load_my_rebrickable_parts import fetch_owned_sets, gather_and_insert_parts  # noqa: E402
 from infra.db.inventory_db import _connect  # noqa: E402
+from integrations.rebrickable_api import get_json  # noqa: E402
+from scripts.load_my_rebrickable_parts import (  # noqa: E402
+    fetch_owned_sets,
+    gather_and_insert_parts,
+)
 
 # Centralized settings (cached)
 SETTINGS = get_settings()
@@ -29,11 +32,13 @@ if not API_KEY or not USER_TOKEN:
     )
 
 
-def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", update_themes: bool = False, auto_load_parts: bool = True):
+def load_my_rebrickable_sets_noninteractive(
+    default_status: str = "in_box", update_themes: bool = False, auto_load_parts: bool = True
+):
     """
     Non-interactive version that uses a default status for all new sets.
     Returns a summary string of what was done.
-    
+
     Args:
         default_status: Status to use for new sets
         update_themes: If True, update theme information for all sets (even existing ones)
@@ -41,31 +46,39 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
     """
     if USER_TOKEN is None:
         raise ValueError("USER_TOKEN cannot be None")
-    
+
     from core.enums import Status
-    
+
     # Validate default status
     try:
         status_enum = Status.from_any(default_status)
         chosen_status_value = status_enum.value
     except ValueError:
         raise ValueError(f"Invalid default_status: {default_status}")
-    
+
     set_nums = fetch_owned_sets(USER_TOKEN)
     owned_counts = Counter(set_nums)
     summary_lines = []
     new_sets: list[str] = []  # Track sets that were newly inserted
 
-    with sqlite3.connect(str(SETTINGS.db_path)) as conn:
+    # Use the same connection settings as the API (WAL mode, proper timeouts)
+    conn = sqlite3.connect(
+        str(SETTINGS.db_path), timeout=30.0, isolation_level=None, check_same_thread=False
+    )
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    try:
         c = conn.cursor()
 
         for set_num, owned_count in owned_counts.items():
             c.execute("SELECT COUNT(*) FROM sets WHERE set_num = ?", (set_num,))
             db_count = c.fetchone()[0]
-            
+
             # Always fetch theme data if update_themes is True
             should_fetch_theme = update_themes or db_count < owned_count
-            
+
             if db_count >= owned_count and not update_themes:
                 if db_count > owned_count:
                     print(
@@ -80,7 +93,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
                     url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
                     set_data = get_json(url, params={"key": API_KEY})
                     theme_id = set_data.get("theme_id")
-                    
+
                     # Fetch theme name from themes endpoint if we have theme_id
                     theme_name = None
                     if theme_id is not None:
@@ -91,7 +104,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
                         except Exception:
                             # If theme fetch fails, continue without theme name
                             pass
-                    
+
                     if theme_id is not None and theme_name:
                         c.execute(
                             """
@@ -117,7 +130,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
             theme_id = set_data.get("theme_id")
             image_url = set_data["set_img_url"]
             rebrickable_url = set_data["set_url"]
-            
+
             # Fetch theme name from themes endpoint if we have theme_id
             theme_name = None
             if theme_id is not None:
@@ -128,7 +141,7 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
                 except Exception:
                     # If theme fetch fails, continue without theme name
                     pass
-            
+
             # Store theme if present
             if theme_id is not None and theme_name:
                 c.execute(
@@ -166,11 +179,15 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
             msg = f"✅ Added {to_insert} row(s) for set {set_num}: {name} (owned={owned_count}, was={db_count}); status='{chosen_status_value}'"
             print(msg)
             summary_lines.append(msg)
-            
+
             # Track this set as newly inserted
             if set_num not in new_sets:
                 new_sets.append(set_num)
-    
+
+        conn.commit()
+    finally:
+        conn.close()
+
     # Automatically load parts for newly discovered sets
     if auto_load_parts and new_sets:
         print(f"\n📦 Found {len(new_sets)} new set(s). Loading parts...")
@@ -189,14 +206,14 @@ def load_my_rebrickable_sets_noninteractive(default_status: str = "in_box", upda
             error_msg = f"\n⚠️ Warning: Failed to automatically load parts for new sets: {e}"
             print(error_msg)
             summary_lines.append(error_msg)
-    
+
     return "\n".join(summary_lines) if summary_lines else "No new sets to import."
 
 
 def load_my_rebrickable_sets(auto_load_parts: bool = True):
     """
     Interactive version that prompts for status for each new set.
-    
+
     Args:
         auto_load_parts: If True, automatically load parts for newly discovered sets
     """
@@ -206,13 +223,21 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
     owned_counts = Counter(set_nums)
     new_sets: list[str] = []  # Track sets that were newly inserted
 
-    with sqlite3.connect(str(SETTINGS.db_path)) as conn:
+    # Use the same connection settings as the API (WAL mode, proper timeouts)
+    conn = sqlite3.connect(
+        str(SETTINGS.db_path), timeout=30.0, isolation_level=None, check_same_thread=False
+    )
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    try:
         c = conn.cursor()
 
         for set_num, owned_count in owned_counts.items():
             c.execute("SELECT COUNT(*) FROM sets WHERE set_num = ?", (set_num,))
             db_count = c.fetchone()[0]
-            
+
             # Always fetch set data to get theme information
             url = f"https://rebrickable.com/api/v3/lego/sets/{set_num}/"
             set_data = get_json(url, params={"key": API_KEY})
@@ -222,7 +247,7 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
             theme_id = set_data.get("theme_id")
             image_url = set_data["set_img_url"]
             rebrickable_url = set_data["set_url"]
-            
+
             # Fetch theme name from themes endpoint if we have theme_id
             theme_name = None
             if theme_id is not None:
@@ -233,7 +258,7 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
                 except Exception:
                     # If theme fetch fails, continue without theme name
                     pass
-            
+
             # Store theme if present (always update themes)
             if theme_id is not None and theme_name:
                 c.execute(
@@ -250,7 +275,7 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
                     """,
                     (theme_id, set_num),
                 )
-            
+
             if db_count >= owned_count:
                 if db_count > owned_count:
                     print(
@@ -335,11 +360,15 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
             print(
                 f"✅ Added {to_insert} row(s) for set {set_num}: {name} (owned={owned_count}, was={db_count}); status='{chosen_status_value}'"
             )
-            
+
             # Track this set as newly inserted
             if set_num not in new_sets:
                 new_sets.append(set_num)
-    
+
+        conn.commit()
+    finally:
+        conn.close()
+
     # Automatically load parts for newly discovered sets
     if auto_load_parts and new_sets:
         print(f"\n📦 Found {len(new_sets)} new set(s). Loading parts...")
@@ -357,6 +386,7 @@ def load_my_rebrickable_sets(auto_load_parts: bool = True):
         except Exception as e:
             print(f"\n⚠️ Warning: Failed to automatically load parts for new sets: {e}")
             import traceback
+
             print(traceback.format_exc())
 
 

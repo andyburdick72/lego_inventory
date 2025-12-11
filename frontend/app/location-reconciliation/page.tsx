@@ -32,6 +32,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import { handleApiError } from '@/lib/api';
 import { useContainers } from '@/lib/hooks/use-containers';
 import { useDrawers } from '@/lib/hooks/use-drawers';
 import {
@@ -40,7 +41,7 @@ import {
   usePutAwayBin,
   useUpdateInventoryLocation,
 } from '@/lib/hooks/use-location-reconciliation';
-import { formatNumber, isLightColor, showWarningToast, showErrorToast } from '@/lib/utils';
+import { formatNumber, isLightColor, showErrorToast, showWarningToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { AlertCircle, ArrowLeft, Download, Edit2, RefreshCw, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -136,7 +137,8 @@ export default function LocationReconciliationPage() {
       setQuantity('');
     } catch (err) {
       console.error('Failed to update inventory location:', err);
-      showErrorToast('Failed to update inventory location. Please try again.');
+      const errorMessage = handleApiError(err);
+      showErrorToast(errorMessage);
     }
   };
 

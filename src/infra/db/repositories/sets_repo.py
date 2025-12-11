@@ -194,17 +194,18 @@ class SetsRepo(BaseRepo):
     def list_sets_with_statuses(self, statuses: list[str]) -> list[dict]:
         """
         Return sets with status in the given list.
-        Columns: set_num, name, year, theme, status, image_url, rebrickable_url
+        Columns: set_num, name, year, theme_id, theme_name, status, image_url, rebrickable_url
         """
         if not statuses:
             return []
         placeholders = ",".join(["?"] * len(statuses))
         return self._all(
             f"""
-            SELECT set_num, name, year, theme, status, image_url, rebrickable_url
-            FROM sets
-            WHERE status IN ({placeholders})
-            ORDER BY year DESC, set_num
+            SELECT s.set_num, s.name, s.year, s.theme_id, t.name AS theme_name, s.status, s.image_url, s.rebrickable_url
+            FROM sets s
+            LEFT JOIN themes t ON t.id = s.theme_id
+            WHERE s.status IN ({placeholders})
+            ORDER BY s.year DESC, s.set_num
             """,
             statuses,
         )

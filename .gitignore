@@ -216,6 +216,11 @@ coverage.xml
 # Local databases
 *.db
 data/*.db
+# Temporary test databases
+test_contract_*.db
+*.test.db
+*.db-shm
+*.db-wal
 
 # macOS cruft
 .DS_Store

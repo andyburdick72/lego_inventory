@@ -1,4 +1,5 @@
 """Contract tests for inventory endpoints."""
+
 import os
 
 import httpx
@@ -66,9 +67,34 @@ def test_inventory_part_counts():
             assert "total_qty" in item
             assert isinstance(item["total_qty"], int)
             assert item["total_qty"] >= 0
+            # Verify category fields are present (can be None)
+            assert "part_category_id" in item
+            assert "part_category_name" in item
+            # If category_id is present, it should be an int; otherwise None
+            if item.get("part_category_id") is not None:
+                assert isinstance(item["part_category_id"], int)
+            # If category_name is present, it should be a string; otherwise None
+            if item.get("part_category_name") is not None:
+                assert isinstance(item["part_category_name"], str)
+            # Verify category consistency: if id exists, name should exist (and vice versa)
+            category_id = item.get("part_category_id")
+            category_name = item.get("part_category_name")
+            if category_id is not None:
+                assert category_name is not None, "Category ID present but name is missing"
+                assert isinstance(category_name, str) and len(category_name) > 0
+            if category_name is not None:
+                assert category_id is not None, "Category name present but ID is missing"
+                assert isinstance(category_id, int)
             # Verify sorted by quantity descending (first item should have highest qty)
             if len(data) > 1:
                 assert data[0]["total_qty"] >= data[1]["total_qty"]
+            # Verify all items have the required structure
+            for part in data:
+                assert "design_id" in part
+                assert "part_name" in part
+                assert "total_qty" in part
+                assert "part_category_id" in part
+                assert "part_category_name" in part
 
 
 def test_inventory_part_color_counts():
@@ -161,4 +187,3 @@ def test_inventory_multiple_locations():
             # Verify that total_quantity matches sum of location quantities
             location_sum = sum(loc["quantity"] for loc in item["locations"])
             assert item["total_quantity"] == location_sum
-

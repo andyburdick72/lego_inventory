@@ -66,6 +66,10 @@ SQLite-backed inventory management system for LEGO parts and sets. Integrates wi
 ## Development Workflow
 
 ### Setup
+- **Python Virtual Environment**: Always activate `.venv` before running Python commands:
+  ```bash
+  source .venv/bin/activate
+  ```
 - Use `./dev.sh` for setup and running (installs deps, runs tests, starts servers)
 - Frontend: http://localhost:3001
 - Backend: http://localhost:8001

@@ -103,19 +103,19 @@ def test_row_to_set_if_present():
     if not callable(fn):
         pytest.skip("row_to_set not present in app.adapters (sets CRUD not implemented yet)")
 
-    SetDTO = getattr(dtos_mod, "SetDTO", None)
+    # Use LEGOSetDTO (the actual DTO name, not SetDTO)
+    SetDTO = getattr(dtos_mod, "LEGOSetDTO", None)
     if SetDTO is None:
-        pytest.skip("SetDTO not present in core.dtos")
+        pytest.skip("LEGOSetDTO not present in core.dtos")
 
-    row = {"id": 3, "set_num": "1234-1", "name": "Test Set", "status": "built"}
+    row = {"set_number": "1234-1", "name": "Test Set", "status": "built"}
     dto = fn(row)
     dto_any = cast(Any, dto)
     assert isinstance(dto, SetDTO)
     assert (
-        dto_any.id,
-        getattr(dto, "set_num", None),
+        getattr(dto, "set_number", None),
         getattr(dto, "name", None),
-    ) == (3, "1234-1", "Test Set")
+    ) == ("1234-1", "Test Set")
     # status might be str or enum; accept either
     status_val = getattr(dto, "status", None)
     status_name = getattr(status_val, "name", None)
@@ -191,9 +191,9 @@ def test_row_to_set_accepts_enum_status_if_supported():
     if not callable(fn):
         pytest.skip("row_to_set not present in app.adapters (sets CRUD not implemented yet)")
 
-    SetDTO = getattr(dtos_mod, "SetDTO", None)
+    SetDTO = getattr(dtos_mod, "LEGOSetDTO", None)
     if SetDTO is None:
-        pytest.skip("SetDTO not present in core.dtos")
+        pytest.skip("LEGOSetDTO not present in core.dtos")
 
     try:
         from core.enums import Status
@@ -202,15 +202,14 @@ def test_row_to_set_accepts_enum_status_if_supported():
     except Exception:  # enum not available; fall back to string
         status_value = "wip"
 
-    row = {"id": 8, "set_num": "9999-1", "name": "Enum Set", "status": status_value}
+    row = {"set_number": "9999-1", "name": "Enum Set", "status": status_value}
     dto = fn(row)
     dto_any = cast(Any, dto)
     assert isinstance(dto, SetDTO)
-    assert (dto_any.id, getattr(dto, "set_num", None), getattr(dto, "name", None)) == (
-        8,
-        "9999-1",
-        "Enum Set",
-    )
+    assert (
+        getattr(dto, "set_number", None),
+        getattr(dto, "name", None),
+    ) == ("9999-1", "Enum Set")
     status_val = getattr(dto, "status", None)
     status_name = getattr(status_val, "name", None)
     allowed = {"built", "wip", "in_box", "teardown", "loose", "loose_parts"}
@@ -321,30 +320,29 @@ def test_row_to_set_includes_optional_urls():
     if not callable(fn):
         pytest.skip("row_to_set not present in app.adapters (sets CRUD not implemented yet)")
 
-    SetDTO = getattr(dtos_mod, "SetDTO", None)
+    SetDTO = getattr(dtos_mod, "LEGOSetDTO", None)
     if SetDTO is None:
-        pytest.skip("SetDTO not present in core.dtos")
+        pytest.skip("LEGOSetDTO not present in core.dtos")
 
     row = {
-        "id": 12,
-        "set_num": "10783-1",
+        "set_number": "10783-1",
         "name": "Spider-Man at Doc Ock's Lab",
         "status": "in_box",
         "image_url": "https://img.example/sets/10783-1.jpg",
         "rebrickable_url": "https://rebrickable.com/sets/10783-1/",
         "year": 2022,
-        "theme": "Marvel Super Heroes",
+        "theme_name": "Marvel Super Heroes",
         "total_parts": 131,
     }
     dto = fn(row)
     dto_any = cast(Any, dto)
 
     assert isinstance(dto, SetDTO)
-    assert (dto_any.id, getattr(dto, "set_num", None)) == (12, "10783-1")
+    assert getattr(dto, "set_number", None) == "10783-1"
     name = getattr(dto, "name", None)
     assert name is not None and name.startswith("Spider-Man")
     assert getattr(dto, "year", None) == 2022
-    assert getattr(dto, "theme", None) == "Marvel Super Heroes"
+    assert getattr(dto, "theme_name", None) == "Marvel Super Heroes"
     assert getattr(dto, "total_parts", None) == 131
     assert "10783-1" in (getattr(dto, "image_url", "") or "")
     assert "rebrickable" in (getattr(dto, "rebrickable_url", "") or "")
@@ -382,7 +380,7 @@ def test_row_to_set_accepts_legacy_in_box():
     fn = getattr(adapters_mod, "row_to_set", None)
     if not callable(fn):
         pytest.skip("row_to_set not present")
-    row = {"id": 99, "set_num": "9999-1", "name": "Legacy Map", "status": "in box"}
+    row = {"set_number": "9999-1", "name": "Legacy Map", "status": "in box"}
     dto = fn(row)
     status_val = getattr(dto, "status", None)
     if status_val is not None and hasattr(status_val, "name"):
