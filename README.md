@@ -74,24 +74,54 @@ lego_inventory/
 │   ├── infra/repositories/               # Repository tests
 │   ├── contract/api/                     # API contract tests
 │   └── smoke/                            # Smoke tests
+├── docs/
+│   └── architecture/                     # C4 architecture diagrams
+│       ├── *.puml                        # PlantUML source files
+│       └── rendered/                     # Generated SVG diagrams
 ├── requirements.txt
 ├── requirements-dev.txt                  # Dev dependencies (code quality, testing)
+├── Makefile                              # Build targets (e.g., render architecture diagrams)
 ├── dev.sh                                # Development script (setup, test, run)
 └── README.md
 ```
 
 ---
 
+## **Architecture Diagrams**
+
+The system architecture is documented using C4 model diagrams. These diagrams provide different levels of detail about the system's structure and interactions.
+
+### C1 — System Context
+![C1](./docs/architecture/rendered/C1-LEGO-Inventory-Context.svg)
+
+The system context diagram shows the LEGO Inventory Management System and its interactions with users and external systems.
+
+### C2 — Container
+![C2](./docs/architecture/rendered/C2-LEGO-Inventory-Container.svg)
+
+The container diagram shows the high-level technical building blocks: the Next.js frontend, FastAPI backend, SQLite database, CLI scripts, and file system.
+
+### C3 — Component
+![C3](./docs/architecture/rendered/C3-LEGO-Inventory-Component.svg)
+
+The component diagram shows the internal structure of the FastAPI backend, including API routers, services, repositories, and other components.
+
+**Note:** To regenerate these diagrams, run `make render` from the repository root. This requires Docker/Podman (if running) or a local PlantUML installation. The Makefile will automatically use the best available option.
+
+---
+
 ## **Prerequisites**
 - **Python 3.9+**
-- Dependencies: `requests`  
-- Rebrickable API credentials in `.env`:
+- **Node.js 18+** (for Next.js frontend)
+- Rebrickable API credentials in `data/.env`:
 ```env
-REBRICKABLE_API_KEY=<your_api_key>
-REBRICKABLE_USER_TOKEN=<your_user_token>
-REBRICKABLE_USERNAME=<your_username>
-REBRICKABLE_PASSWORD=<your_password>
+APP_REBRICKABLE_API_KEY=<your_api_key>
+APP_REBRICKABLE_USER_TOKEN=<your_user_token>
+APP_REBRICKABLE_USERNAME=<your_username>
+APP_REBRICKABLE_PASSWORD=<your_password>
 ```
+
+**Note:** All environment variables use the `APP_` prefix and are loaded from `data/.env` (see `src/app/settings.py` for details).
 
 ---
 
@@ -103,12 +133,7 @@ git clone https://github.com/andyburdick72/lego_inventory.git
 cd lego_inventory
 ```
 
-### 2. Install dependencies
-```bash
-pip install requests
-```
-
-### 3. Using `dev.sh` for setup and running
+### 2. Using `dev.sh` for setup and running
 The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, testing, and starts both servers.
 
 **Basic usage:**
@@ -147,9 +172,14 @@ If the Dock icon does not update after regeneration, run:
 killall Dock
 ```
 
-### 4. Initialize database schema (manual alternative)
+### 3. Initialize database schema (manual alternative)
+If you prefer manual setup instead of using `dev.sh`:
 ```bash
-python3 src/inventory_db.py
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python3 src/infra/db/inventory_db.py
 ```
 
 ---
@@ -173,12 +203,12 @@ python3 src/inventory_db.py
    Note: This script automatically fetches categories for parts that don't have them yet. New parts loaded from sets will automatically get their categories when `load_my_rebrickable_parts.py` runs.
 3. **Pre-check Instabrick XML** for missing aliases (optional but recommended)
    ```bash
-   python3 src/precheck_instabrick_inventory.py data/instabrick_inventory.xml
-   python3 src/fix_alias_typos.py  # if needed
+   python3 src/scripts/precheck_instabrick_inventory.py data/instabrick_inventory.xml
+   python3 src/scripts/fix_alias_typos.py  # if needed
    ```
 4. **Load Instabrick XML**
    ```bash
-   python3 src/load_instabrick_inventory.py data/instabrick_inventory.xml
+   python3 src/scripts/load_instabrick_inventory.py data/instabrick_inventory.xml
    ```
 
 ### **Ongoing Maintenance**
@@ -191,7 +221,7 @@ python3 src/inventory_db.py
 - Import updated Instabrick XML after inventory changes  
 - Run sanity checks:
   ```bash
-  python3 src/inventory_sanity_checks.py
+  python3 src/scripts/inventory_sanity_checks.py
   ```
 - Part-out sets or move inventory  
 - Export any table to CSV for reporting
@@ -227,11 +257,13 @@ This will:
 - **Part Color Counts** page: Part counts grouped by part and color
 - **Container Detail** pages: View parts in a specific container with management actions
 - **Drawer Detail** pages: View containers and parts in a drawer
+- **Put-Away Wizard** page: Organize teardown sets with storage suggestions and batch assignment
 - **Location Reconciliation** page: Identify missing/excess parts for Loose Parts sets
 - **Inventory Mismatches** page: Compare required vs available parts across sets
 - **Set Detail** pages: View parts in a set with full metadata
 - **Part Detail** pages: View all locations where a part appears (includes part category)
 - **Storage Hierarchy Rules** page: View storage strategies for elements, including part categories
+- **Global Search**: Search across parts, sets, drawers, containers, and categories
 - Column sorting & searching (per table)  
 - CSV export button for every table view
 - Modern React-based UI with responsive design
@@ -250,33 +282,73 @@ The FastAPI backend provides RESTful endpoints for managing inventory. Full API 
 - `PATCH /api/v1/inventory/loose/{id}/location` - Update inventory location (container)
 - `DELETE /api/v1/inventory/loose/{id}` - Delete an inventory item
 - `POST /api/v1/inventory/loose/{id}/move` - Move parts between locations
-- `GET /api/v1/inventory/loose` - List all loose parts
+- `GET /api/v1/inventory/total-count` - Get total part count across all inventory
 - `GET /api/v1/inventory/part-counts` - Get part counts across all sets
 - `GET /api/v1/inventory/part-color-counts` - Get part+color counts
+- `GET /api/v1/inventory/part-category-counts` - Get part counts grouped by category
 - `GET /api/v1/inventory/location-counts` - Get inventory totals by location
+- `GET /api/v1/inventory/multiple-locations` - Get parts that appear in multiple locations
 
 ### **Drawers & Containers**
 - `GET /api/v1/drawers` - List all drawers
+- `GET /api/v1/drawers/{id}` - Get drawer details
 - `POST /api/v1/drawers/create` - Create a drawer
-- `POST /api/v1/drawers/rename` - Update drawer
+- `POST /api/v1/drawers/rename` - Update drawer name
+- `POST /api/v1/drawers/move` - Move drawer to different position
 - `POST /api/v1/drawers/delete` - Soft delete drawer
 - `GET /api/v1/containers?drawer_id={id}` - List containers for a drawer
-- `POST /api/v1/containers/create` - Create a container
 - `GET /api/v1/containers/{id}` - Get container details
 - `GET /api/v1/containers/{id}/parts` - Get parts in a container
+- `POST /api/v1/containers/create` - Create a container
+- `POST /api/v1/containers/rename` - Update container name
+- `POST /api/v1/containers/move` - Move container to different drawer
+- `POST /api/v1/containers/update` - Update container properties
+- `POST /api/v1/containers/delete` - Delete container
 - `GET /api/v1/containers/put-away-bin` - Get put-away bin container
 - `POST /api/v1/containers/put-away-bin` - Set put-away bin
 
 ### **Sets & Parts**
+- `GET /api/v1/sets/count` - Get total number of sets
 - `GET /api/v1/sets` - List all sets
 - `GET /api/v1/sets/{set_number}` - Get set details
+- `GET /api/v1/sets/{set_number}/parts` - Get parts in a set
+- `GET /api/v1/sets/{set_number}/parts-locations` - Get parts with their locations
+- `PATCH /api/v1/sets/{set_number}/status` - Update set status
 - `GET /api/v1/parts/{design_id}` - Get part details and locations
-- `GET /api/v1/parts/{design_id}/inventory` - Get inventory for a part
+- `GET /api/v1/parts/{design_id}/loose` - Get loose inventory for a part
+- `GET /api/v1/parts/{design_id}/sets` - Get sets containing a part
+- `GET /api/v1/parts/{design_id}/aliases` - Get part aliases (BrickLink IDs)
+- `PATCH /api/v1/parts/{design_id}` - Update part metadata
+
+### **Search**
+- `GET /api/v1/search?q={query}&limit={limit}` - Global search across parts, sets, drawers, containers, and categories
+
+### **Put-Away Wizard**
+- `GET /api/v1/putaway/parts-from-set/{set_number}` - Get parts from a teardown set with storage suggestions
+- `GET /api/v1/putaway/parts-in-bin` - Get parts currently in the put-away bin
+- `POST /api/v1/putaway/batch-assign` - Batch assign parts to containers based on suggestions
+
+### **Storage Hierarchy**
+- `GET /api/v1/storage-hierarchy/suggest/{design_id}/{color_id}` - Get storage suggestion for a part+color
+- `GET /api/v1/storage-hierarchy/suggest-all/{design_id}/{color_id}` - Get all storage suggestions for a part+color
+- `GET /api/v1/storage-hierarchy/patterns/elements` - Get storage patterns by element
+- `GET /api/v1/storage-hierarchy/patterns/parts` - Get storage patterns by part
+- `GET /api/v1/storage-hierarchy/patterns/categories` - Get storage patterns by category
+- `GET /api/v1/storage-hierarchy/strategies` - Get all storage strategies
 
 ### **Reconciliation & Mismatches**
 - `GET /api/v1/location-reconciliation/items/loose-parts` - Get reconciliation items for Loose Parts sets
-- `GET /api/v1/mismatches` - Get inventory mismatches summary
-- `GET /api/v1/mismatches/sets/{set_number}` - Get mismatches for a specific set
+- `GET /api/v1/location-reconciliation/items/teardown` - Get reconciliation items for Teardown sets
+- `PATCH /api/v1/location-reconciliation/items/{design_id}/{color_id}` - Update reconciliation item
+- `GET /api/v1/mismatches/summary` - Get inventory mismatches summary
+- `GET /api/v1/mismatches` - List all set mismatches
+- `GET /api/v1/mismatches/{set_number}` - Get mismatches for a specific set
+- `GET /api/v1/mismatches/part-color` - List part+color mismatches
+- `PATCH /api/v1/mismatches/part-color/{design_id}/{color_id}` - Update part+color mismatch
+
+### **Scripts & Maintenance**
+- `POST /api/v1/scripts/sync-rebrickable-parts` - Sync parts from Rebrickable for all owned sets
+- `POST /api/v1/scripts/sync-rebrickable-sets` - Sync set metadata from Rebrickable
 
 ---
 
@@ -295,15 +367,15 @@ The FastAPI backend provides RESTful endpoints for managing inventory. Full API 
 ## **Command Reference**
 | Script | Purpose |
 |--------|---------|
-| `inventory_db.py` | Create/initialize DB schema |
-| `load_my_rebrickable_parts.py` | Load parts for all owned sets (automatically fetches categories for new parts) |
-| `load_rebrickable_colors.py` | Load Rebrickable color data |
-| `load_all_part_categories.py` | Load part categories for all parts in inventory |
-| `cleanup_orphaned_parts.py` | Remove parts that don't belong to any sets |
-| `precheck_instabrick_inventory.py` | Detect/fix missing aliases before import |
-| `fix_alias_typos.py` | Correct typos from precheck step |
-| `load_instabrick_inventory.py` | Import Instabrick XML into DB |
-| `inventory_sanity_checks.py` | Compare loose vs set inventories |
+| `src/infra/db/inventory_db.py` | Create/initialize DB schema |
+| `src/scripts/load_my_rebrickable_parts.py` | Load parts for all owned sets (automatically fetches categories for new parts) |
+| `src/scripts/load_rebrickable_colors.py` | Load Rebrickable color data |
+| `src/scripts/load_all_part_categories.py` | Load part categories for all parts in inventory |
+| `src/scripts/cleanup_orphaned_parts.py` | Remove parts that don't belong to any sets |
+| `src/scripts/precheck_instabrick_inventory.py` | Detect/fix missing aliases before import |
+| `src/scripts/fix_alias_typos.py` | Correct typos from precheck step |
+| `src/scripts/load_instabrick_inventory.py` | Import Instabrick XML into DB |
+| `src/scripts/inventory_sanity_checks.py` | Compare loose vs set inventories |
 
 ---
 
@@ -318,6 +390,8 @@ This section describes recommended practices for local development and code qual
 python3 -m venv .venv
 source .venv/bin/activate
 ```
+
+**Note:** The `dev.sh` script handles this automatically, so manual setup is only needed if you prefer not to use `dev.sh`.
 
 ### 2. Install dependencies
 - **Production dependencies:**

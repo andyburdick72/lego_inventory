@@ -1,0 +1,58 @@
+@startuml C3-LEGO-Inventory-Component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+HIDE_STEREOTYPE()
+
+skinparam defaultFontName "Arial"
+skinparam shadowing false
+
+skinparam rectangle {
+    BorderColor #7a7a7a
+    FontColor #222
+    BackgroundColor #7f7f7f
+}
+
+skinparam package {
+    BackgroundColor #ffffff
+    BorderColor #7a7a7a
+}
+
+skinparam arrow {
+    ArrowColor #9aa0a6
+    ArrowThickness 1.5
+}
+
+' Custom element tags
+AddElementTag("brand", $bgColor="#4285f4", $fontColor="#ffffff", $borderColor="#1a73e8")
+AddElementTag("neutral", $bgColor="#7f7f7f", $fontColor="#ffffff", $borderColor="#7a7a7a")
+AddElementTag("infra", $bgColor="#34a853", $fontColor="#ffffff", $borderColor="#137333")
+
+Container_Boundary(api, "FastAPI REST API") {
+    Component(routers, "API Routers", "FastAPI", "REST endpoints for inventory, sets, parts, drawers, containers", $tags="brand")
+    Component(services, "Business Logic Services", "Python", "Core business logic for inventory management", $tags="brand")
+    Component(repositories, "Data Repositories", "Python", "Data access layer for database operations", $tags="neutral")
+    Component(dtos, "DTOs", "Pydantic", "Data transfer objects for API requests/responses", $tags="neutral")
+    Component(errors, "Error Handling", "Python", "Custom exceptions and error mapping", $tags="neutral")
+    Component(di, "Dependency Injection", "Python", "Service and repository dependency management", $tags="neutral")
+    Component(rebrickable_client, "Rebrickable Client", "Python", "Client for Rebrickable API integration", $tags="neutral")
+}
+
+ContainerDb(database, "SQLite Database", "SQLite", "Stores parts, sets, inventory, and location data", $tags="infra")
+
+System_Ext(rebrickable, "Rebrickable API", "External API providing canonical LEGO part, color, and set data")
+
+Rel(routers, services, "Uses", "Python calls")
+Rel(routers, dtos, "Validates with", "Pydantic")
+Rel(routers, errors, "Handles via", "Exception mapping")
+Rel(services, repositories, "Uses", "Python calls")
+Rel(services, rebrickable_client, "Uses", "Python calls")
+Rel(repositories, database, "Reads from and writes to", "SQLite")
+Rel(rebrickable_client, rebrickable, "Fetches metadata", "HTTPS")
+Rel(di, services, "Provides", "Dependency injection")
+Rel(di, repositories, "Provides", "Dependency injection")
+
+SHOW_LEGEND()
+
+@enduml
+

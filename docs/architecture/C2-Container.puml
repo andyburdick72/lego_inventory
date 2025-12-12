@@ -1,0 +1,57 @@
+@startuml C2-LEGO-Inventory-Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+HIDE_STEREOTYPE()
+
+skinparam defaultFontName "Arial"
+skinparam shadowing false
+
+skinparam rectangle {
+    BorderColor #7a7a7a
+    FontColor #222
+    BackgroundColor #7f7f7f
+}
+
+skinparam package {
+    BackgroundColor #ffffff
+    BorderColor #7a7a7a
+}
+
+skinparam arrow {
+    ArrowColor #9aa0a6
+    ArrowThickness 1.5
+}
+
+' Custom element tags
+AddElementTag("brand", $bgColor="#4285f4", $fontColor="#ffffff", $borderColor="#1a73e8")
+AddElementTag("neutral", $bgColor="#7f7f7f", $fontColor="#ffffff", $borderColor="#7a7a7a")
+AddElementTag("infra", $bgColor="#34a853", $fontColor="#ffffff", $borderColor="#137333")
+
+Person(user, "LEGO Collector", "Manages LEGO parts and sets inventory")
+
+System_Boundary(lego_inventory, "LEGO Inventory Management System") {
+    Container(frontend, "Next.js Frontend", "React, TypeScript, Next.js 14+", "Web application for managing inventory", $tags="brand")
+    Container(api, "FastAPI REST API", "Python, FastAPI", "RESTful API for inventory operations", $tags="brand")
+    ContainerDb(database, "SQLite Database", "SQLite", "Stores parts, sets, inventory, and location data", $tags="infra")
+    Container(scripts, "CLI Scripts", "Python", "Data import and maintenance scripts", $tags="neutral")
+    Container(filesystem, "File System", "Local storage", "Stores XML imports and CSV reports", $tags="infra")
+}
+
+System_Ext(rebrickable, "Rebrickable API", "External API providing canonical LEGO part, color, and set data")
+
+System_Ext(instabrick, "Instabrick/BrickLink", "XML export files for importing existing inventory")
+
+Rel(user, frontend, "Uses", "HTTPS (port 3001)")
+Rel(frontend, api, "Makes API calls", "HTTPS (port 8001)")
+Rel(api, database, "Reads from and writes to", "SQLite")
+Rel(scripts, database, "Imports data into", "SQLite")
+Rel(scripts, filesystem, "Reads XML files, writes CSV reports", "File I/O")
+Rel(api, rebrickable, "Fetches metadata", "HTTPS")
+Rel(scripts, rebrickable, "Fetches part/color data", "HTTPS")
+Rel(instabrick, scripts, "Provides XML exports", "XML files")
+
+SHOW_LEGEND()
+
+@enduml
+
