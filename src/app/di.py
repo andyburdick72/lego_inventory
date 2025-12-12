@@ -17,6 +17,7 @@ from core.services.inventory_service import InventoryService
 from core.services.location_reconciliation_service import LocationReconciliationService
 from core.services.mismatch_service import MismatchService
 from core.services.parts_service import PartsService
+from core.services.search_service import SearchService
 from core.services.set_parts_service import SetPartsService
 from core.services.storage_hierarchy_service import StorageHierarchyService
 
@@ -25,6 +26,7 @@ from infra.db.repositories.drawers_repo import DrawersRepo as DrawersRepoImpl
 from infra.db.repositories.drawers_repo import DuplicateLabelError as _DBDuplicateLabelError
 from infra.db.repositories.inventory_repo import InventoryRepo as InventoryRepoImpl
 from infra.db.repositories.parts_repo import PartsRepo as PartsRepoImpl
+from infra.db.repositories.search_repo import SearchRepo as SearchRepoImpl
 from infra.db.repositories.sets_repo import SetsRepo as SetsRepoImpl
 
 # -----------------------------
@@ -482,3 +484,11 @@ def get_storage_hierarchy_service(
     parts = parts_impl  # PartsRepoImpl already matches the Protocol
 
     return StorageHierarchyService(inventory=inventory, parts=parts)
+
+
+def get_search_service(
+    conn: sqlite3.Connection = Depends(get_db_connection),
+) -> SearchService:
+    """Get SearchService with a connection from the current request context."""
+    search_impl = SearchRepoImpl(conn)
+    return SearchService(search_repo=search_impl)
