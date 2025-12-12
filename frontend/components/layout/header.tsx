@@ -55,6 +55,12 @@ export function Header() {
                 Sets
               </Link>
               <Link
+                href="/storage-hierarchy"
+                className="transition-colors hover:text-foreground/80 text-foreground/60"
+              >
+                Storage Rules
+              </Link>
+              <Link
                 href="/reporting-analytics"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
@@ -65,12 +71,6 @@ export function Header() {
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
                 Inventory Updates
-              </Link>
-              <Link
-                href="/storage-hierarchy"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Storage Rules
               </Link>
             </nav>
           </div>
