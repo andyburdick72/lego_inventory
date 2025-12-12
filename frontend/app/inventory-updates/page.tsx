@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -9,11 +8,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { ArrowLeftRight, Package, ArrowRightLeft, MapPin, ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
-import { useLocationReconciliationItems } from '@/lib/hooks/use-location-reconciliation';
 import { useMultipleLocationsElements } from '@/lib/hooks/use-inventory';
+import { useLocationReconciliationItems } from '@/lib/hooks/use-location-reconciliation';
 import { formatNumber } from '@/lib/utils';
+import { ArrowLeft, ArrowRightLeft } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useMemo } from 'react';
 
 export default function InventoryUpdatesPage() {
   const { data: loosePartsItems } = useLocationReconciliationItems('loose-parts');
@@ -85,9 +86,14 @@ export default function InventoryUpdatesPage() {
               </Button>
             </CardContent>
           </div>
-          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <ArrowLeftRight className="h-16 w-16 text-green-600" />
-          </div>
+          <Image
+            src="/inventory-reconciliation-icon.png"
+            alt="Location Reconciliation"
+            width={120}
+            height={120}
+            className="object-contain shrink-0 pr-4"
+            unoptimized
+          />
         </Card>
 
         <Card className="flex flex-row items-center gap-4">
@@ -115,9 +121,14 @@ export default function InventoryUpdatesPage() {
               </Button>
             </CardContent>
           </div>
-          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <MapPin className="h-16 w-16 text-amber-600" />
-          </div>
+          <Image
+            src="/multiple-locations-icon.png"
+            alt="Multiple Locations"
+            width={120}
+            height={120}
+            className="object-contain shrink-0 pr-4"
+            unoptimized
+          />
         </Card>
 
         <Card className="flex flex-row items-center gap-4">
@@ -132,9 +143,14 @@ export default function InventoryUpdatesPage() {
               </Button>
             </CardContent>
           </div>
-          <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <Package className="h-16 w-16 text-blue-600" />
-          </div>
+          <Image
+            src="/put-away-wizard-icon.png"
+            alt="Put-Away Wizard"
+            width={120}
+            height={120}
+            className="object-contain shrink-0 pr-4"
+            unoptimized
+          />
         </Card>
 
         <Card className="flex flex-row items-center gap-4">
@@ -144,13 +160,13 @@ export default function InventoryUpdatesPage() {
               <CardDescription>Move and merge inventory between locations (Coming soon)</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <Button asChild className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled>
+              <Button asChild className="bg-gray-400 hover:bg-gray-400 text-white cursor-not-allowed" disabled>
                 <Link href="#">Coming Soon</Link>
               </Button>
             </CardContent>
           </div>
           <div className="w-[120px] h-[120px] flex items-center justify-center shrink-0 pr-4">
-            <ArrowRightLeft className="h-16 w-16 text-indigo-600 opacity-50" />
+            <ArrowRightLeft className="h-16 w-16 text-gray-400 opacity-40 grayscale" />
           </div>
         </Card>
       </div>

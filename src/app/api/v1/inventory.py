@@ -46,6 +46,13 @@ class LocationCountDTO(BaseModel):
     container_name: str | None = None
 
 
+class PartCategoryCountDTO(BaseModel):
+    part_category_id: int | None = None
+    part_category_name: str | None = None
+    part_count: int
+    total_qty: int
+
+
 class ElementLocationDTO(BaseModel):
     drawer_id: int | None = None
     drawer_name: str | None = None
@@ -288,6 +295,51 @@ def get_location_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
                 drawer_name=drawer_name if drawer_name else None,
                 container_id=int(container_id) if container_id else None,
                 container_name=container_name if container_name else None,
+            )
+        )
+    return result
+
+
+@router.get("/part-category-counts", response_model=list[PartCategoryCountDTO])
+def get_part_category_counts(conn: sqlite3.Connection = Depends(get_db_connection)):
+    """Get part counts grouped by category across all sets (all set parts, regardless of set status).
+
+    Returns categories with:
+    - part_count: number of distinct parts in that category
+    - total_qty: total quantity of all parts in that category
+    """
+    rows = conn.execute(
+        """
+        SELECT 
+            p.part_category_id,
+            pc.name AS part_category_name,
+            COUNT(DISTINCT sp.design_id) AS part_count,
+            SUM(sp.quantity) AS total_qty
+        FROM set_parts sp
+        JOIN sets s ON s.set_num = sp.set_num
+        LEFT JOIN parts p ON sp.design_id = p.design_id
+        LEFT JOIN part_categories pc ON pc.id = p.part_category_id
+        GROUP BY p.part_category_id, pc.name
+        ORDER BY total_qty DESC, part_category_name
+        """
+    ).fetchall()
+
+    result = []
+    for r in rows:
+        row_dict = dict(r)
+        part_category_id = row_dict.get("part_category_id")
+        part_category_name = row_dict.get("part_category_name")
+
+        # Include categories with NULL category_id/name as "Uncategorized"
+        if part_category_id is None and part_category_name is None:
+            part_category_name = "Uncategorized"
+
+        result.append(
+            PartCategoryCountDTO(
+                part_category_id=int(part_category_id) if part_category_id is not None else None,
+                part_category_name=str(part_category_name) if part_category_name else None,
+                part_count=int(row_dict.get("part_count", 0) or 0),
+                total_qty=int(row_dict.get("total_qty", 0) or 0),
             )
         )
     return result

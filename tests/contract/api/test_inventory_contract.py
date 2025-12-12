@@ -141,6 +141,49 @@ def test_inventory_location_counts():
             assert len(item["location"]) > 0
 
 
+def test_inventory_part_category_counts():
+    """Test part category counts endpoint."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get("/inventory/part-category-counts")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        if data:
+            item = data[0]
+            assert "part_category_id" in item
+            assert "part_category_name" in item
+            assert "part_count" in item
+            assert "total_qty" in item
+            assert isinstance(item["part_count"], int)
+            assert isinstance(item["total_qty"], int)
+            assert item["part_count"] >= 0
+            assert item["total_qty"] >= 0
+            # Verify sorted by quantity descending
+            if len(data) > 1:
+                assert data[0]["total_qty"] >= data[1]["total_qty"]
+            # Verify category consistency: if id exists, name should exist (and vice versa)
+            # Exception: "Uncategorized" can have a name but no ID
+            category_id = item.get("part_category_id")
+            category_name = item.get("part_category_name")
+            if category_id is not None:
+                assert category_name is not None, "Category ID present but name is missing"
+                assert isinstance(category_name, str) and len(category_name) > 0
+            if category_name is not None and category_name != "Uncategorized":
+                assert category_id is not None, "Category name present but ID is missing"
+                assert isinstance(category_id, int)
+            # Verify all items have the required structure
+            for category in data:
+                assert "part_category_id" in category
+                assert "part_category_name" in category
+                assert "part_count" in category
+                assert "total_qty" in category
+                assert isinstance(category["part_count"], int)
+                assert isinstance(category["total_qty"], int)
+                assert category["part_count"] >= 0
+                assert category["total_qty"] >= 0
+
+
 def test_inventory_multiple_locations():
     """Test multiple locations endpoint."""
     _skip_if_no_api()

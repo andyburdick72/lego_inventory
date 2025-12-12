@@ -21,18 +21,29 @@ import { formatNumber } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 type ViewMode = 'cards' | 'table';
 
 export default function PartCountsPage() {
+  const searchParams = useSearchParams();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const categoryFromUrl = searchParams.get('category');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
+    categoryFromUrl || 'all'
+  );
   const router = useRouter();
   const { data: partCounts, isLoading, error } = usePartCounts();
+
+  // Update selected category when URL parameter changes
+  useEffect(() => {
+    if (categoryFromUrl) {
+      setSelectedCategoryId(categoryFromUrl);
+    }
+  }, [categoryFromUrl]);
 
   // Extract unique categories for filter dropdown
   const categories = useMemo(() => {

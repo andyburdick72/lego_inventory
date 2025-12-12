@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -9,16 +8,18 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useLocationCounts, usePartCategoryCounts, usePartColorCounts, usePartCounts } from '@/lib/hooks/use-parts';
+import { formatNumber } from '@/lib/utils';
+import { ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
-import { usePartCounts, usePartColorCounts, useLocationCounts } from '@/lib/hooks/use-parts';
-import { formatNumber } from '@/lib/utils';
+import { useMemo } from 'react';
 
 export default function ReportingAnalyticsPage() {
   const { data: partCounts } = usePartCounts();
   const { data: partColorCounts } = usePartColorCounts();
   const { data: locationCounts } = useLocationCounts();
+  const { data: categoryCounts } = usePartCategoryCounts();
 
   const partCountsTotal = useMemo(
     () => partCounts?.reduce((sum, p) => sum + p.total_qty, 0) || 0,
@@ -33,6 +34,11 @@ export default function ReportingAnalyticsPage() {
   const locationCountsTotal = useMemo(
     () => locationCounts?.reduce((sum, l) => sum + l.total_qty, 0) || 0,
     [locationCounts]
+  );
+
+  const categoryCountsTotal = useMemo(
+    () => categoryCounts?.reduce((sum, c) => sum + c.total_qty, 0) || 0,
+    [categoryCounts]
   );
 
   return (
@@ -141,6 +147,38 @@ export default function ReportingAnalyticsPage() {
             width={120}
             height={120}
             className="object-contain shrink-0 pr-4"
+          />
+        </Card>
+
+        <Card className="flex flex-row items-center gap-4">
+          <div className="flex-1">
+            <CardHeader>
+              <CardTitle>Part Category Counts</CardTitle>
+              <CardDescription>Parts grouped by category</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {categoryCounts && (
+                <div className="text-sm text-muted-foreground mb-3 space-y-1">
+                  <div>
+                    Categories: <span className="font-medium text-foreground">{formatNumber(categoryCounts.length)}</span>
+                  </div>
+                  <div>
+                    Total Quantity: <span className="font-medium text-foreground">{formatNumber(categoryCountsTotal)}</span>
+                  </div>
+                </div>
+              )}
+              <Button asChild className="bg-purple-600 hover:bg-purple-700 text-white">
+                <Link href="/part-category-counts">View Part Category Counts</Link>
+              </Button>
+            </CardContent>
+          </div>
+          <Image
+            src="/part-category-counts-icon.png"
+            alt="Part Category Counts"
+            width={120}
+            height={120}
+            className="object-contain shrink-0 pr-4"
+            unoptimized
           />
         </Card>
       </div>
