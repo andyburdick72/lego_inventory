@@ -32,6 +32,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import { ViewToggle } from '@/components/view-toggle';
 import { handleApiError } from '@/lib/api';
 import { useContainers } from '@/lib/hooks/use-containers';
 import { useDrawers } from '@/lib/hooks/use-drawers';
@@ -41,11 +42,12 @@ import {
   usePutAwayBin,
   useUpdateInventoryLocation,
 } from '@/lib/hooks/use-location-reconciliation';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { formatNumber, isLightColor, showErrorToast, showWarningToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { AlertCircle, ArrowLeft, Download, Edit2, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Download, Edit2, RefreshCw, Search } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function LocationReconciliationPage() {
   const [activeTab, setActiveTab] = useState<'loose-parts' | 'teardown'>('loose-parts');
@@ -60,6 +62,9 @@ export default function LocationReconciliationPage() {
   const [quantity, setQuantity] = useState<string>('');
   const [filterNeedsUpdate, setFilterNeedsUpdate] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [viewMode, setViewMode] = useViewMode('table', `location-reconciliation-view-mode`);
+  const [cardPageIndex, setCardPageIndex] = useState(0);
+  const [cardPageSize] = useState(20);
 
   const selectedDrawer = drawers?.find((d) => d.id.toString() === selectedDrawerId);
   const { data: containers } = useContainers(
@@ -162,6 +167,26 @@ export default function LocationReconciliationPage() {
 
     return true;
   }) || [];
+
+  // Sort items for card view
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      // Sort by needs_update first, then by delta
+      if (a.needs_update !== b.needs_update) {
+        return a.needs_update ? -1 : 1;
+      }
+      return Math.abs(b.delta) - Math.abs(a.delta);
+    });
+  }, [filteredItems]);
+
+  // Paginate cards
+  const paginatedCards = useMemo(() => {
+    const startIndex = cardPageIndex * cardPageSize;
+    const endIndex = startIndex + cardPageSize;
+    return sortedItems.slice(startIndex, endIndex);
+  }, [sortedItems, cardPageIndex, cardPageSize]);
+
+  const totalPages = Math.ceil(sortedItems.length / cardPageSize);
 
   const exportToCSV = () => {
     const headers = [
@@ -390,7 +415,7 @@ export default function LocationReconciliationPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 space-y-6">
+    <div className="container mx-auto py-4 md:py-8 space-y-6">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
           <Link href="/inventory-updates">
@@ -483,8 +508,8 @@ export default function LocationReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div className="relative max-w-sm flex-1">
+              <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="relative max-w-sm flex-1 w-full sm:w-auto">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <Input
                     type="text"
@@ -494,17 +519,162 @@ export default function LocationReconciliationPage() {
                     className="pl-10"
                   />
                 </div>
-                <Button onClick={exportToCSV} variant="outline" size="sm">
-                  <Download className="mr-2 h-4 w-4" />
-                  Export CSV
-                </Button>
+                <div className="flex items-center gap-2">
+                  <ViewToggle
+                    viewMode={viewMode}
+                    onViewModeChange={(mode) => {
+                      setViewMode(mode);
+                      setCardPageIndex(0);
+                    }}
+                  />
+                  <Button onClick={exportToCSV} variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                </div>
               </div>
-              <DataTable
-                columns={columns}
-                data={filteredItems}
-                hideTopBar={true}
-                searchKeys={['design_id', 'part_name', 'color', 'color_name']}
-              />
+              {viewMode === 'table' ? (
+                <DataTable
+                  columns={columns}
+                  data={filteredItems}
+                  hideTopBar={true}
+                  searchKeys={['design_id', 'part_name', 'color', 'color_name']}
+                />
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {paginatedCards.map((item) => {
+                      const bgColor = item.color_hex ? `#${item.color_hex}` : '#ffffff';
+                      const textColor = isLightColor(item.color_hex) ? '#000000' : '#ffffff';
+                      return (
+                        <Card key={`${item.design_id}-${item.color_id}`}>
+                          <CardHeader>
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <CardTitle className="text-sm">
+                                  <Link
+                                    href={`/parts/${item.design_id}?from=location-reconciliation`}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    {item.design_id}
+                                  </Link>
+                                </CardTitle>
+                                <CardDescription className="text-xs mt-1">
+                                  {item.part_name}
+                                </CardDescription>
+                              </div>
+                              {item.part_img_url && (
+                                <img
+                                  src={item.part_img_url}
+                                  alt={item.part_name}
+                                  className="w-12 h-12 object-contain ml-2"
+                                />
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Color:</span>
+                              <div
+                                className="inline-flex items-center px-2 py-1 rounded border text-xs"
+                                style={{
+                                  backgroundColor: bgColor,
+                                  color: textColor,
+                                }}
+                              >
+                                {item.color_name || 'Unknown'}
+                              </div>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Required:</span>
+                                <span className="font-medium">{formatNumber(item.required_quantity)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Current Total:</span>
+                                <span className="font-medium">{formatNumber(item.current_total)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">
+                                  {activeTab === 'teardown' ? 'In Wrong Location:' : 'In Put Away:'}
+                                </span>
+                                <span className={item.put_away_quantity > 0 ? 'text-destructive font-semibold' : 'text-muted-foreground'}>
+                                  {formatNumber(item.put_away_quantity)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Delta:</span>
+                                <span className={item.delta === 0 ? 'text-muted-foreground' : item.delta < 0 ? 'text-destructive font-semibold' : 'text-orange-600'}>
+                                  {item.delta > 0 ? '+' : ''}{formatNumber(item.delta)}
+                                </span>
+                              </div>
+                            </div>
+                            {item.current_locations.length > 0 && (
+                              <div className="pt-2 border-t">
+                                <div className="text-xs text-muted-foreground mb-1">
+                                  {activeTab === 'teardown' ? 'Current Location:' : 'Current Locations:'}
+                                </div>
+                                <div className="space-y-1 text-xs">
+                                  {item.current_locations.map((loc, idx) => (
+                                    <div key={idx}>
+                                      <span className="font-medium">
+                                        {loc.drawer_name}
+                                        {loc.container_name && ` / ${loc.container_name}`}
+                                      </span>
+                                      : <span className="text-muted-foreground">{formatNumber(loc.quantity)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(item)}
+                              className="w-full mt-2 min-h-[44px]"
+                            >
+                              <Edit2 className="w-4 h-4 mr-1" />
+                              Edit Location
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {cardPageIndex * cardPageSize + 1} to{' '}
+                        {Math.min((cardPageIndex + 1) * cardPageSize, sortedItems.length)} of{' '}
+                        {sortedItems.length} items
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCardPageIndex(Math.max(0, cardPageIndex - 1))}
+                          disabled={cardPageIndex === 0}
+                          className="min-h-[44px] min-w-[44px]"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm whitespace-nowrap">
+                          Page {cardPageIndex + 1} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCardPageIndex(Math.min(totalPages - 1, cardPageIndex + 1))}
+                          disabled={cardPageIndex >= totalPages - 1}
+                          className="min-h-[44px] min-w-[44px]"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -579,8 +749,8 @@ export default function LocationReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div className="relative max-w-sm flex-1">
+              <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="relative max-w-sm flex-1 w-full sm:w-auto">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <Input
                     type="text"
@@ -590,17 +760,162 @@ export default function LocationReconciliationPage() {
                     className="pl-10"
                   />
                 </div>
-                <Button onClick={exportToCSV} variant="outline" size="sm">
-                  <Download className="mr-2 h-4 w-4" />
-                  Export CSV
-                </Button>
+                <div className="flex items-center gap-2">
+                  <ViewToggle
+                    viewMode={viewMode}
+                    onViewModeChange={(mode) => {
+                      setViewMode(mode);
+                      setCardPageIndex(0);
+                    }}
+                  />
+                  <Button onClick={exportToCSV} variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                </div>
               </div>
-              <DataTable
-                columns={columns}
-                data={filteredItems}
-                hideTopBar={true}
-                searchKeys={['design_id', 'part_name', 'color', 'color_name']}
-              />
+              {viewMode === 'table' ? (
+                <DataTable
+                  columns={columns}
+                  data={filteredItems}
+                  hideTopBar={true}
+                  searchKeys={['design_id', 'part_name', 'color', 'color_name']}
+                />
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {paginatedCards.map((item) => {
+                      const bgColor = item.color_hex ? `#${item.color_hex}` : '#ffffff';
+                      const textColor = isLightColor(item.color_hex) ? '#000000' : '#ffffff';
+                      return (
+                        <Card key={`${item.design_id}-${item.color_id}`}>
+                          <CardHeader>
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <CardTitle className="text-sm">
+                                  <Link
+                                    href={`/parts/${item.design_id}?from=location-reconciliation`}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    {item.design_id}
+                                  </Link>
+                                </CardTitle>
+                                <CardDescription className="text-xs mt-1">
+                                  {item.part_name}
+                                </CardDescription>
+                              </div>
+                              {item.part_img_url && (
+                                <img
+                                  src={item.part_img_url}
+                                  alt={item.part_name}
+                                  className="w-12 h-12 object-contain ml-2"
+                                />
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Color:</span>
+                              <div
+                                className="inline-flex items-center px-2 py-1 rounded border text-xs"
+                                style={{
+                                  backgroundColor: bgColor,
+                                  color: textColor,
+                                }}
+                              >
+                                {item.color_name || 'Unknown'}
+                              </div>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Required:</span>
+                                <span className="font-medium">{formatNumber(item.required_quantity)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Current Total:</span>
+                                <span className="font-medium">{formatNumber(item.current_total)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">
+                                  {activeTab === 'teardown' ? 'In Wrong Location:' : 'In Put Away:'}
+                                </span>
+                                <span className={item.put_away_quantity > 0 ? 'text-destructive font-semibold' : 'text-muted-foreground'}>
+                                  {formatNumber(item.put_away_quantity)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Delta:</span>
+                                <span className={item.delta === 0 ? 'text-muted-foreground' : item.delta < 0 ? 'text-destructive font-semibold' : 'text-orange-600'}>
+                                  {item.delta > 0 ? '+' : ''}{formatNumber(item.delta)}
+                                </span>
+                              </div>
+                            </div>
+                            {item.current_locations.length > 0 && (
+                              <div className="pt-2 border-t">
+                                <div className="text-xs text-muted-foreground mb-1">
+                                  {activeTab === 'teardown' ? 'Current Location:' : 'Current Locations:'}
+                                </div>
+                                <div className="space-y-1 text-xs">
+                                  {item.current_locations.map((loc, idx) => (
+                                    <div key={idx}>
+                                      <span className="font-medium">
+                                        {loc.drawer_name}
+                                        {loc.container_name && ` / ${loc.container_name}`}
+                                      </span>
+                                      : <span className="text-muted-foreground">{formatNumber(loc.quantity)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(item)}
+                              className="w-full mt-2 min-h-[44px]"
+                            >
+                              <Edit2 className="w-4 h-4 mr-1" />
+                              Edit Location
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {cardPageIndex * cardPageSize + 1} to{' '}
+                        {Math.min((cardPageIndex + 1) * cardPageSize, sortedItems.length)} of{' '}
+                        {sortedItems.length} items
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCardPageIndex(Math.max(0, cardPageIndex - 1))}
+                          disabled={cardPageIndex === 0}
+                          className="min-h-[44px] min-w-[44px]"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm whitespace-nowrap">
+                          Page {cardPageIndex + 1} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCardPageIndex(Math.min(totalPages - 1, cardPageIndex + 1))}
+                          disabled={cardPageIndex >= totalPages - 1}
+                          className="min-h-[44px] min-w-[44px]"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

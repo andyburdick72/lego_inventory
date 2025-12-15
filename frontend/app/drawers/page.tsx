@@ -32,13 +32,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Plus, LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { MoreHorizontal, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 
-type ViewMode = 'cards' | 'table';
-
 export default function DrawersPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'drawers-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -152,8 +152,8 @@ export default function DrawersPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6">Drawers</h1>
+      <div className="container mx-auto py-4 md:py-8">
+        <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">Drawers</h1>
         <div className="text-muted-foreground">Loading drawers...</div>
       </div>
     );
@@ -161,66 +161,45 @@ export default function DrawersPage() {
 
   if (error) {
     return (
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6">Drawers</h1>
+      <div className="container mx-auto py-4 md:py-8">
+        <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">Drawers</h1>
         <div className="text-destructive">Error loading drawers. Please try again.</div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-6">
-        <Button variant="outline" asChild className="mb-4">
+    <div className="container mx-auto py-4 md:py-8">
+      <div className="mb-4 md:mb-6">
+        <Button variant="outline" asChild className="mb-4 min-h-[44px]">
           <Link href="/">← Back to Home</Link>
         </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Drawers</h1>
-            {!isLoading && drawers && (
-              <div className="flex gap-4 mt-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Total Drawers: </span>
-                  <span className="font-medium">{formatNumber(drawers.length)}</span>
-                </div>
-              </div>
-            )}
-            {isLoading && (
-              <p className="text-muted-foreground mt-1">Loading...</p>
-            )}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">Drawers</h1>
+            <div className="flex items-center gap-2">
+              <ViewToggle
+                viewMode={viewMode}
+                onViewModeChange={(mode) => {
+                  setViewMode(mode);
+                  setCardPageIndex(0);
+                }}
+              />
+              <Button onClick={() => setCreateDialogOpen(true)} className="min-h-[44px]">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Drawer
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-          <div className="flex items-center border rounded-md">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => {
-                setViewMode('table');
-                setCardPageIndex(0);
-              }}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => {
-                setViewMode('cards');
-                setCardPageIndex(0);
-              }}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
-          </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Drawer
-          </Button>
-        </div>
+          {!isLoading && drawers && (
+            <div className="text-sm">
+              <span className="text-muted-foreground">Total Drawers: </span>
+              <span className="font-medium">{formatNumber(drawers.length)}</span>
+            </div>
+          )}
+          {isLoading && (
+            <p className="text-muted-foreground">Loading...</p>
+          )}
         </div>
       </div>
 

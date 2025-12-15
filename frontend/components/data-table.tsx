@@ -328,14 +328,15 @@ export function DataTable<TData, TValue>({
     <div className="space-y-4">
       {!hideTopBar && (
         <div className="flex items-center justify-end">
-          <Button onClick={exportToCSV} variant="outline" size="sm">
+          <Button onClick={exportToCSV} variant="outline" size="sm" className="min-h-[44px]">
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
         </div>
       )}
-      <div className="rounded-md border">
-        <Table>
+      <div className="rounded-md border overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -388,11 +389,11 @@ export function DataTable<TData, TValue>({
                           placeholder={`Filter ${getColumnHeaderLabel(columnId)}...`}
                           value={getColumnFilterValue(columnId)}
                           onChange={(e) => setColumnFilterValue(columnId, e.target.value)}
-                          className="h-8 w-full"
+                          className="h-10 md:h-8 w-full min-h-[44px] md:min-h-0"
                           onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
-                        <div className="h-8" />
+                        <div className="h-10 md:h-8" />
                       )}
                     </TableHead>
                   );
@@ -454,9 +455,10 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
       {/* Pagination controls */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <p className="text-sm text-muted-foreground">
             Showing {formatNumber(table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1)} to{' '}
@@ -469,9 +471,10 @@ export function DataTable<TData, TValue>({
             of {formatNumber(table.getFilteredRowModel().rows.length)} results
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
-            <p className="text-sm text-muted-foreground">Rows per page:</p>
+            <p className="text-sm text-muted-foreground hidden sm:inline">Rows per page:</p>
+            <p className="text-sm text-muted-foreground sm:hidden">Per page:</p>
             <Select
               value={
                 table.getState().pagination.pageSize >= table.getFilteredRowModel().rows.length
@@ -487,7 +490,7 @@ export function DataTable<TData, TValue>({
                 table.setPageIndex(0); // Reset to first page when changing page size
               }}
             >
-              <SelectTrigger className="w-[100px]">
+              <SelectTrigger className="w-[100px] min-h-[44px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -504,10 +507,11 @@ export function DataTable<TData, TValue>({
               size="sm"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
+              className="min-h-[44px] min-w-[44px]"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground whitespace-nowrap">
               Page {formatNumber(table.getState().pagination.pageIndex + 1)} of{' '}
               {formatNumber(table.getPageCount() > 0 ? table.getPageCount() : 1)}
             </p>
@@ -516,6 +520,7 @@ export function DataTable<TData, TValue>({
               size="sm"
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
+              className="min-h-[44px] min-w-[44px]"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

@@ -31,8 +31,8 @@ export default function HomePage() {
   }, [looseParts]);
 
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-6">LEGO Inventory</h1>
+    <div className="container mx-auto py-4 md:py-8">
+      <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">LEGO Inventory</h1>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <Card className="flex flex-row items-center gap-4">

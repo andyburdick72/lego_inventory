@@ -5,11 +5,15 @@ import { Button } from '@/components/ui/button';
 import { useTotalPartCount } from '@/lib/hooks/use-inventory';
 import { useSetsCount } from '@/lib/hooks/use-sets';
 import { formatNumber } from '@/lib/utils';
-import { Search } from 'lucide-react';
+import { Menu, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-export function Header() {
+interface HeaderProps {
+  onMobileMenuClick?: () => void;
+}
+
+export function Header({ onMobileMenuClick }: HeaderProps) {
   const { data: totalCountData, isLoading, error } = useTotalPartCount();
   const { data: setsCountData, isLoading: setsLoading } = useSetsCount();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -31,11 +35,22 @@ export function Header() {
     <>
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="container flex h-16 items-center justify-between px-4">
-          <div className="flex items-center">
-            <Link href="/" className="mr-6 flex items-center space-x-2">
-              <span className="text-xl font-bold">Ervin-Burdick's Bricks</span>
+          <div className="flex items-center gap-2 md:gap-6">
+            {/* Mobile Menu Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden h-10 w-10"
+              onClick={onMobileMenuClick}
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+            <Link href="/" className="flex items-center space-x-2">
+              <span className="text-lg md:text-xl font-bold">Ervin-Burdick's Bricks</span>
             </Link>
-            <nav className="flex items-center space-x-6 text-sm font-medium">
+            {/* Desktop Navigation - Hidden on mobile */}
+            <nav className="hidden md:flex items-center space-x-6 text-sm font-medium">
               <Link
                 href="/loose-parts"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
@@ -74,19 +89,21 @@ export function Header() {
               </Link>
             </nav>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Search Button - Full width on mobile, fixed width on desktop */}
             <Button
               variant="outline"
               onClick={() => setIsSearchOpen(true)}
-              className="relative h-9 w-full sm:w-64 justify-start text-sm text-muted-foreground sm:pr-12"
+              className="relative h-9 flex-1 md:w-64 justify-start text-sm text-muted-foreground md:pr-12"
             >
-              <Search className="mr-2 h-4 w-4" />
+              <Search className="mr-2 h-4 w-4 shrink-0" />
               <span className="hidden sm:inline-flex">Search...</span>
-              <span className="hidden sm:inline-flex absolute right-2 top-1/2 -translate-y-1/2 h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+              <span className="hidden md:inline-flex absolute right-2 top-1/2 -translate-y-1/2 h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
                 <span className="text-xs">⌘</span>K
               </span>
             </Button>
-            <div className="flex flex-col items-end gap-1">
+            {/* Stats - Hidden on mobile, shown on desktop */}
+            <div className="hidden md:flex flex-col items-end gap-1">
               {error && (
                 <div className="text-xs text-red-500">
                   Error loading count

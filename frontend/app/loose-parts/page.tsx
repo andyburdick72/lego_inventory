@@ -19,8 +19,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink, Edit, Move, Trash2 } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { ChevronLeft, ChevronRight, ExternalLink, Edit, Move, Trash2 } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import Link from 'next/link';
 import {
   UpdateQuantityDialog,
@@ -28,10 +30,8 @@ import {
   DeleteInventoryDialog,
 } from '@/components/loose-parts/loose-parts-dialogs';
 
-type ViewMode = 'cards' | 'table';
-
 export default function LoosePartsPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'loose-parts-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const [selectedPart, setSelectedPart] = useState<LoosePart | null>(null);
@@ -210,6 +210,7 @@ export default function LoosePartsPage() {
                 setUpdateQuantityOpen(true);
               }}
               title="Update quantity"
+              className="min-h-[44px] min-w-[44px]"
             >
               <Edit className="h-4 w-4" />
             </Button>
@@ -222,6 +223,7 @@ export default function LoosePartsPage() {
                 setMoveInventoryOpen(true);
               }}
               title="Move parts"
+              className="min-h-[44px] min-w-[44px]"
             >
               <Move className="h-4 w-4" />
             </Button>
@@ -234,6 +236,7 @@ export default function LoosePartsPage() {
                 setDeleteInventoryOpen(true);
               }}
               title="Delete"
+              className="min-h-[44px] min-w-[44px]"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -244,62 +247,45 @@ export default function LoosePartsPage() {
   ];
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-6">
-        <Button variant="outline" asChild className="mb-4">
+    <div className="container mx-auto py-4 md:py-8">
+      <div className="mb-4 md:mb-6 space-y-4">
+        <Button variant="outline" asChild className="min-h-[44px]">
           <Link href="/">← Back to Home</Link>
         </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Loose Parts</h1>
-            {!isLoading && parts && (
-              <div className="flex gap-4 mt-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Unique Parts: </span>
-                  <span className="font-medium">{formatNumber(stats.uniqueParts)}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Unique Elements: </span>
-                  <span className="font-medium">{formatNumber(stats.uniquePartColors)}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Total Quantity: </span>
-                  <span className="font-medium">{formatNumber(stats.total)}</span>
-                </div>
+        
+        {/* Header Section - Better mobile layout */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">Loose Parts</h1>
+            <ViewToggle
+              viewMode={viewMode}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setCardPageIndex(0); // Reset pagination when switching views
+              }}
+            />
+          </div>
+          
+          {/* Stats - Stack on mobile, horizontal on desktop */}
+          {!isLoading && parts && (
+            <div className="flex flex-col sm:flex-row flex-wrap gap-2 md:gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Unique Parts: </span>
+                <span className="font-medium">{formatNumber(stats.uniqueParts)}</span>
               </div>
-            )}
-            {isLoading && (
-              <p className="text-muted-foreground mt-1">Loading...</p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center border rounded-md">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => {
-                setViewMode('table');
-                setCardPageIndex(0); // Reset pagination when switching views
-              }}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => {
-                setViewMode('cards');
-                setCardPageIndex(0); // Reset pagination when switching views
-              }}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
+              <div>
+                <span className="text-muted-foreground">Unique Elements: </span>
+                <span className="font-medium">{formatNumber(stats.uniquePartColors)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total Quantity: </span>
+                <span className="font-medium">{formatNumber(stats.total)}</span>
+              </div>
             </div>
-          </div>
+          )}
+          {isLoading && (
+            <p className="text-muted-foreground">Loading...</p>
+          )}
         </div>
       </div>
 
@@ -407,7 +393,7 @@ export default function LoosePartsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1"
+                            className="flex-1 min-h-[44px]"
                             onClick={() => {
                               setSelectedPart(part);
                               setUpdateQuantityOpen(true);
@@ -420,7 +406,7 @@ export default function LoosePartsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1"
+                            className="flex-1 min-h-[44px]"
                             onClick={() => {
                               setSelectedPart(part);
                               setMoveInventoryOpen(true);
@@ -433,7 +419,7 @@ export default function LoosePartsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1"
+                            className="flex-1 min-h-[44px]"
                             onClick={() => {
                               setSelectedPart(part);
                               setDeleteInventoryOpen(true);
@@ -451,7 +437,7 @@ export default function LoosePartsPage() {
               ))}
             </div>
             {/* Pagination controls for card view */}
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
               <div className="flex items-center gap-2">
                 <p className="text-sm text-muted-foreground">
                   Showing {formatNumber(cardPageIndex * cardPageSize + 1)} to{' '}
@@ -459,9 +445,10 @@ export default function LoosePartsPage() {
                   of {formatNumber(sortedParts.length)} results
                 </p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm text-muted-foreground">Cards per page:</p>
+                  <p className="text-sm text-muted-foreground hidden sm:inline">Cards per page:</p>
+                  <p className="text-sm text-muted-foreground sm:hidden">Per page:</p>
                   <Select
                     value={cardPageSize >= sortedParts.length ? 'all' : String(cardPageSize)}
                     onValueChange={(value) => {
@@ -473,7 +460,7 @@ export default function LoosePartsPage() {
                       setCardPageIndex(0); // Reset to first page when changing page size
                     }}
                   >
-                    <SelectTrigger className="w-[100px]">
+                    <SelectTrigger className="w-[100px] min-h-[44px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -490,10 +477,11 @@ export default function LoosePartsPage() {
                     size="sm"
                     onClick={() => setCardPageIndex((prev) => Math.max(0, prev - 1))}
                     disabled={cardPageIndex === 0}
+                    className="min-h-[44px] min-w-[44px]"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground whitespace-nowrap">
                     Page {formatNumber(cardPageIndex + 1)} of{' '}
                     {formatNumber(totalPages > 0 ? totalPages : 1)}
                   </p>
@@ -502,6 +490,7 @@ export default function LoosePartsPage() {
                     size="sm"
                     onClick={() => setCardPageIndex((prev) => Math.min(totalPages - 1, prev + 1))}
                     disabled={cardPageIndex >= totalPages - 1}
+                    className="min-h-[44px] min-w-[44px]"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>

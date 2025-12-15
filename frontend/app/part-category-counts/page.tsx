@@ -8,18 +8,18 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import { ViewToggle } from '@/components/view-toggle';
 import { PartCategoryCount, usePartCategoryCounts } from '@/lib/hooks/use-parts';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { formatNumber } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, LayoutGrid, Table as TableIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
-type ViewMode = 'cards' | 'table';
-
 export default function PartCategoryCountsPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'part-category-counts-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const router = useRouter();
@@ -136,22 +136,13 @@ export default function PartCategoryCountsPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('cards')}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
+            <ViewToggle
+              viewMode={viewMode}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setCardPageIndex(0);
+              }}
+            />
           </div>
         </div>
       </div>

@@ -22,12 +22,12 @@ import {
 } from '@/lib/hooks/use-putaway';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ArrowLeft, ChevronLeft, ChevronRight, LayoutGrid, Table as TableIcon } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-
-type ViewMode = 'cards' | 'table';
 
 const ASSIGNMENTS_STORAGE_KEY = 'putaway-wizard-assignments';
 
@@ -38,7 +38,7 @@ export default function PutawayWizardAssignPage() {
     const setNumber = searchParams.get('setNumber');
     const search = searchParams.get('search') || '';
 
-    const [viewMode, setViewMode] = useState<ViewMode>('table');
+    const [viewMode, setViewMode] = useViewMode('table', 'putaway-wizard-assign-view-mode');
     const [cardPageIndex, setCardPageIndex] = useState(0);
     const [cardPageSize, setCardPageSize] = useState(20);
     const [assignments, setAssignments] = useState<Map<string, PartAssignment>>(new Map());
@@ -275,32 +275,13 @@ export default function PutawayWizardAssignPage() {
                     <Button variant="outline" size="sm" onClick={bulkAcceptHighConfidence}>
                         Accept High Confidence
                     </Button>
-                    <div className="flex items-center border rounded-md">
-                        <Button
-                            variant={viewMode === 'table' ? 'default' : 'ghost'}
-                            size="sm"
-                            className="rounded-r-none"
-                            onClick={() => {
-                                setViewMode('table');
-                                setCardPageIndex(0);
-                            }}
-                        >
-                            <TableIcon className="h-4 w-4 mr-2" />
-                            Table
-                        </Button>
-                        <Button
-                            variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                            size="sm"
-                            className="rounded-l-none"
-                            onClick={() => {
-                                setViewMode('cards');
-                                setCardPageIndex(0);
-                            }}
-                        >
-                            <LayoutGrid className="h-4 w-4 mr-2" />
-                            Cards
-                        </Button>
-                    </div>
+                    <ViewToggle
+                        viewMode={viewMode}
+                        onViewModeChange={(mode) => {
+                            setViewMode(mode);
+                            setCardPageIndex(0);
+                        }}
+                    />
                 </div>
             </div>
 

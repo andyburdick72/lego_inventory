@@ -1,6 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import {
   DeleteInventoryDialog,
   MoveInventoryDialog,
@@ -26,19 +28,17 @@ import { LoosePart, useLooseParts } from '@/lib/hooks/use-inventory';
 import { usePutAwayBin, useSetPutAwayBin } from '@/lib/hooks/use-location-reconciliation';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Edit, ExternalLink, LayoutGrid, Move, Table as TableIcon, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, ExternalLink, Move, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-
-type ViewMode = 'cards' | 'table';
 
 export default function ContainerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   const containerId = parseInt(params.id as string, 10);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', `container-${containerId}-view-mode`);
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const [backLink, setBackLink] = useState<{ href: string; label: string }>({
@@ -363,34 +363,15 @@ export default function ContainerDetailPage() {
       </div>
 
       <div className="mb-4">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <h2 className="text-2xl font-semibold">Parts</h2>
-          <div className="flex items-center border rounded-md">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => {
-                setViewMode('table');
-                setCardPageIndex(0);
-              }}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => {
-                setViewMode('cards');
-                setCardPageIndex(0);
-              }}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
-          </div>
+          <ViewToggle
+            viewMode={viewMode}
+            onViewModeChange={(mode) => {
+              setViewMode(mode);
+              setCardPageIndex(0);
+            }}
+          />
         </div>
         {partsLoading ? (
           <div className="text-muted-foreground">Loading parts...</div>

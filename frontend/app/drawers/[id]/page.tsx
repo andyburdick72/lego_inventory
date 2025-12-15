@@ -20,7 +20,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, MoreHorizontal, Plus, Trash2, Pencil } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { MoreHorizontal, Plus, Trash2, Pencil } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import {
   CreateContainerDialog,
@@ -29,18 +31,27 @@ import {
 } from '@/components/containers/container-dialogs';
 import Link from 'next/link';
 
-type ViewMode = 'cards' | 'table';
-
 export default function DrawerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   const drawerId = parseInt(params.id as string, 10);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', `drawer-${drawerId}-view-mode`);
+  const [isMobile, setIsMobile] = useState(true); // Default to mobile for SSR
   const [backLink, setBackLink] = useState<{ href: string; label: string }>({
     href: '/drawers',
     label: 'Drawers',
   });
+
+  // Detect mobile/tablet
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024); // lg breakpoint
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Determine back navigation based on referrer or query param
   useEffect(() => {
@@ -285,31 +296,15 @@ export default function DrawerDetailPage() {
       <div className="mb-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">Containers</h2>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => setCreateDialogOpen(true)}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => setCreateDialogOpen(true)} className="min-h-[44px]">
               <Plus className="h-4 w-4 mr-2" />
               Add Container
             </Button>
-            <div className="flex items-center border rounded-md">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => setViewMode('table')}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => setViewMode('cards')}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
-          </div>
+            <ViewToggle
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
           </div>
         </div>
         {containersLoading ? (
@@ -348,14 +343,13 @@ export default function DrawerDetailPage() {
               }
             });
             
-            // Check if we should use grid layout:
-            // 1. Drawer has rows/cols defined, OR
-            // 2. We have containers with positions (infer layout from positions)
+            // On mobile/tablet, always use simple responsive grid
+            // On desktop, use physical layout if available
             const hasExplicitGridLayout = drawer.rows !== null && drawer.cols !== null && drawer.rows > 0 && drawer.cols > 0;
             const hasContainersWithPositions = containersWithPositions.length > 0;
-            const shouldUseGridLayout = hasExplicitGridLayout || hasContainersWithPositions;
+            const shouldUsePhysicalGrid = !isMobile && (hasExplicitGridLayout || hasContainersWithPositions);
             
-            if (shouldUseGridLayout) {
+            if (shouldUsePhysicalGrid) {
               // Find the actual grid bounds from containers with positions
               let maxRow = -1;
               let maxCol = -1;
@@ -395,8 +389,8 @@ export default function DrawerDetailPage() {
                         return (
                           <div
                             key={`row-${rowIndex}`}
-                            className="grid gap-2"
-                            style={{
+                            className={isMobile ? "grid gap-2 grid-cols-1 sm:grid-cols-2" : "grid gap-2"}
+                            style={isMobile ? undefined : {
                               gridTemplateColumns: `repeat(${numColsInRow}, minmax(0, 1fr))`,
                             }}
                           >

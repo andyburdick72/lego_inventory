@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { ColumnDef } from '@tanstack/react-table';
-import { useSets, LEGOSet } from '@/lib/hooks/use-sets';
+import { DataTable } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -21,23 +25,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
-import { formatNumber, getStatusLabel, showSuccessToast, showErrorToast, showApiErrorToast } from '@/lib/utils';
+import { ViewToggle } from '@/components/view-toggle';
+import { api } from '@/lib/api';
+import { LEGOSet, useSets } from '@/lib/hooks/use-sets';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { formatNumber, getStatusLabel, showApiErrorToast, showErrorToast, showSuccessToast } from '@/lib/utils';
+import { ColumnDef } from '@tanstack/react-table';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
-
-type ViewMode = 'cards' | 'table';
+import { useRouter } from 'next/navigation';
+import { useMemo, useState } from 'react';
 
 export default function SetsPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'sets-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const [syncPartsDialogOpen, setSyncPartsDialogOpen] = useState(false);
@@ -136,31 +136,31 @@ export default function SetsPage() {
         );
       },
     },
-      {
-        id: 'rebrickable_link',
-        header: 'Rebrickable',
-        cell: ({ row }) => {
-          const set = row.original;
-          if (!set.rebrickable_url) return <span className="text-muted-foreground">—</span>;
-          return (
-            <a
-              href={set.rebrickable_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View <ExternalLink className="h-3 w-3" />
-            </a>
-          );
-        },
+    {
+      id: 'rebrickable_link',
+      header: 'Rebrickable',
+      cell: ({ row }) => {
+        const set = row.original;
+        if (!set.rebrickable_url) return <span className="text-muted-foreground">—</span>;
+        return (
+          <a
+            href={set.rebrickable_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View <ExternalLink className="h-3 w-3" />
+          </a>
+        );
       },
+    },
   ];
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6">Sets</h1>
+      <div className="container mx-auto py-4 md:py-8">
+        <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">Sets</h1>
         <div className="text-muted-foreground">Loading sets...</div>
       </div>
     );
@@ -168,8 +168,8 @@ export default function SetsPage() {
 
   if (error) {
     return (
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-6">Sets</h1>
+      <div className="container mx-auto py-4 md:py-8">
+        <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">Sets</h1>
         <div className="text-destructive">Error loading sets. Please try again.</div>
       </div>
     );
@@ -189,7 +189,7 @@ export default function SetsPage() {
         window.location.reload();
       } else {
         // Show error with output details
-        const errorMsg = response.data.output 
+        const errorMsg = response.data.output
           ? `${response.data.message}\n\n${response.data.output}`
           : response.data.message;
         showErrorToast(errorMsg);
@@ -219,68 +219,49 @@ export default function SetsPage() {
   };
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-6">
-        <Button variant="outline" asChild className="mb-4">
+    <div className="container mx-auto py-4 md:py-8">
+      <div className="mb-4 md:mb-6">
+        <Button variant="outline" asChild className="mb-4 min-h-[44px]">
           <Link href="/">← Back to Home</Link>
         </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Sets</h1>
-            {!isLoading && sets && (
-              <div className="flex gap-4 mt-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Total Sets: </span>
-                  <span className="font-medium">{formatNumber(sets.length)}</span>
-                </div>
-              </div>
-            )}
-            {isLoading && (
-              <p className="text-muted-foreground mt-1">Loading...</p>
-            )}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">Sets</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setSyncPartsDialogOpen(true)}
+                disabled={isRunning}
+                className="min-h-[44px]"
+              >
+                Sync Parts
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setSyncSetsDialogOpen(true)}
+                disabled={isRunning}
+                className="min-h-[44px]"
+              >
+                Sync Sets
+              </Button>
+              <ViewToggle
+                viewMode={viewMode}
+                onViewModeChange={(mode) => {
+                  setViewMode(mode);
+                  setCardPageIndex(0);
+                }}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setSyncPartsDialogOpen(true)}
-            disabled={isRunning}
-          >
-            Sync Parts
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setSyncSetsDialogOpen(true)}
-            disabled={isRunning}
-          >
-            Sync Sets
-          </Button>
-          <div className="flex items-center border rounded-md">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => {
-                setViewMode('table');
-                setCardPageIndex(0);
-              }}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => {
-                setViewMode('cards');
-                setCardPageIndex(0);
-              }}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
-          </div>
-        </div>
+          {!isLoading && sets && (
+            <div className="text-sm">
+              <span className="text-muted-foreground">Total Sets: </span>
+              <span className="font-medium">{formatNumber(sets.length)}</span>
+            </div>
+          )}
+          {isLoading && (
+            <p className="text-muted-foreground">Loading...</p>
+          )}
         </div>
       </div>
 
@@ -430,7 +411,7 @@ export default function SetsPage() {
           <DialogHeader>
             <DialogTitle>Sync Parts from Rebrickable</DialogTitle>
             <DialogDescription>
-              By default, this will only load parts for sets that don't have parts yet. 
+              By default, this will only load parts for sets that don't have parts yet.
               Check "Reload all sets" to refresh parts for all sets.
             </DialogDescription>
           </DialogHeader>

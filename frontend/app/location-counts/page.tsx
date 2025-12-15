@@ -12,14 +12,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { DataTable } from '@/components/data-table';
-import { LayoutGrid, Table as TableIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import Link from 'next/link';
 
-type ViewMode = 'cards' | 'table';
-
 export default function LocationCountsPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'location-counts-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const { data: locationCounts, isLoading, error } = useLocationCounts();
@@ -143,22 +143,13 @@ export default function LocationCountsPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('cards')}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
+            <ViewToggle
+              viewMode={viewMode}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setCardPageIndex(0);
+              }}
+            />
           </div>
         </div>
       </div>

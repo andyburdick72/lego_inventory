@@ -36,12 +36,12 @@ import {
 } from '@/lib/hooks/use-sets';
 import { formatNumber, getStatusLabel, isLightColor, showApiErrorToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-
-type ViewMode = 'cards' | 'table';
 
 // Status options matching backend enum
 const STATUS_OPTIONS = [
@@ -105,7 +105,7 @@ export default function SetDetailPage() {
       // Default is already set to sets
     }
   }, [searchParams]);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', `set-${setNumber}-view-mode`);
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const [editStatusDialogOpen, setEditStatusDialogOpen] = useState(false);
@@ -450,34 +450,40 @@ export default function SetDetailPage() {
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-6">
-        <Button variant="outline" asChild className="mb-4">
+    <div className="container mx-auto py-4 md:py-8">
+      <div className="mb-4 md:mb-6 space-y-4">
+        <Button variant="outline" asChild className="min-h-[44px]">
           <Link href={backLink.href}>← Back to {backLink.label}</Link>
         </Button>
-        <div className="flex gap-6 items-start">
+        
+        {/* Set Header - Stack on mobile */}
+        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start">
           {set.image_url && (
             <img
               src={set.image_url}
               alt={set.name}
-              className="w-48 h-48 object-contain rounded"
+              className="w-full sm:w-48 sm:h-48 object-contain rounded shrink-0 max-w-[200px] sm:max-w-none"
             />
           )}
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold">{set.set_number}</h1>
-            <h2 className="text-xl text-muted-foreground mt-2">{set.name}</h2>
-            <div className="flex gap-4 mt-4 text-sm">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold break-words">{set.set_number}</h1>
+            <h2 className="text-lg md:text-xl text-muted-foreground mt-2 break-words">{set.name}</h2>
+            
+            {/* Stats - Stack on mobile */}
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-4 text-sm">
               {set.year && (
                 <div>
                   <span className="text-muted-foreground">Year: </span>
                   <span className="font-medium">{set.year}</span>
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Status: </span>
-                <span className="font-medium">
-                  {getStatusLabel(set.status)}
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div>
+                  <span className="text-muted-foreground">Status: </span>
+                  <span className="font-medium">
+                    {getStatusLabel(set.status)}
+                  </span>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -485,6 +491,7 @@ export default function SetDetailPage() {
                     setSelectedStatus(set.status);
                     setEditStatusDialogOpen(true);
                   }}
+                  className="min-h-[44px] sm:min-h-0 w-fit"
                 >
                   Edit
                 </Button>
@@ -496,13 +503,14 @@ export default function SetDetailPage() {
                 </span>
               </div>
             </div>
+            
             {set.rebrickable_url && (
               <Button className="mt-4" variant="outline" asChild>
                 <a
                   href={set.rebrickable_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 min-h-[44px]"
                 >
                   View on Rebrickable <ExternalLink className="h-4 w-4" />
                 </a>
@@ -520,32 +528,13 @@ export default function SetDetailPage() {
                 <TabsTrigger value="parts">Parts</TabsTrigger>
                 <TabsTrigger value="locations">Pick List</TabsTrigger>
               </TabsList>
-              <div className="flex items-center border rounded-md">
-                <Button
-                  variant={viewMode === 'table' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-r-none"
-                  onClick={() => {
-                    setViewMode('table');
-                    setCardPageIndex(0);
-                  }}
-                >
-                  <TableIcon className="h-4 w-4 mr-2" />
-                  Table
-                </Button>
-                <Button
-                  variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-l-none"
-                  onClick={() => {
-                    setViewMode('cards');
-                    setCardPageIndex(0);
-                  }}
-                >
-                  <LayoutGrid className="h-4 w-4 mr-2" />
-                  Cards
-                </Button>
-              </div>
+              <ViewToggle
+                viewMode={viewMode}
+                onViewModeChange={(mode) => {
+                  setViewMode(mode);
+                  setCardPageIndex(0);
+                }}
+              />
             </div>
             <TabsContent value="parts" className="mt-4">
               {partsLoading ? (
@@ -966,32 +955,13 @@ export default function SetDetailPage() {
           <>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-semibold">Parts</h2>
-              <div className="flex items-center border rounded-md">
-                <Button
-                  variant={viewMode === 'table' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-r-none"
-                  onClick={() => {
-                    setViewMode('table');
-                    setCardPageIndex(0);
-                  }}
-                >
-                  <TableIcon className="h-4 w-4 mr-2" />
-                  Table
-                </Button>
-                <Button
-                  variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-l-none"
-                  onClick={() => {
-                    setViewMode('cards');
-                    setCardPageIndex(0);
-                  }}
-                >
-                  <LayoutGrid className="h-4 w-4 mr-2" />
-                  Cards
-                </Button>
-              </div>
+              <ViewToggle
+                viewMode={viewMode}
+                onViewModeChange={(mode) => {
+                  setViewMode(mode);
+                  setCardPageIndex(0);
+                }}
+              />
             </div>
             {partsLoading ? (
               <div className="text-muted-foreground">Loading parts...</div>

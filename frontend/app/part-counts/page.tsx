@@ -1,6 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table';
+import { ViewToggle } from '@/components/view-toggle';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -19,16 +21,14 @@ import {
 import { PartCount, usePartCounts } from '@/lib/hooks/use-parts';
 import { formatNumber } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Table as TableIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
-type ViewMode = 'cards' | 'table';
-
 export default function PartCountsPage() {
   const searchParams = useSearchParams();
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useViewMode('table', 'part-counts-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
   const categoryFromUrl = searchParams.get('category');
@@ -188,39 +188,52 @@ export default function PartCountsPage() {
   );
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-6">
-        <Button variant="outline" asChild className="mb-4">
+    <div className="container mx-auto py-4 md:py-8">
+      <div className="mb-4 md:mb-6 space-y-4">
+        <Button variant="outline" asChild className="min-h-[44px]">
           <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
         </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Part Counts</h1>
-            {!isLoading && partCounts && (
-              <div className="flex gap-4 mt-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Parts: </span>
-                  <span className="font-medium">{formatNumber(filteredPartCounts.length)}</span>
-                  {selectedCategoryId !== 'all' && (
-                    <span className="text-muted-foreground ml-1">
-                      (of {formatNumber(partCounts.length)})
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Total Quantity: </span>
-                  <span className="font-medium">{formatNumber(totalParts)}</span>
-                </div>
-              </div>
-            )}
-            {isLoading && (
-              <p className="text-muted-foreground mt-1">Loading...</p>
-            )}
+        
+        {/* Header Section - Better mobile layout */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">Part Counts</h1>
+            <ViewToggle
+              viewMode={viewMode}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                setCardPageIndex(0);
+              }}
+            />
           </div>
-          <div className="flex items-center gap-2">
-            {categories.length > 0 && (
+          
+          {/* Stats - One per line on mobile */}
+          {!isLoading && partCounts && (
+            <div className="flex flex-col gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Parts: </span>
+                <span className="font-medium">{formatNumber(filteredPartCounts.length)}</span>
+                {selectedCategoryId !== 'all' && (
+                  <span className="text-muted-foreground ml-1">
+                    (of {formatNumber(partCounts.length)})
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total Quantity: </span>
+                <span className="font-medium">{formatNumber(totalParts)}</span>
+              </div>
+            </div>
+          )}
+          {isLoading && (
+            <p className="text-muted-foreground">Loading...</p>
+          )}
+          
+          {/* Category Filter - Full width on mobile */}
+          {categories.length > 0 && (
+            <div>
               <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]">
                   <SelectValue placeholder="Filter by category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -232,24 +245,8 @@ export default function PartCountsPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-            >
-              <TableIcon className="h-4 w-4 mr-2" />
-              Table
-            </Button>
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('cards')}
-            >
-              <LayoutGrid className="h-4 w-4 mr-2" />
-              Cards
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
