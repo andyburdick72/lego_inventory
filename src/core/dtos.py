@@ -1,10 +1,6 @@
-from typing import Generic, TypeVar
-
 from pydantic import BaseModel, ConfigDict
 
 from core.enums import Status
-
-T = TypeVar("T")
 
 
 class DTOBase(BaseModel):
@@ -100,7 +96,7 @@ class InventoryFilters(DTOBase):
     color_id: int | None = None
 
 
-class PaginatedResponse(DTOBase, Generic[T]):
+class PaginatedResponse[T](DTOBase):
     items: list[T]
     meta: PageMeta
 
