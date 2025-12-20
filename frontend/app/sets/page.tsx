@@ -45,6 +45,18 @@ export default function SetsPage() {
   const [defaultStatus, setDefaultStatus] = useState('in_box');
   const [reloadAllSets, setReloadAllSets] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [newSets, setNewSets] = useState<Array<{
+    set_num: string;
+    name: string;
+    year: number | null;
+    theme_id: number | null;
+    theme_name: string | null;
+    image_url: string | null;
+    rebrickable_url: string | null;
+    quantity_needed: number;
+    existing_count: number;
+  }>>([]);
+  const [setStatuses, setSetStatuses] = useState<Record<string, string>>({});
   const router = useRouter();
   const { data: sets, isLoading, error } = useSets();
 
@@ -126,6 +138,17 @@ export default function SetsPage() {
       },
     },
     {
+      accessorKey: 'quantity',
+      header: 'Quantity',
+      cell: ({ row }) => {
+        return (
+          <div className="text-right">
+            {formatNumber(row.original.quantity)}
+          </div>
+        );
+      },
+    },
+    {
       accessorKey: 'total_parts',
       header: 'Parts',
       cell: ({ row }) => {
@@ -201,16 +224,57 @@ export default function SetsPage() {
     }
   };
 
-  const handleSyncSets = async () => {
+  const handleDiscoverSets = async () => {
     setIsRunning(true);
     try {
-      const response = await api.post('/api/v1/scripts/sync-rebrickable-sets', {
-        default_status: defaultStatus,
+      const response = await api.post('/api/v1/scripts/sync-rebrickable-sets/discover', {
+        update_themes: false,
       });
-      showSuccessToast(response.data.message);
-      setSyncSetsDialogOpen(false);
-      // Refresh sets data
-      window.location.reload();
+      if (response.data.success) {
+        const sets = response.data.new_sets || [];
+        setNewSets(sets);
+        // Initialize statuses with default
+        const initialStatuses: Record<string, string> = {};
+        sets.forEach((set: typeof sets[0]) => {
+          initialStatuses[set.set_num] = defaultStatus;
+        });
+        setSetStatuses(initialStatuses);
+        if (sets.length === 0) {
+          showSuccessToast('No new sets found. All sets are already synced.');
+          setSyncSetsDialogOpen(false);
+        }
+      } else {
+        showErrorToast(response.data.message || 'Failed to discover sets');
+      }
+    } catch (error) {
+      showApiErrorToast(error);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleApplyStatusAssignments = async () => {
+    setIsRunning(true);
+    try {
+      const assignments = newSets.map((set) => ({
+        set_num: set.set_num,
+        status: setStatuses[set.set_num] || defaultStatus,
+        quantity: set.quantity_needed,
+      }));
+
+      const response = await api.post('/api/v1/scripts/sync-rebrickable-sets/apply-status', {
+        assignments,
+      });
+      if (response.data.success) {
+        showSuccessToast(response.data.message);
+        setSyncSetsDialogOpen(false);
+        setNewSets([]);
+        setSetStatuses({});
+        // Refresh sets data
+        window.location.reload();
+      } else {
+        showErrorToast(response.data.message || 'Failed to sync sets');
+      }
     } catch (error) {
       showApiErrorToast(error);
     } finally {
@@ -315,6 +379,10 @@ export default function SetsPage() {
                       <span className="font-medium">
                         {getStatusLabel(set.status)}
                       </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Quantity:</span>
+                      <span className="font-medium">{formatNumber(set.quantity)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Parts:</span>
@@ -445,42 +513,119 @@ export default function SetsPage() {
       </Dialog>
 
       {/* Sync Sets Dialog */}
-      <Dialog open={syncSetsDialogOpen} onOpenChange={setSyncSetsDialogOpen}>
-        <DialogContent>
+      <Dialog open={syncSetsDialogOpen} onOpenChange={(open) => {
+        setSyncSetsDialogOpen(open);
+        if (!open) {
+          setNewSets([]);
+          setSetStatuses({});
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Sync Sets from Rebrickable</DialogTitle>
             <DialogDescription>
-              This will sync all sets from your Rebrickable account. New sets will be added with the selected default status.
+              {newSets.length === 0
+                ? 'This will discover new sets from your Rebrickable account. You can then set the status for each new set individually.'
+                : `Found ${newSets.length} new set(s). Set the status for each set below.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="default-status">Default Status for New Sets</Label>
-              <Select value={defaultStatus} onValueChange={setDefaultStatus}>
-                <SelectTrigger id="default-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="in_box">In Box</SelectItem>
-                  <SelectItem value="built">Built</SelectItem>
-                  <SelectItem value="wip">Work in Progress</SelectItem>
-                  <SelectItem value="loose_parts">Loose</SelectItem>
-                  <SelectItem value="teardown">Teardown</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {newSets.length === 0 ? (
+              <div className="grid gap-2">
+                <Label htmlFor="default-status">Default Status for New Sets (can be changed per set)</Label>
+                <Select value={defaultStatus} onValueChange={setDefaultStatus}>
+                  <SelectTrigger id="default-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="in_box">In Box</SelectItem>
+                    <SelectItem value="built">Built</SelectItem>
+                    <SelectItem value="wip">Work in Progress</SelectItem>
+                    <SelectItem value="loose_parts">Loose</SelectItem>
+                    <SelectItem value="teardown">Teardown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Set the status for each new set. You can set different statuses for different sets.
+                </div>
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {newSets.map((set) => (
+                    <div key={set.set_num} className="flex items-start gap-4 p-3 border rounded-lg">
+                      {set.image_url && (
+                        <img
+                          src={set.image_url}
+                          alt={set.name}
+                          className="w-16 h-16 object-contain rounded shrink-0"
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium">{set.set_num}</div>
+                        <div className="text-sm text-muted-foreground truncate">{set.name}</div>
+                        {set.year && (
+                          <div className="text-xs text-muted-foreground">Year: {set.year}</div>
+                        )}
+                        {set.theme_name && (
+                          <div className="text-xs text-muted-foreground">Theme: {set.theme_name}</div>
+                        )}
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Quantity needed: {set.quantity_needed} {set.existing_count > 0 && `(already have ${set.existing_count})`}
+                        </div>
+                      </div>
+                      <div className="w-48 shrink-0">
+                        <Label htmlFor={`status-${set.set_num}`} className="text-xs">
+                          Status
+                        </Label>
+                        <Select
+                          value={setStatuses[set.set_num] || defaultStatus}
+                          onValueChange={(value) => {
+                            setSetStatuses((prev) => ({
+                              ...prev,
+                              [set.set_num]: value,
+                            }));
+                          }}
+                        >
+                          <SelectTrigger id={`status-${set.set_num}`} className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="in_box">In Box</SelectItem>
+                            <SelectItem value="built">Built</SelectItem>
+                            <SelectItem value="wip">Work in Progress</SelectItem>
+                            <SelectItem value="loose_parts">Loose</SelectItem>
+                            <SelectItem value="teardown">Teardown</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setSyncSetsDialogOpen(false)}
+              onClick={() => {
+                setSyncSetsDialogOpen(false);
+                setNewSets([]);
+                setSetStatuses({});
+              }}
               disabled={isRunning}
             >
               Cancel
             </Button>
-            <Button onClick={handleSyncSets} disabled={isRunning}>
-              {isRunning ? 'Syncing...' : 'Sync Sets'}
-            </Button>
+            {newSets.length === 0 ? (
+              <Button onClick={handleDiscoverSets} disabled={isRunning}>
+                {isRunning ? 'Discovering...' : 'Discover New Sets'}
+              </Button>
+            ) : (
+              <Button onClick={handleApplyStatusAssignments} disabled={isRunning}>
+                {isRunning ? 'Syncing...' : 'Sync Sets'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -75,17 +75,20 @@ def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B
             s.year,
             s.theme_id,
             t.name AS theme_name,
-            s.status,
+            -- Use the most recent status (or first one if all have same added_at)
+            (SELECT status FROM sets s2 WHERE s2.set_num = s.set_num ORDER BY s2.added_at DESC LIMIT 1) AS status,
             s.image_url,
             s.rebrickable_url,
             (
               SELECT COALESCE(SUM(sp.quantity), 0)
               FROM set_parts sp
               WHERE sp.set_num = s.set_num
-            ) AS total_parts
+            ) AS total_parts,
+            COUNT(*) AS quantity
         FROM sets s
         LEFT JOIN themes t ON t.id = s.theme_id
-        ORDER BY s.added_at DESC
+        GROUP BY s.set_num, s.name, s.year, s.theme_id, t.name, s.image_url, s.rebrickable_url
+        ORDER BY MAX(s.added_at) DESC
         """
     ).fetchall()
 
@@ -99,6 +102,7 @@ def list_sets(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B
 def get_set(
     set_number: str,
     service: SetPartsService = Depends(get_set_parts_service),  # noqa: B008
+    conn: sqlite3.Connection = Depends(get_db_connection),  # noqa: B008
 ):
     """Get a specific set by set number."""
     try:
@@ -106,6 +110,13 @@ def get_set(
         # Convert to DTO format
         status_value = set_data.get("status")
         status_enum = Status.from_any(status_value) if status_value else Status.IN_BOX
+
+        # Get quantity (count of rows for this set_num)
+        quantity_row = conn.execute(
+            "SELECT COUNT(*) AS quantity FROM sets WHERE set_num = ?",
+            (set_number,),
+        ).fetchone()
+        quantity = quantity_row["quantity"] if isinstance(quantity_row, dict) else (quantity_row[0] if quantity_row else 1)
 
         dto = LEGOSetDTO(
             set_number=str(set_data.get("set_number") or set_data.get("set_num") or ""),
@@ -115,6 +126,7 @@ def get_set(
             theme_name=set_data.get("theme_name"),
             status=status_enum,
             total_parts=None,  # Not included in get_set response
+            quantity=quantity,
             image_url=set_data.get("image_url"),
             rebrickable_url=set_data.get("rebrickable_url"),
         )

@@ -108,6 +108,135 @@ def sync_rebrickable_parts(
         )
 
 
+class NewSetInfo(BaseModel):
+    set_num: str
+    name: str
+    year: int | None = None
+    theme_id: int | None = None
+    theme_name: str | None = None
+    image_url: str | None = None
+    rebrickable_url: str | None = None
+    quantity_needed: int
+    existing_count: int
+
+
+class DiscoverSetsResponse(BaseModel):
+    success: bool
+    new_sets: list[NewSetInfo]
+    message: str
+
+
+class SetStatusAssignment(BaseModel):
+    set_num: str
+    status: str
+    quantity: int
+
+
+class ApplyStatusAssignmentsRequest(BaseModel):
+    assignments: list[SetStatusAssignment]
+
+
+@router.post("/sync-rebrickable-sets/discover", response_model=DiscoverSetsResponse)
+def discover_new_sets(
+    update_themes: bool = False,
+) -> DiscoverSetsResponse:
+    """
+    Discover new sets from Rebrickable without inserting them.
+    Returns a list of new sets that need status assignment.
+    """
+    try:
+        # Import the script function directly
+        sys.path.insert(0, str(PROJECT_ROOT / "src"))
+        from scripts.load_my_rebrickable_sets import discover_new_sets
+
+        # Discover new sets
+        new_sets = discover_new_sets(update_themes=update_themes)
+        
+        # Convert to response format
+        new_sets_info = [
+            NewSetInfo(
+                set_num=s["set_num"],
+                name=s["name"],
+                year=s.get("year"),
+                theme_id=s.get("theme_id"),
+                theme_name=s.get("theme_name"),
+                image_url=s.get("image_url"),
+                rebrickable_url=s.get("rebrickable_url"),
+                quantity_needed=s["quantity_needed"],
+                existing_count=s["existing_count"],
+            )
+            for s in new_sets
+        ]
+
+        return DiscoverSetsResponse(
+            success=True,
+            new_sets=new_sets_info,
+            message=f"Found {len(new_sets_info)} new set(s) that need status assignment",
+        )
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error importing script: {str(e)}",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error discovering sets: {str(e)}",
+        )
+
+
+@router.post("/sync-rebrickable-sets/apply-status")
+def apply_set_status_assignments(
+    request: ApplyStatusAssignmentsRequest,
+) -> ScriptResponse:
+    """
+    Apply status assignments to new sets and insert them into the database.
+    """
+    try:
+        # Import the script function directly
+        sys.path.insert(0, str(PROJECT_ROOT / "src"))
+        from scripts.load_my_rebrickable_sets import apply_set_status_assignments
+
+        # Convert request to format expected by script
+        assignments = [
+            {
+                "set_num": a.set_num,
+                "status": a.status,
+                "quantity": a.quantity,
+            }
+            for a in request.assignments
+        ]
+
+        # Apply status assignments
+        output = apply_set_status_assignments(assignments)
+
+        return ScriptResponse(
+            success=True,
+            message="Sets synced successfully",
+            output=output,
+        )
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error importing script: {str(e)}",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error applying status assignments: {str(e)}",
+        )
+
+
 @router.post("/sync-rebrickable-sets")
 def sync_rebrickable_sets(
     default_status: str = "in_box",
@@ -115,6 +244,8 @@ def sync_rebrickable_sets(
     """
     Run a non-interactive version of load_my_rebrickable_sets.py.
     Uses the provided default_status for all new sets.
+    
+    DEPRECATED: Use /sync-rebrickable-sets/discover and /sync-rebrickable-sets/apply-status instead.
     """
     try:
         # Import the script function directly

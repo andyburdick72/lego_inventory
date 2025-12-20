@@ -497,6 +497,10 @@ export default function SetDetailPage() {
                 </Button>
               </div>
               <div>
+                <span className="text-muted-foreground">Quantity: </span>
+                <span className="font-medium">{formatNumber(set.quantity)}</span>
+              </div>
+              <div>
                 <span className="text-muted-foreground">Parts: </span>
                 <span className="font-medium">
                   {partsLoading ? '...' : formatNumber(totalParts)}

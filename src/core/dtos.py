@@ -62,6 +62,7 @@ class LEGOSetDTO(DTOBase):
     theme_name: str | None = None
     status: Status = Status.IN_BOX
     total_parts: int | None = None
+    quantity: int = 1  # Number of copies owned
     image_url: str | None = None
     rebrickable_url: str | None = None
 

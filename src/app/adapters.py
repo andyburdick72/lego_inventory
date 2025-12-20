@@ -43,6 +43,7 @@ def row_to_set(row: Mapping) -> LEGOSetDTO:
         theme_name=row.get("theme_name"),
         status=Status.from_any(row.get("status")) or Status.IN_BOX,
         total_parts=row.get("total_parts"),
+        quantity=int(row.get("quantity") or 1),
         image_url=row.get("image_url"),
         rebrickable_url=row.get("rebrickable_url"),
     )
