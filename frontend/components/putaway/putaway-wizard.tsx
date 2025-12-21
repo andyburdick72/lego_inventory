@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -9,8 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -19,27 +19,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  usePutawayPartsFromSet,
-  usePutawayPartsInBin,
-  useBatchAssignParts,
-  PutawayPartWithSuggestion,
-  PartAssignment,
-} from '@/lib/hooks/use-putaway';
-import { useSets, LEGOSet } from '@/lib/hooks/use-sets';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDrawers } from '@/lib/hooks/use-drawers';
+import {
+  PartAssignment,
+  useBatchAssignParts,
+  usePutawayPartsFromSet,
+  usePutawayPartsInBin
+} from '@/lib/hooks/use-putaway';
+import { useSets } from '@/lib/hooks/use-sets';
 import { formatNumber, showApiErrorToast } from '@/lib/utils';
 import {
-  Package,
   Box,
   CheckCircle2,
-  AlertCircle,
-  ChevronRight,
   ChevronLeft,
+  ChevronRight,
   Loader2,
+  Package
 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { PartAssignmentRow } from './part-assignment-row';
 
 type WizardStep = 'entry' | 'parts' | 'assign' | 'confirm';
@@ -54,6 +52,7 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
   const [entryPoint, setEntryPoint] = useState<'set' | 'bin'>('set');
   const [selectedSetNumber, setSelectedSetNumber] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
   const [assignments, setAssignments] = useState<Map<string, PartAssignment>>(new Map());
   const [confirmedResults, setConfirmedResults] = useState<any>(null);
 
@@ -72,24 +71,50 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
     }
   }, [entryPoint, partsFromSet, partsInBin]);
 
-  // Initialize assignments from parts when they load
+  // Track parts keys to detect when parts list changes
+  const partsKeys = useMemo(
+    () => parts.map((p) => `${p.design_id}-${p.color_id}`).sort().join(','),
+    [parts]
+  );
+
+  // Initialize selected parts when parts load (all selected by default)
+  // Reset selection when parts list changes (different set or bin search)
   useMemo(() => {
-    if (parts.length > 0 && assignments.size === 0) {
+    if (parts.length > 0) {
+      const allKeys = new Set(parts.map((p) => `${p.design_id}-${p.color_id}`));
+      setSelectedParts(allKeys);
+    } else {
+      setSelectedParts(new Set());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partsKeys]);
+
+  // Filter parts to only show selected ones in assignment step
+  const selectedPartsList = useMemo(() => {
+    return parts.filter((part) => {
+      const key = `${part.design_id}-${part.color_id}`;
+      return selectedParts.has(key);
+    });
+  }, [parts, selectedParts]);
+
+  // Initialize assignments from selected parts when moving to assignment step
+  useMemo(() => {
+    if (step === 'assign' && selectedPartsList.length > 0 && assignments.size === 0) {
       const newAssignments = new Map<string, PartAssignment>();
-      parts.forEach((part) => {
+      selectedPartsList.forEach((part) => {
         const key = `${part.design_id}-${part.color_id}`;
-        const suggestedContainerId = part.suggestion?.container_id || null;
+        // Start with container_id = null - user must explicitly assign
         newAssignments.set(key, {
           design_id: part.design_id,
           color_id: part.color_id,
           quantity: part.quantity,
-          container_id: suggestedContainerId,
+          container_id: null, // Don't auto-assign - let user choose
           inventory_id: part.inventory_id || null,
         });
       });
       setAssignments(newAssignments);
     }
-  }, [parts, assignments.size]);
+  }, [step, selectedPartsList, assignments.size]);
 
   const handleEntryNext = () => {
     if (entryPoint === 'set' && selectedSetNumber) {
@@ -100,7 +125,29 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
   };
 
   const handlePartsNext = () => {
-    setStep('assign');
+    // Only proceed if at least one part is selected
+    if (selectedParts.size > 0) {
+      setStep('assign');
+    }
+  };
+
+  const togglePartSelection = (key: string) => {
+    const newSelected = new Set(selectedParts);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
+    } else {
+      newSelected.add(key);
+    }
+    setSelectedParts(newSelected);
+  };
+
+  const selectAllParts = () => {
+    const allKeys = new Set(parts.map((p) => `${p.design_id}-${p.color_id}`));
+    setSelectedParts(allKeys);
+  };
+
+  const deselectAllParts = () => {
+    setSelectedParts(new Set());
   };
 
   const handleAssignNext = () => {
@@ -112,7 +159,11 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
       const assignmentList = Array.from(assignments.values()).filter(
         (a) => a.container_id !== null
       );
-      const result = await batchAssign.mutateAsync({ assignments: assignmentList });
+      const result = await batchAssign.mutateAsync({
+        assignments: assignmentList,
+        entry_point: entryPoint,
+        set_number: entryPoint === 'set' ? selectedSetNumber : null,
+      });
       setConfirmedResults(result);
       // On success, close wizard after a delay
       setTimeout(() => {
@@ -128,6 +179,7 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
     setEntryPoint('set');
     setSelectedSetNumber('');
     setSearchQuery('');
+    setSelectedParts(new Set());
     setAssignments(new Map());
     setConfirmedResults(null);
     onOpenChange(false);
@@ -184,33 +236,29 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                step === 'entry' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-              }`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'entry' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                }`}
             >
               1
             </div>
             <div className="h-1 w-12 bg-border" />
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                step === 'parts' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-              }`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'parts' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                }`}
             >
               2
             </div>
             <div className="h-1 w-12 bg-border" />
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                step === 'assign' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-              }`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'assign' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                }`}
             >
               3
             </div>
             <div className="h-1 w-12 bg-border" />
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                step === 'confirm' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-              }`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'confirm' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                }`}
             >
               4
             </div>
@@ -282,6 +330,11 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 Parts to Put Away ({parts.length} {parts.length === 1 ? 'part' : 'parts'})
+                {selectedParts.size > 0 && (
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    ({selectedParts.size} selected)
+                  </span>
+                )}
               </h3>
               <Button variant="outline" size="sm" onClick={() => setStep('entry')}>
                 <ChevronLeft className="w-4 h-4 mr-2" />
@@ -289,21 +342,53 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
               </Button>
             </div>
 
+            {/* Check All / Check None buttons */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllParts}
+                disabled={selectedParts.size === parts.length}
+              >
+                Check All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={deselectAllParts}
+                disabled={selectedParts.size === 0}
+              >
+                Check None
+              </Button>
+            </div>
+
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {parts.map((part) => {
+                const key = `${part.design_id}-${part.color_id}`;
+                const isSelected = selectedParts.has(key);
                 const suggestion = part.suggestion;
                 const confidenceColor =
                   suggestion?.confidence === 'high'
                     ? 'text-green-600'
                     : suggestion?.confidence === 'medium'
-                    ? 'text-blue-600'
-                    : suggestion?.confidence === 'low'
-                    ? 'text-yellow-600'
-                    : 'text-gray-400';
+                      ? 'text-blue-600'
+                      : suggestion?.confidence === 'low'
+                        ? 'text-yellow-600'
+                        : 'text-gray-400';
 
                 return (
-                  <Card key={`${part.design_id}-${part.color_id}`} className="p-4">
+                  <Card
+                    key={key}
+                    className={`p-4 ${isSelected ? 'border-primary border-2' : 'border'}`}
+                  >
                     <div className="flex items-start gap-4">
+                      <div className="shrink-0 pt-1">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => togglePartSelection(key)}
+                          className="h-5 w-5"
+                        />
+                      </div>
                       {part.part_img_url && (
                         <img
                           src={part.part_img_url}
@@ -345,8 +430,12 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
                 <ChevronLeft className="w-4 h-4 mr-2" />
                 Back
               </Button>
-              <Button onClick={handlePartsNext} disabled={parts.length === 0}>
-                Next <ChevronRight className="w-4 h-4 ml-2" />
+              <Button
+                onClick={handlePartsNext}
+                disabled={parts.length === 0 || selectedParts.size === 0}
+              >
+                Continue to Assignment ({selectedParts.size}){' '}
+                <ChevronRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
           </div>
@@ -361,7 +450,14 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
                 <Button variant="outline" size="sm" onClick={bulkAcceptHighConfidence}>
                   Accept High-Confidence
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setStep('parts')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAssignments(new Map()); // Reset assignments when going back
+                    setStep('parts');
+                  }}
+                >
                   <ChevronLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
@@ -373,7 +469,7 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
             </div>
 
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {parts.map((part) => {
+              {selectedPartsList.map((part) => {
                 const key = `${part.design_id}-${part.color_id}`;
                 const assignment = assignments.get(key);
                 if (!assignment) return null;
@@ -437,7 +533,7 @@ export function PutawayWizard({ open, onOpenChange }: PutawayWizardProps) {
                   {Array.from(assignments.entries())
                     .filter(([_, assignment]) => assignment.container_id !== null)
                     .map(([key, assignment]) => {
-                      const part = parts.find(
+                      const part = selectedPartsList.find(
                         (p) => p.design_id === assignment.design_id && p.color_id === assignment.color_id
                       );
                       const suggestion = part?.suggestion;

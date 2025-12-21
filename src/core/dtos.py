@@ -286,6 +286,8 @@ class BatchAssignmentRequestDTO(DTOBase):
     """Request to assign multiple parts to containers."""
 
     assignments: list["PartAssignmentDTO"]
+    entry_point: str | None = None  # "set" or "bin" - indicates which entry point was used
+    set_number: str | None = None  # Set number if entry_point is "set"
 
 
 class PartAssignmentDTO(DTOBase):

@@ -37,6 +37,7 @@ export default function PutawayWizardAssignPage() {
     const source = searchParams.get('source');
     const setNumber = searchParams.get('setNumber');
     const search = searchParams.get('search') || '';
+    const selectedParam = searchParams.get('selected') || '';
 
     const [viewMode, setViewMode] = useViewMode('table', 'putaway-wizard-assign-view-mode');
     const [cardPageIndex, setCardPageIndex] = useState(0);
@@ -48,13 +49,31 @@ export default function PutawayWizardAssignPage() {
     const { data: partsInBin } = usePutawayPartsInBin(search || undefined);
     const { data: drawers } = useDrawers();
 
-    const parts = useMemo(() => {
+    // Parse selected parts from URL
+    const selectedKeys = useMemo(() => {
+        if (!selectedParam) return new Set<string>();
+        return new Set(selectedParam.split(',').filter(Boolean));
+    }, [selectedParam]);
+
+    const allParts = useMemo(() => {
         if (source === 'set') {
             return partsFromSet || [];
         } else {
             return partsInBin || [];
         }
     }, [source, partsFromSet, partsInBin]);
+
+    // Filter parts to only show selected ones
+    const parts = useMemo(() => {
+        if (selectedKeys.size === 0) {
+            // If no selection specified, show all parts (backward compatibility)
+            return allParts;
+        }
+        return allParts.filter((part) => {
+            const key = `${part.design_id}-${part.color_id}`;
+            return selectedKeys.has(key);
+        });
+    }, [allParts, selectedKeys]);
 
     // Initialize assignments from parts when they load
     useEffect(() => {
@@ -139,11 +158,12 @@ export default function PutawayWizardAssignPage() {
     }, [assignments]);
 
     const handleNext = () => {
-        // Build params for next step
+        // Build params for next step, preserving selected parts
         const params = new URLSearchParams();
         if (source) params.set('source', source);
         if (setNumber) params.set('setNumber', setNumber);
         if (search) params.set('search', search);
+        if (selectedParam) params.set('selected', selectedParam);
         router.push(`/putaway-wizard/confirm?${params.toString()}`);
     };
 

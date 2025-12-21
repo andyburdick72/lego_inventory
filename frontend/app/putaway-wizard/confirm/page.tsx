@@ -31,6 +31,7 @@ export default function PutawayWizardConfirmPage() {
   const source = searchParams.get('source');
   const setNumber = searchParams.get('setNumber');
   const search = searchParams.get('search') || '';
+  const selectedParam = searchParams.get('selected') || '';
 
   const [assignments, setAssignments] = useState<Map<string, PartAssignment>>(new Map());
   const [results, setResults] = useState<BatchAssignmentResult | null>(null);
@@ -40,13 +41,31 @@ export default function PutawayWizardConfirmPage() {
   const { data: partsInBin } = usePutawayPartsInBin(search || undefined);
   const batchAssign = useBatchAssignParts();
 
-  const parts = useMemo(() => {
+  // Parse selected parts from URL
+  const selectedKeys = useMemo(() => {
+    if (!selectedParam) return new Set<string>();
+    return new Set(selectedParam.split(',').filter(Boolean));
+  }, [selectedParam]);
+
+  const allParts = useMemo(() => {
     if (source === 'set') {
       return partsFromSet || [];
     } else {
       return partsInBin || [];
     }
   }, [source, partsFromSet, partsInBin]);
+
+  // Filter parts to only show selected ones
+  const parts = useMemo(() => {
+    if (selectedKeys.size === 0) {
+      // If no selection specified, show all parts (backward compatibility)
+      return allParts;
+    }
+    return allParts.filter((part) => {
+      const key = `${part.design_id}-${part.color_id}`;
+      return selectedKeys.has(key);
+    });
+  }, [allParts, selectedKeys]);
 
   // Load assignments from localStorage
   useEffect(() => {
@@ -101,7 +120,11 @@ export default function PutawayWizardConfirmPage() {
       const assignmentList = Array.from(assignments.values()).filter(
         (a) => a.container_id !== null
       );
-      const result = await batchAssign.mutateAsync({ assignments: assignmentList });
+      const result = await batchAssign.mutateAsync({
+        assignments: assignmentList,
+        entry_point: source === 'set' ? 'set' : 'bin',
+        set_number: source === 'set' ? setNumber : null,
+      });
       setResults(result);
 
       // Clear localStorage on success

@@ -1,7 +1,6 @@
 """FastAPI router for Put-Away Wizard endpoints."""
 
 import sqlite3
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -13,12 +12,10 @@ from app.di import (
 )
 from app.errors import NotFoundError, ValidationError
 from core.dtos import (
-    PutawayPartDTO,
-    PutawayPartWithSuggestionDTO,
+    AssignmentResultDTO,
     BatchAssignmentRequestDTO,
     BatchAssignmentResultDTO,
-    PartAssignmentDTO,
-    AssignmentResultDTO,
+    PutawayPartWithSuggestionDTO,
     StorageSuggestionDTO,
 )
 from core.services.inventory_service import InventoryService
@@ -26,6 +23,7 @@ from core.services.set_parts_service import SetPartsService
 from core.services.storage_hierarchy_service import StorageHierarchyService
 from infra.db.repositories.drawers_repo import DrawersRepo
 from infra.db.repositories.inventory_repo import InventoryRepo
+from infra.db.repositories.sets_repo import SetsRepo
 
 router = APIRouter(prefix="/putaway", tags=["putaway"])
 
@@ -38,17 +36,17 @@ def get_parts_from_set_for_putaway(
 ):
     """
     Get parts from a set for part-out wizard entry point.
-    
+
     Returns parts from set_parts with location suggestions for each part.
     This endpoint is used when parting out a set (moving from built/in_box/wip/teardown to loose_parts).
     """
     try:
         # Verify set exists
         set_parts_service.get_set(set_number=set_number)
-        
+
         # Get all parts for the set
         parts = list(set_parts_service.list_parts(set_number=set_number))
-        
+
         result = []
         for part in parts:
             # Skip parts flagged to ignore in inventory
@@ -57,26 +55,26 @@ def get_parts_from_set_for_putaway(
             design_id = str(part.get("design_id", ""))
             color_id = int(part.get("color_id", 0))
             quantity = int(part.get("quantity", 0))
-            
+
             # Get location suggestion
             suggestion = storage_service.suggest_location(design_id, color_id)
             suggestion_dto = None
             if suggestion:
                 suggestion_dto = StorageSuggestionDTO(**suggestion.to_dict())
-            
+
             # Ensure URLs are present
             part_url = part.get("part_url")
             if not part_url:
                 part_url = f"https://rebrickable.com/parts/{design_id}/"
-            
+
             part_img_url = part.get("part_img_url")
             if not part_img_url:
                 part_img_url = "https://rebrickable.com/static/img/nil.png"
-            
+
             hex_value = part.get("hex")
             if hex_value:
                 hex_value = hex_value.lstrip("#")
-            
+
             result.append(
                 PutawayPartWithSuggestionDTO(
                     design_id=design_id,
@@ -90,10 +88,10 @@ def get_parts_from_set_for_putaway(
                     suggestion=suggestion_dto,
                 )
             )
-        
+
         return [p.model_dump() for p in result]
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except NotFoundError as e:
         raise HTTPException(
             status_code=404,
@@ -102,24 +100,24 @@ def get_parts_from_set_for_putaway(
                 "code": "not_found",
                 "details": getattr(e, "details", None),
             },
-        )
+        ) from e
 
 
 @router.get("/parts-in-bin", response_model=list[PutawayPartWithSuggestionDTO])
 def get_parts_in_putaway_bin(
-    search: Optional[str] = Query(None, description="Search filter for part name or design_id"),
+    search: str | None = Query(None, description="Search filter for part name or design_id"),
     conn: sqlite3.Connection = Depends(get_db_connection),
     storage_service: StorageHierarchyService = Depends(get_storage_hierarchy_service),
 ):
     """
     Get all parts currently in the putaway bin container.
-    
+
     Returns parts with their location suggestions. This endpoint is used for the putaway bin entry point.
     """
     try:
         repo = InventoryRepo(conn)
         parts = repo.get_putaway_bin_parts(search=search)
-        
+
         if not parts:
             # Check if putaway bin exists
             drawers_repo = DrawersRepo(conn)
@@ -130,33 +128,33 @@ def get_parts_in_putaway_bin(
                     details={},
                 )
             return []
-        
+
         result = []
         for part in parts:
             design_id = str(part.get("design_id", ""))
             color_id = int(part.get("color_id", 0))
             quantity = int(part.get("quantity", 0))
             inventory_id = part.get("inventory_id")
-            
+
             # Get location suggestion
             suggestion = storage_service.suggest_location(design_id, color_id)
             suggestion_dto = None
             if suggestion:
                 suggestion_dto = StorageSuggestionDTO(**suggestion.to_dict())
-            
+
             # Ensure URLs are present
             part_url = part.get("part_url")
             if not part_url:
                 part_url = f"https://rebrickable.com/parts/{design_id}/"
-            
+
             part_img_url = part.get("part_img_url")
             if not part_img_url:
                 part_img_url = "https://rebrickable.com/static/img/nil.png"
-            
+
             hex_value = part.get("hex")
             if hex_value:
                 hex_value = hex_value.lstrip("#")
-            
+
             result.append(
                 PutawayPartWithSuggestionDTO(
                     design_id=design_id,
@@ -171,7 +169,7 @@ def get_parts_in_putaway_bin(
                     suggestion=suggestion_dto,
                 )
             )
-        
+
         return [p.model_dump() for p in result]
     except NotFoundError as e:
         raise HTTPException(
@@ -181,24 +179,25 @@ def get_parts_in_putaway_bin(
                 "code": "not_found",
                 "details": getattr(e, "details", None),
             },
-        )
+        ) from e
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.post("/batch-assign", response_model=BatchAssignmentResultDTO)
 def batch_assign_parts(
     request: BatchAssignmentRequestDTO,
     service: InventoryService = Depends(get_inventory_service),
+    set_parts_service: SetPartsService = Depends(get_set_parts_service),
     conn: sqlite3.Connection = Depends(get_db_connection),
 ):
     """
     Batch assign parts to containers.
-    
+
     This endpoint handles both:
     - Part-out entry point: Creates new inventory items from set parts
     - Putaway bin entry point: Updates existing inventory items' container_id
-    
+
     All assigned parts will have status='loose'.
     """
     assignments = request.assignments
@@ -207,22 +206,22 @@ def batch_assign_parts(
             status_code=422,
             detail={"message": "At least one assignment is required", "code": "validation_error"},
         )
-    
+
     total_requested = len(assignments)
     total_assigned = 0
     total_skipped = 0
     assignment_results: list[AssignmentResultDTO] = []
     errors: list[str] = []
-    
+
     repo = InventoryRepo(conn)
-    
+
     for assignment in assignments:
         design_id = assignment.design_id
         color_id = assignment.color_id
         quantity = assignment.quantity
         container_id = assignment.container_id
         inventory_id = assignment.inventory_id
-        
+
         # Validate assignment
         if not design_id or not isinstance(color_id, int) or not isinstance(quantity, int):
             errors.append(f"Invalid assignment for {design_id}/{color_id}: missing required fields")
@@ -237,7 +236,7 @@ def batch_assign_parts(
                 )
             )
             continue
-        
+
         if quantity <= 0:
             errors.append(f"Invalid quantity for {design_id}/{color_id}: {quantity}")
             assignment_results.append(
@@ -251,7 +250,7 @@ def batch_assign_parts(
                 )
             )
             continue
-        
+
         try:
             # If no container_id provided, skip (user chose to skip this part)
             if container_id is None:
@@ -267,7 +266,7 @@ def batch_assign_parts(
                     )
                 )
                 continue
-            
+
             # Validate container exists
             drawers_repo = DrawersRepo(conn)
             container = drawers_repo.get_container_with_drawer(container_id)
@@ -284,13 +283,15 @@ def batch_assign_parts(
                     )
                 )
                 continue
-            
+
             # If inventory_id is provided, this is from putaway bin - update existing inventory
             if inventory_id is not None:
                 # Check if inventory item exists and is in putaway bin
                 inventory_item = repo.get_inventory_by_id(inventory_id)
                 if not inventory_item:
-                    errors.append(f"Inventory item {inventory_id} not found for {design_id}/{color_id}")
+                    errors.append(
+                        f"Inventory item {inventory_id} not found for {design_id}/{color_id}"
+                    )
                     assignment_results.append(
                         AssignmentResultDTO(
                             design_id=design_id,
@@ -302,7 +303,7 @@ def batch_assign_parts(
                         )
                     )
                     continue
-                
+
                 # Validate quantity matches
                 if inventory_item.get("quantity") != quantity:
                     errors.append(
@@ -320,7 +321,7 @@ def batch_assign_parts(
                         )
                     )
                     continue
-                
+
                 # Update inventory location
                 service.update_inventory_location(
                     inventory_id=inventory_id, container_id=container_id
@@ -345,7 +346,7 @@ def batch_assign_parts(
                     if inv.get("container_id") == container_id:
                         target_inv = inv
                         break
-                
+
                 if target_inv:
                     # Find the inventory row ID to update
                     inv_row = conn.execute(
@@ -358,7 +359,9 @@ def batch_assign_parts(
                     ).fetchone()
                     if inv_row:
                         inv_id = inv_row["id"] if isinstance(inv_row, dict) else inv_row[0]
-                        current_qty = inv_row["quantity"] if isinstance(inv_row, dict) else inv_row[1]
+                        current_qty = (
+                            inv_row["quantity"] if isinstance(inv_row, dict) else inv_row[1]
+                        )
                         # Update quantity by adding
                         new_qty = current_qty + quantity
                         service.update_inventory_quantity(inventory_id=inv_id, quantity=new_qty)
@@ -374,7 +377,7 @@ def batch_assign_parts(
                             )
                         )
                         continue
-                
+
                 # Create new inventory item
                 conn.execute(
                     """
@@ -408,7 +411,56 @@ def batch_assign_parts(
                     message=str(e),
                 )
             )
-    
+
+    # Update set status based on entry point and completion
+    sets_repo = SetsRepo(conn)
+    drawers_repo = DrawersRepo(conn)
+    putaway_bin = drawers_repo.get_put_away_bin()
+    putaway_bin_id = putaway_bin.get("container_id") if putaway_bin else None
+
+    if request.entry_point == "set" and request.set_number:
+        # Part-out entry point: If all parts were assigned, update set status to "loose_parts"
+        # Check if all parts from the set were assigned
+        try:
+            set_parts = list(set_parts_service.list_parts(set_number=request.set_number))
+            total_set_parts = sum(
+                int(p.get("quantity", 0)) for p in set_parts if p.get("ignore_in_inventory", 0) != 1
+            )
+            total_assigned_qty = sum(a.quantity for a in assignments if a.container_id is not None)
+
+            # If we assigned all parts (or close to it), update set status
+            if total_assigned_qty >= total_set_parts * 0.95:  # Allow 5% tolerance
+                try:
+                    sets_repo.update_set_by_num(request.set_number, status="loose_parts")
+                except Exception as e:
+                    errors.append(f"Failed to update set status: {str(e)}")
+        except Exception as e:
+            # If we can't check set parts, don't fail the whole operation
+            errors.append(f"Warning: Could not check set parts for status update: {str(e)}")
+
+    elif request.entry_point == "bin" and putaway_bin_id:
+        # Putaway bin entry point: Check if all items were moved out
+        remaining_in_bin = conn.execute(
+            """
+            SELECT COUNT(*) FROM inventory
+            WHERE status = 'loose' AND container_id = ?
+            """,
+            (putaway_bin_id,),
+        ).fetchone()
+        remaining_count = (
+            remaining_in_bin[0]
+            if isinstance(remaining_in_bin, tuple)
+            else remaining_in_bin["COUNT(*)"]
+        )
+
+        # If putaway bin is now empty, update all Teardown sets to "loose_parts"
+        if remaining_count == 0:
+            try:
+                conn.execute("UPDATE sets SET status = 'loose_parts' WHERE status = 'teardown'")
+                conn.commit()
+            except Exception as e:
+                errors.append(f"Failed to update teardown set statuses: {str(e)}")
+
     return BatchAssignmentResultDTO(
         total_requested=total_requested,
         total_assigned=total_assigned,
@@ -416,4 +468,3 @@ def batch_assign_parts(
         assignments=assignment_results,
         errors=errors,
     )
-

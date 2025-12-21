@@ -9,8 +9,11 @@ target-version = "py313"
 [tool.ruff.lint]
 # E,F: pycodestyle/pyflakes; I: import order; UP: pyupgrade; B: bugbear
 select = ["E", "F", "I", "UP", "B"]
-# Black controls line length; silence Ruff’s E501
+# Black controls line length; silence Ruff's E501
 ignore = ["E501"]
+# FastAPI uses Depends() in function defaults - this is correct and required
+[tool.ruff.lint.per-file-ignores]
+"src/app/api/**/*.py" = ["B008"]
 
 [tool.ruff.lint.isort]
 # Adjust to your package name once the refactor creates it
