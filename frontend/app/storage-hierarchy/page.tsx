@@ -16,6 +16,8 @@ import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import Link from 'next/link';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import {
   Select,
   SelectContent,
@@ -36,6 +38,16 @@ export default function StorageHierarchyPage() {
   const [viewMode, setViewMode] = useViewMode('table', 'storage-hierarchy-view-mode');
   const [cardPageIndex, setCardPageIndex] = useState(0);
   const [cardPageSize, setCardPageSize] = useState(20);
+
+  if (APP_SAFE_MODE) {
+    return (
+      <DisabledInSafeMode
+        title="Storage Hierarchy Rules"
+        backHref="/sets"
+        backLabel="Back to Sets"
+      />
+    );
+  }
 
   // Get unique strategy values for filter dropdown in specific order
   const uniqueStrategies = useMemo(() => {

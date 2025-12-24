@@ -8,8 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
 import { useMultipleLocationsElements } from '@/lib/hooks/use-inventory';
 import { useLocationReconciliationItems } from '@/lib/hooks/use-location-reconciliation';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { ArrowLeft, ArrowRightLeft } from 'lucide-react';
 import Image from 'next/image';
@@ -41,6 +43,10 @@ export default function InventoryUpdatesPage() {
     const totalQuantity = multipleLocationsElements.reduce((sum, e) => sum + e.total_quantity, 0);
     return { total, totalLocations, totalQuantity };
   }, [multipleLocationsElements]);
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Inventory Updates" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   return (
     <div className="container mx-auto py-8">

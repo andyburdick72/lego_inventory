@@ -9,6 +9,7 @@ pytestmark = pytest.mark.contract
 
 API_BASE = os.getenv("API_BASE_URL") or os.getenv("API_BASE") or ""
 SKIP_REASON = "API_BASE_URL or API_BASE not set"
+SAFE_MODE_DETAIL = "Temporarily disabled while physical storage system is being rebuilt."
 
 
 def _skip_if_no_api():
@@ -39,6 +40,10 @@ def test_inventory_loose_parts():
     _skip_if_no_api()
     with _client() as c:
         r = c.get("/inventory/loose")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
@@ -124,6 +129,10 @@ def test_inventory_location_counts():
     _skip_if_no_api()
     with _client() as c:
         r = c.get("/inventory/location-counts")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
@@ -189,6 +198,10 @@ def test_inventory_multiple_locations():
     _skip_if_no_api()
     with _client() as c:
         r = c.get("/inventory/multiple-locations")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)

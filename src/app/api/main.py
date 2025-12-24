@@ -5,8 +5,16 @@ and a new Next.js frontend. It runs alongside the existing BaseHTTPRequestHandle
 server on a different port (8001 by default).
 """
 
+from __future__ import annotations
+
+import re
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app.settings import get_settings
 
 app = FastAPI(
     title="LEGO Inventory API",
@@ -24,6 +32,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Set-Centric Safe Mode (soft gating) ---
+SAFE_MODE_DETAIL = "Temporarily disabled while physical storage system is being rebuilt."
+
+# NOTE: This is intentionally "soft gating" (reversible). Endpoints are still registered,
+# but requests are short-circuited with HTTP 410 when APP_SAFE_MODE=true.
+_SAFE_MODE_DISABLED_PREFIXES: tuple[str, ...] = (
+    # Drawers & Containers
+    "/api/v1/drawers",
+    "/api/v1/containers",
+    # Put-Away Wizard
+    "/api/v1/putaway",
+    # Storage hierarchy / rules
+    "/api/v1/storage-hierarchy",
+    # Reconciliation & mismatches
+    "/api/v1/location-reconciliation",
+    "/api/v1/mismatches",
+    # Global search (currently spans drawers/containers/locations)
+    "/api/v1/search",
+)
+
+_SAFE_MODE_DISABLED_REGEX: tuple[re.Pattern[str], ...] = (
+    # Inventory Management (legacy / location-dependent)
+    re.compile(r"^/api/v1/inventory/loose(?:/.*)?/?$"),
+    re.compile(r"^/api/v1/inventory/location-counts/?$"),
+    re.compile(r"^/api/v1/inventory/multiple-locations/?$"),
+    # Sets (location-dependent)
+    re.compile(r"^/api/v1/sets/[^/]+/parts-locations/?$"),
+)
+
+
+@app.middleware("http")
+async def safe_mode_soft_gate(request: Request, call_next):
+    """Return HTTP 410 for legacy/location-dependent endpoints in APP_SAFE_MODE.
+
+    Set-centric endpoints remain functional.
+    """
+    if get_settings().safe_mode:
+        path = request.url.path
+        if any(path == p or path.startswith(p + "/") for p in _SAFE_MODE_DISABLED_PREFIXES) or any(
+            r.match(path) for r in _SAFE_MODE_DISABLED_REGEX
+        ):
+            return JSONResponse(status_code=410, content={"detail": SAFE_MODE_DETAIL})
+
+    return await call_next(request)
+
 
 # Import routers (we'll create these step by step)
 from app.api.v1 import containers, drawers, inventory, parts, search, sets

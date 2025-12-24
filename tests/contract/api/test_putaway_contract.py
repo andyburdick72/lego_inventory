@@ -7,6 +7,9 @@ import pytest
 
 pytestmark = pytest.mark.contract
 
+if os.getenv("APP_SAFE_MODE") == "true":
+    pytest.skip("Putaway endpoints are disabled in set-centric safe mode.", allow_module_level=True)
+
 API_BASE = os.getenv("API_BASE_URL") or os.getenv("API_BASE") or ""
 SKIP_REASON = "API_BASE_URL or API_BASE not set"
 

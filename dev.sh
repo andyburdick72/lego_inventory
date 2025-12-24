@@ -5,6 +5,21 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+# Load APP_SAFE_MODE from data/.env (backend convention) without `source` to avoid
+# shell-expanding dotenv values (e.g. values containing `$...`).
+if [ -z "${APP_SAFE_MODE:-}" ] && [ -f "${REPO_ROOT}/data/.env" ]; then
+  app_safe_mode_line="$(grep -E '^APP_SAFE_MODE=' "${REPO_ROOT}/data/.env" | tail -n 1 || true)"
+  if [ -n "${app_safe_mode_line}" ]; then
+    app_safe_mode_val="${app_safe_mode_line#APP_SAFE_MODE=}"
+    # Strip surrounding quotes
+    app_safe_mode_val="${app_safe_mode_val%\"}"
+    app_safe_mode_val="${app_safe_mode_val#\"}"
+    app_safe_mode_val="${app_safe_mode_val%\'}"
+    app_safe_mode_val="${app_safe_mode_val#\'}"
+    export APP_SAFE_MODE="${app_safe_mode_val}"
+  fi
+fi
+
 # Coverage flag (when first arg is "cov" we merge unit + contract coverage)
 DO_COV=0
 if [ "${1:-}" = "cov" ]; then
@@ -482,6 +497,12 @@ sleep 1
 # Start Next.js frontend in the background
 echo "🚀 Starting Next.js frontend on http://localhost:3001..."
 cd "$REPO_ROOT/frontend"
+# Do NOT `source` data/.env here: dotenv values may contain `$...` which bash will expand.
+# We only need to pass a client-visible safe mode flag into Next.js.
+# Map backend safe mode flag to a client-visible flag if not explicitly set.
+if [ -z "${NEXT_PUBLIC_APP_SAFE_MODE:-}" ] && [ -n "${APP_SAFE_MODE:-}" ]; then
+  export NEXT_PUBLIC_APP_SAFE_MODE="${APP_SAFE_MODE}"
+fi
 # Source NVM if available, then start Next.js
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" 2>/dev/null || true

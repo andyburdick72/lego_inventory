@@ -14,6 +14,8 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { useDrawers } from '@/lib/hooks/use-drawers';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import {
     PartAssignment,
     PutawayPartWithSuggestion,
@@ -48,6 +50,12 @@ export default function PutawayWizardAssignPage() {
     const { data: partsFromSet } = usePutawayPartsFromSet(setNumber || '');
     const { data: partsInBin } = usePutawayPartsInBin(search || undefined);
     const { data: drawers } = useDrawers();
+
+    if (APP_SAFE_MODE) {
+        return (
+            <DisabledInSafeMode title="Put-Away Wizard" backHref="/sets" backLabel="Back to Sets" />
+        );
+    }
 
     // Parse selected parts from URL
     const selectedKeys = useMemo(() => {

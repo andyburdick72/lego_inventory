@@ -2,6 +2,7 @@
 
 import { Input } from '@/components/ui/input';
 import { useSearch } from '@/lib/hooks/use-search';
+import { APP_SAFE_MODE, SAFE_MODE_DETAIL } from '@/lib/safe-mode';
 import { Box, Container, FolderOpen, Loader2, Package, Search, Tag } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -20,7 +21,9 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
 
   useEffect(() => {
     // Focus input when component mounts
-    inputRef.current?.focus();
+    if (!APP_SAFE_MODE) {
+      inputRef.current?.focus();
+    }
   }, []);
 
   useEffect(() => {
@@ -94,6 +97,12 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
         }}
       />
       <div className="relative w-full max-w-2xl mx-4">
+        {APP_SAFE_MODE ? (
+          <div className="mt-3 bg-background/95 backdrop-blur-sm border rounded-lg shadow-xl p-6 text-center">
+            <div className="font-semibold mb-2">Search is temporarily disabled</div>
+            <div className="text-sm text-muted-foreground">{SAFE_MODE_DETAIL}</div>
+          </div>
+        ) : (
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-foreground/60" />
           <Input
@@ -106,6 +115,7 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
             autoFocus
           />
         </div>
+        )}
 
         {query.length >= 2 && (
           <div className="mt-3 bg-background/95 backdrop-blur-sm border rounded-lg shadow-xl max-h-[60vh] overflow-y-auto">

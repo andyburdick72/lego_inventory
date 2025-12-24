@@ -14,6 +14,7 @@ from core.services.inventory_service import InventoryService
 from core.services.set_parts_service import SetPartsService
 from infra.db.repositories.drawers_repo import DrawersRepo
 from infra.db.repositories.sets_repo import SetsRepo
+from app.settings import get_settings
 
 router = APIRouter(prefix="/sets", tags=["sets"])
 
@@ -267,7 +268,12 @@ def update_set_status(
             },
         ) from e
 
-    # Handle status change triggers
+    # In set-centric safe mode we keep set status updates functional, but we *skip*
+    # any location-dependent inventory side-effects.
+    if get_settings().safe_mode:
+        return {"updated": set_number, "status": status_enum.value}
+
+    # Handle status change triggers (location-dependent)
     try:
         drawers_repo = DrawersRepo(conn)
 

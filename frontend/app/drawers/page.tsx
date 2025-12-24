@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import { useDrawers, DrawerSummary } from '@/lib/hooks/use-drawers';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -149,6 +151,10 @@ export default function DrawersPage() {
       },
     },
   ];
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Drawers" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   if (isLoading) {
     return (

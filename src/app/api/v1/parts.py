@@ -98,6 +98,10 @@ def get_loose_inventory_for_part(
     service: InventoryService = Depends(get_inventory_service),
 ):
     """Get all loose inventory items for a specific part."""
+    if get_settings().safe_mode:
+        # In set-centric safe mode, location information is advisory and may be empty.
+        # This endpoint feeds location UI; return an empty list instead of assuming locations exist.
+        return []
     try:
         rows = service.loose_inventory_for_part(design_id)
         items = rows_to(row_to_inventory_item, rows)

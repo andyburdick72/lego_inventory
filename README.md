@@ -5,6 +5,20 @@ Uses [Rebrickable](https://rebrickable.com/api/) as the canonical source and sup
 
 ---
 
+## **Current Mode: Set-Centric Safe Mode (Soft Gating)**
+
+When `APP_SAFE_MODE=true`, the app temporarily disables location-dependent features while the physical storage system is being rebuilt.
+
+- **Enable (backend)**: set `APP_SAFE_MODE=true` (loaded via `src/app/settings.py`)
+- **Enable (frontend)**: set `NEXT_PUBLIC_APP_SAFE_MODE=true` (recommended)
+  - Client-side code can only read `NEXT_PUBLIC_*` env vars.
+- **Behavior**:
+  - **Backend**: legacy/location-dependent endpoints return **HTTP 410 (Gone)** with:
+    - `{ "detail": "Temporarily disabled while physical storage system is being rebuilt." }`
+  - **Frontend**: legacy nav items are hidden and legacy pages show a **“Temporarily disabled”** screen
+
+---
+
 ## **Features**
 - **Data import from Instabrick XML** with BrickLink → Rebrickable ID conversion  
 - **Alias reconciliation** between BrickLink/Instabrick IDs and Rebrickable part & color IDs  
@@ -250,6 +264,9 @@ This will:
 - **API Docs**: http://localhost:8001/docs (Swagger UI)
 
 **UI Highlights:**
+- **Set-Centric Safe Mode** (`APP_SAFE_MODE=true`):
+  - **Available**: **Sets** page, **Set Detail** pages (parts list), **Part Counts**, **Element Counts**, **Part Category Counts**
+  - **Disabled**: Loose Parts, Drawers/Containers, Put-Away Wizard, Location Reconciliation, Storage Hierarchy Rules, Location Counts, Inventory Mismatches, Global Search
 - **Loose Parts** page: Browse all loose inventory with card/table views and CRUD operations
 - **Reporting & Analytics** page: Dashboard with links to part counts, part+color counts, and location counts
 - **Location Counts** page: View inventory totals grouped by drawer/container
@@ -274,6 +291,9 @@ This will:
 ## **API Endpoints**
 
 The FastAPI backend provides RESTful endpoints for managing inventory. Full API documentation is available at http://localhost:8001/docs when the server is running.
+
+**Safe Mode Note:** When `APP_SAFE_MODE=true`, location-dependent endpoints return **HTTP 410** with:
+`{ "detail": "Temporarily disabled while physical storage system is being rebuilt." }`
 
 ### **Inventory Management**
 - `GET /api/v1/inventory/loose` - List all loose inventory items
@@ -368,6 +388,7 @@ The FastAPI backend provides RESTful endpoints for managing inventory. Full API 
 | Script | Purpose |
 |--------|---------|
 | `src/infra/db/inventory_db.py` | Create/initialize DB schema |
+| `src/scripts/enter_set_centric_safe_mode.py` | (Optional) Backup DB and clear location-dependent rows (reversible) |
 | `src/scripts/load_my_rebrickable_parts.py` | Load parts for all owned sets (automatically fetches categories for new parts) |
 | `src/scripts/load_rebrickable_colors.py` | Load Rebrickable color data |
 | `src/scripts/load_all_part_categories.py` | Load part categories for all parts in inventory |

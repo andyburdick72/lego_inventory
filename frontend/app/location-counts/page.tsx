@@ -3,6 +3,8 @@
 import { useState, useMemo, ReactNode } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useLocationCounts, LocationCount } from '@/lib/hooks/use-parts';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -106,6 +108,12 @@ export default function LocationCountsPage() {
     () => locationCounts?.reduce((sum, l) => sum + l.total_qty, 0) || 0,
     [locationCounts]
   );
+
+  if (APP_SAFE_MODE) {
+    return (
+      <DisabledInSafeMode title="Location Counts" backHref="/reporting-analytics" backLabel="Back to Reporting" />
+    );
+  }
 
   if (error) {
     return (

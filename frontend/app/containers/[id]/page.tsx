@@ -1,8 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table';
-import { ViewToggle } from '@/components/view-toggle';
-import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
 import {
   DeleteInventoryDialog,
   MoveInventoryDialog,
@@ -23,9 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ViewToggle } from '@/components/view-toggle';
 import { ContainerPart, useContainer, useContainerParts } from '@/lib/hooks/use-containers';
 import { LoosePart, useLooseParts } from '@/lib/hooks/use-inventory';
 import { usePutAwayBin, useSetPutAwayBin } from '@/lib/hooks/use-location-reconciliation';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber, isLightColor } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Edit, ExternalLink, Move, Trash2 } from 'lucide-react';
@@ -296,6 +298,10 @@ export default function ContainerDetailPage() {
       },
     },
   ];
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Container Detail" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   if (containerLoading) {
     return (

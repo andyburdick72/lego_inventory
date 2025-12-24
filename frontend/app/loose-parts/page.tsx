@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useLooseParts, LoosePart } from '@/lib/hooks/use-inventory';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -245,6 +247,10 @@ export default function LoosePartsPage() {
       },
     },
   ];
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Loose Parts" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   return (
     <div className="container mx-auto py-4 md:py-8">

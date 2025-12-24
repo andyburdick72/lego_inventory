@@ -1,8 +1,13 @@
 # tests/test_api_drawers.py
+import os
+
 import pytest
 import requests
 
 pytestmark = pytest.mark.contract
+
+if os.getenv("APP_SAFE_MODE") == "true":
+    pytest.skip("Drawers endpoints are disabled in set-centric safe mode.", allow_module_level=True)
 
 
 def _has_key(d, *candidates):

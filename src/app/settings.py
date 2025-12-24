@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,18 +36,25 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, description="Enable debug mode")
     host: str = Field(default="127.0.0.1", description="Server host to bind")
     port: int = Field(default=8000, description="Server port to bind")
+    safe_mode: bool = Field(
+        default=False,
+        description=(
+            "Set-centric safe mode: disables location-dependent features/endpoints while the "
+            "physical storage system is being rebuilt."
+        ),
+    )
 
     # Paths
     db_path: Path = Field(default=DEFAULT_DB, description="SQLite DB path")
     reports_dir: Path = Field(default=DEFAULT_REPORTS_DIR, description="Reports output directory")
 
     # Credentials / API keys
-    rebrickable_api_key: Optional[str] = Field(
+    rebrickable_api_key: str | None = Field(
         default=None, description="Rebrickable API key (if needed by features)"
     )
-    rebrickable_user_token: Optional[str] = Field(default=None, description="Rebrickable user token")
-    rebrickable_username: Optional[str] = Field(default=None, description="Rebrickable username")
-    rebrickable_password: Optional[str] = Field(default=None, description="Rebrickable password")
+    rebrickable_user_token: str | None = Field(default=None, description="Rebrickable user token")
+    rebrickable_username: str | None = Field(default=None, description="Rebrickable username")
+    rebrickable_password: str | None = Field(default=None, description="Rebrickable password")
 
     # --- Validators / normalizers ---
     @field_validator("db_path", "reports_dir", mode="before")
@@ -61,7 +68,7 @@ class Settings(BaseSettings):
         if v is None:
             return v
         # Coerce arbitrary PathLike to str early so we can expand
-        if not isinstance(v, (str, Path)):
+        if not isinstance(v, str | Path):
             try:
                 v = os.fspath(v)  # PathLike -> str
             except TypeError:

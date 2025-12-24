@@ -7,6 +7,9 @@ import pytest
 
 pytestmark = pytest.mark.contract
 
+if os.getenv("APP_SAFE_MODE") == "true":
+    pytest.skip("Legacy write endpoints are disabled in set-centric safe mode.", allow_module_level=True)
+
 BASE = os.getenv("APP_BASE_URL", "http://localhost:8001")
 
 

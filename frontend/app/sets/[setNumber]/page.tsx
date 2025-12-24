@@ -34,6 +34,7 @@ import {
   useSetPartsWithLocations,
   useUpdateSetStatus,
 } from '@/lib/hooks/use-sets';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber, getStatusLabel, isLightColor, showApiErrorToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ViewToggle } from '@/components/view-toggle';
@@ -122,7 +123,7 @@ export default function SetDetailPage() {
 
   // Check if set status is loose_parts or teardown
   const showPartLocationsTab = useMemo(() => {
-    return set?.status === 'loose_parts' || set?.status === 'teardown';
+    return !APP_SAFE_MODE && (set?.status === 'loose_parts' || set?.status === 'teardown');
   }, [set?.status]);
 
   // Calculate total parts from parts data since API doesn't include it
@@ -1175,6 +1176,12 @@ export default function SetDetailPage() {
                     showApiErrorToast(error);
                   }
                 };
+
+                // In set-centric safe mode, skip all location-dependent confirmations and wizard prompts.
+                if (APP_SAFE_MODE) {
+                  await executeStatusUpdate(false);
+                  return;
+                }
 
                 // Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
                 if (previousStatus && isLooseStatus(previousStatus) && isTeardownStatus(selectedStatus)) {

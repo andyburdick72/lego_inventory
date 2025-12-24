@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useMultipleLocationsElements, MultipleLocationsElement } from '@/lib/hooks/use-inventory';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { ViewToggle } from '@/components/view-toggle';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,14 @@ import {
 import { LoosePart } from '@/lib/hooks/use-inventory';
 
 export default function MultipleLocationsPage() {
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Multiple Locations" backHref="/sets" backLabel="Back to Sets" />;
+  }
+
+  return <MultipleLocationsPageImpl />;
+}
+
+function MultipleLocationsPageImpl() {
   const { data: elements, isLoading, error } = useMultipleLocationsElements();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);

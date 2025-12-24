@@ -24,6 +24,8 @@ import { ViewToggle } from '@/components/view-toggle';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { MoreHorizontal, Plus, Trash2, Pencil } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import {
   CreateContainerDialog,
   EditContainerDialog,
@@ -242,6 +244,10 @@ export default function DrawerDetailPage() {
       },
     },
   ];
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Drawer Detail" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   if (drawersLoading) {
     return (

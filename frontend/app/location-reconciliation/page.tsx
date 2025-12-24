@@ -33,6 +33,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import { ViewToggle } from '@/components/view-toggle';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
 import { handleApiError } from '@/lib/api';
 import { useContainers } from '@/lib/hooks/use-containers';
 import { useDrawers } from '@/lib/hooks/use-drawers';
@@ -43,6 +44,7 @@ import {
   useUpdateInventoryLocation,
 } from '@/lib/hooks/use-location-reconciliation';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber, isLightColor, showErrorToast, showWarningToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Download, Edit2, RefreshCw, Search } from 'lucide-react';
@@ -50,6 +52,20 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 export default function LocationReconciliationPage() {
+  if (APP_SAFE_MODE) {
+    return (
+      <DisabledInSafeMode
+        title="Location Reconciliation"
+        backHref="/sets"
+        backLabel="Back to Sets"
+      />
+    );
+  }
+
+  return <LocationReconciliationPageImpl />;
+}
+
+function LocationReconciliationPageImpl() {
   const [activeTab, setActiveTab] = useState<'loose-parts' | 'teardown'>('loose-parts');
   const { data: items, isLoading, error, refetch } = useLocationReconciliationItems(activeTab);
   const { data: drawers } = useDrawers();

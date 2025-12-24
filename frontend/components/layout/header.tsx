@@ -4,6 +4,7 @@ import { GlobalSearch } from '@/components/global-search';
 import { Button } from '@/components/ui/button';
 import { useTotalPartCount } from '@/lib/hooks/use-inventory';
 import { useSetsCount } from '@/lib/hooks/use-sets';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { Menu, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -19,6 +20,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   useEffect(() => {
+    if (APP_SAFE_MODE) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd+K or Ctrl+K to open search
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -52,56 +54,83 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
             {/* Desktop Navigation - Hidden on mobile */}
             <nav className="hidden md:flex items-center space-x-6 text-sm font-medium">
               <Link
-                href="/loose-parts"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Loose Parts
-              </Link>
-              <Link
-                href="/drawers"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Drawers
-              </Link>
-              <Link
                 href="/sets"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
                 Sets
               </Link>
-              <Link
-                href="/storage-hierarchy"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Storage Rules
-              </Link>
-              <Link
-                href="/reporting-analytics"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Reporting & Analytics
-              </Link>
-              <Link
-                href="/inventory-updates"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
-              >
-                Inventory Updates
-              </Link>
+              {APP_SAFE_MODE ? (
+                <>
+                  <Link
+                    href="/part-counts"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Part Counts
+                  </Link>
+                  <Link
+                    href="/part-color-counts"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Element Counts
+                  </Link>
+                  <Link
+                    href="/part-category-counts"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Part Category Counts
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/reporting-analytics"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Reporting & Analytics
+                  </Link>
+                  <Link
+                    href="/loose-parts"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Loose Parts
+                  </Link>
+                  <Link
+                    href="/drawers"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Drawers
+                  </Link>
+                  <Link
+                    href="/storage-hierarchy"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Storage Rules
+                  </Link>
+                  <Link
+                    href="/inventory-updates"
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Inventory Updates
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
             {/* Search Button - Full width on mobile, fixed width on desktop */}
-            <Button
-              variant="outline"
-              onClick={() => setIsSearchOpen(true)}
-              className="relative h-9 flex-1 md:w-64 justify-start text-sm text-muted-foreground md:pr-12"
-            >
-              <Search className="mr-2 h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline-flex">Search...</span>
-              <span className="hidden md:inline-flex absolute right-2 top-1/2 -translate-y-1/2 h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
-                <span className="text-xs">⌘</span>K
-              </span>
-            </Button>
+            {!APP_SAFE_MODE && (
+              <Button
+                variant="outline"
+                onClick={() => setIsSearchOpen(true)}
+                className="relative h-9 flex-1 md:w-64 justify-start text-sm text-muted-foreground md:pr-12"
+              >
+                <Search className="mr-2 h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline-flex">Search...</span>
+                <span className="hidden md:inline-flex absolute right-2 top-1/2 -translate-y-1/2 h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+                  <span className="text-xs">⌘</span>K
+                </span>
+              </Button>
+            )}
             {/* Stats - Hidden on mobile, shown on desktop */}
             <div className="hidden md:flex flex-col items-end gap-1">
               {error && (
@@ -134,9 +163,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
           </div>
         </div>
       </header>
-      {isSearchOpen && (
-        <GlobalSearch onClose={() => setIsSearchOpen(false)} />
-      )}
+      {!APP_SAFE_MODE && isSearchOpen && <GlobalSearch onClose={() => setIsSearchOpen(false)} />}
     </>
   );
 }

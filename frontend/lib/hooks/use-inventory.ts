@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { APP_SAFE_MODE } from '../safe-mode';
 
 export interface TotalPartCount {
   total_count: number;
@@ -41,6 +42,7 @@ export function useLooseParts() {
       const response = await api.get<LoosePart[]>('/api/v1/inventory/loose');
       return response.data;
     },
+    enabled: !APP_SAFE_MODE,
   });
 }
 
@@ -149,6 +151,7 @@ export function useMultipleLocationsElements() {
       const response = await api.get<MultipleLocationsElement[]>('/api/v1/inventory/multiple-locations');
       return response.data;
     },
+    enabled: !APP_SAFE_MODE,
   });
 }
 

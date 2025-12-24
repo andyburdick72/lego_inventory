@@ -6,18 +6,26 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const navItems = [
-  { href: '/loose-parts', label: 'Loose Parts' },
-  { href: '/drawers', label: 'Drawers' },
-  { href: '/sets', label: 'Sets' },
-  { href: '/storage-hierarchy', label: 'Storage Rules' },
-  { href: '/reporting-analytics', label: 'Reporting & Analytics' },
-  { href: '/inventory-updates', label: 'Inventory Updates' },
-];
+const navItems = APP_SAFE_MODE
+  ? [
+    { href: '/sets', label: 'Sets' },
+    { href: '/part-counts', label: 'Part Counts' },
+    { href: '/part-color-counts', label: 'Element Counts' },
+    { href: '/part-category-counts', label: 'Part Category Counts' },
+  ]
+  : [
+    { href: '/loose-parts', label: 'Loose Parts' },
+    { href: '/drawers', label: 'Drawers' },
+    { href: '/sets', label: 'Sets' },
+    { href: '/storage-hierarchy', label: 'Storage Rules' },
+    { href: '/reporting-analytics', label: 'Reporting & Analytics' },
+    { href: '/inventory-updates', label: 'Inventory Updates' },
+  ];
 
 interface SidebarProps {
   mobileOpen?: boolean;

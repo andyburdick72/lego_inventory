@@ -17,6 +17,8 @@ import {
   usePutawayPartsFromSet,
   usePutawayPartsInBin,
 } from '@/lib/hooks/use-putaway';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { AlertCircle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -40,6 +42,10 @@ export default function PutawayWizardConfirmPage() {
   const { data: partsFromSet } = usePutawayPartsFromSet(setNumber || '');
   const { data: partsInBin } = usePutawayPartsInBin(search || undefined);
   const batchAssign = useBatchAssignParts();
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Put-Away Wizard" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   // Parse selected parts from URL
   const selectedKeys = useMemo(() => {

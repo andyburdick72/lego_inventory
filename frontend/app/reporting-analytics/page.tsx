@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useLocationCounts, usePartCategoryCounts, usePartColorCounts, usePartCounts } from '@/lib/hooks/use-parts';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
@@ -119,36 +120,44 @@ export default function ReportingAnalyticsPage() {
           />
         </Card>
 
-        <Card className="flex flex-row items-center gap-4">
-          <div className="flex-1">
-            <CardHeader>
-              <CardTitle>Location Counts</CardTitle>
-              <CardDescription>Loose inventory by storage location</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {locationCounts && (
-                <div className="text-sm text-muted-foreground mb-3 space-y-1">
-                  <div>
-                    Locations: <span className="font-medium text-foreground">{formatNumber(locationCounts.length)}</span>
+        {!APP_SAFE_MODE && (
+          <Card className="flex flex-row items-center gap-4">
+            <div className="flex-1">
+              <CardHeader>
+                <CardTitle>Location Counts</CardTitle>
+                <CardDescription>Loose inventory by storage location</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {locationCounts && (
+                  <div className="text-sm text-muted-foreground mb-3 space-y-1">
+                    <div>
+                      Locations:{' '}
+                      <span className="font-medium text-foreground">
+                        {formatNumber(locationCounts.length)}
+                      </span>
+                    </div>
+                    <div>
+                      Total Quantity:{' '}
+                      <span className="font-medium text-foreground">
+                        {formatNumber(locationCountsTotal)}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    Total Quantity: <span className="font-medium text-foreground">{formatNumber(locationCountsTotal)}</span>
-                  </div>
-                </div>
-              )}
-              <Button asChild className="bg-teal-600 hover:bg-teal-700 text-white">
-                <Link href="/location-counts">View Location Counts</Link>
-              </Button>
-            </CardContent>
-          </div>
-          <Image
-            src="/location-counts-icon.png"
-            alt="Location Counts"
-            width={120}
-            height={120}
-            className="object-contain shrink-0 pr-4"
-          />
-        </Card>
+                )}
+                <Button asChild className="bg-teal-600 hover:bg-teal-700 text-white">
+                  <Link href="/location-counts">View Location Counts</Link>
+                </Button>
+              </CardContent>
+            </div>
+            <Image
+              src="/location-counts-icon.png"
+              alt="Location Counts"
+              width={120}
+              height={120}
+              className="object-contain shrink-0 pr-4"
+            />
+          </Card>
+        )}
 
         <Card className="flex flex-row items-center gap-4">
           <div className="flex-1">

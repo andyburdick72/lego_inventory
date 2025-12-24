@@ -1,8 +1,13 @@
 # tests/contract/api/test_search_contract.py
+import os
+
 import pytest
 import requests
 
 pytestmark = pytest.mark.contract
+
+if os.getenv("APP_SAFE_MODE") == "true":
+    pytest.skip("Global search is disabled in set-centric safe mode.", allow_module_level=True)
 
 
 def _get_json(url):

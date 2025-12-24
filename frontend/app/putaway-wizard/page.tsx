@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSets } from '@/lib/hooks/use-sets';
+import { DisabledInSafeMode } from '@/components/disabled-in-safe-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { ArrowLeft, Box, ChevronRight, Package } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -31,6 +33,10 @@ export default function PutawayWizardEntryPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const { data: sets } = useSets();
+
+  if (APP_SAFE_MODE) {
+    return <DisabledInSafeMode title="Put-Away Wizard" backHref="/sets" backLabel="Back to Sets" />;
+  }
 
   const handleNext = () => {
     if (entryPoint === 'set' && selectedSetNumber) {

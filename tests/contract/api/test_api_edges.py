@@ -2,26 +2,23 @@
 import os
 import uuid
 
+import httpx
 import pytest
-
-try:
-    import httpx
-except Exception:  # pragma: no cover
-    httpx = None
 
 pytestmark = pytest.mark.contract
 
 API_BASE = os.getenv("API_BASE_URL") or os.getenv("API_BASE") or ""  # ensure str for type checkers
-SKIP_REASON = "API_BASE_URL or API_BASE not set or httpx unavailable"
+SKIP_REASON = "API_BASE_URL or API_BASE not set"
+SAFE_MODE_DETAIL = "Temporarily disabled while physical storage system is being rebuilt."
 
 
 def _skip_if_no_api():
-    if httpx is None or not API_BASE:
+    if not API_BASE:
         pytest.skip(SKIP_REASON)
 
 
 def _client():
-    if httpx is None or not API_BASE:
+    if not API_BASE:
         pytest.skip(SKIP_REASON)
     return httpx.Client(base_url=API_BASE, timeout=10.0)
 
@@ -31,13 +28,22 @@ def test_create_drawer_blank_name_400():
     with _client() as c:
         # API_BASE already includes /api/v1, so just use /drawers/create
         r = c.post("/drawers/create", json={"name": "   "})
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code in (400, 422)
 
 
 def test_get_missing_drawer_404():
     _skip_if_no_api()
     with _client() as c:
-        r = c.get("/api/v1/drawers/999999999")
+        # API_BASE already includes /api/v1, so just use /drawers/<id>
+        r = c.get("/drawers/999999999")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 404
 
 
@@ -51,6 +57,10 @@ def test_create_duplicate_drawer_conflict_prefer_409():
     with _client() as c:
         # API_BASE already includes /api/v1, so just use /drawers/create
         r1 = c.post("/drawers/create", json={"name": unique})
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r1.status_code == 410
+            assert r1.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r1.status_code in (200, 201)
         drawer_id = r1.json().get("id")
 
@@ -74,7 +84,7 @@ def test_health_check():
         base_url = base_url[:-4]  # Remove /api
     elif base_url.endswith("/v1"):
         base_url = base_url[:-3]  # Remove /v1
-    
+
     with httpx.Client(base_url=base_url, timeout=10.0) as health_client:
         r = health_client.get("/health")
         assert r.status_code == 200
@@ -94,7 +104,7 @@ def test_root_endpoint():
         base_url = base_url[:-4]  # Remove /api
     elif base_url.endswith("/v1"):
         base_url = base_url[:-3]  # Remove /v1
-    
+
     with httpx.Client(base_url=base_url, timeout=10.0) as root_client:
         r = root_client.get("/")
         assert r.status_code == 200

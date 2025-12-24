@@ -9,6 +9,7 @@ pytestmark = pytest.mark.contract
 
 API_BASE = os.getenv("API_BASE_URL") or os.getenv("API_BASE") or ""
 SKIP_REASON = "API_BASE_URL or API_BASE not set"
+SAFE_MODE_DETAIL = "Temporarily disabled while physical storage system is being rebuilt."
 
 
 def _skip_if_no_api():
@@ -158,6 +159,10 @@ def test_get_set_parts_locations():
 
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}/parts-locations")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
@@ -196,6 +201,10 @@ def test_get_set_parts_locations_404():
     _skip_if_no_api()
     with _client() as c:
         r = c.get("/sets/invalid-set-number-99999/parts-locations")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 404
 
 
@@ -210,6 +219,10 @@ def test_get_set_parts_locations_empty_set():
 
         set_number = sets_r.json()[0]["set_number"]
         r = c.get(f"/sets/{set_number}/parts-locations")
+        if os.getenv("APP_SAFE_MODE") == "true":
+            assert r.status_code == 410
+            assert r.json() == {"detail": SAFE_MODE_DETAIL}
+            return
         assert r.status_code == 200
         data = r.json()
         # Should return empty list if set has no parts, or list of parts
