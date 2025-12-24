@@ -1,8 +1,6 @@
 'use client';
 
 import { DataTable } from '@/components/data-table';
-import { ViewToggle } from '@/components/view-toggle';
-import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -18,7 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ViewToggle } from '@/components/view-toggle';
 import { PartCount, usePartCounts } from '@/lib/hooks/use-parts';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
@@ -191,9 +192,11 @@ export default function PartCountsPage() {
     <div className="container mx-auto py-4 md:py-8">
       <div className="mb-4 md:mb-6 space-y-4">
         <Button variant="outline" asChild className="min-h-[44px]">
-          <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
+          <Link href={APP_SAFE_MODE ? '/' : '/reporting-analytics'}>
+            ← Back to {APP_SAFE_MODE ? 'Home' : 'Reporting & Analytics'}
+          </Link>
         </Button>
-        
+
         {/* Header Section - Better mobile layout */}
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -206,7 +209,7 @@ export default function PartCountsPage() {
               }}
             />
           </div>
-          
+
           {/* Stats - One per line on mobile */}
           {!isLoading && partCounts && (
             <div className="flex flex-col gap-2 text-sm">
@@ -228,7 +231,7 @@ export default function PartCountsPage() {
           {isLoading && (
             <p className="text-muted-foreground">Loading...</p>
           )}
-          
+
           {/* Category Filter - Full width on mobile */}
           {categories.length > 0 && (
             <div>
@@ -265,7 +268,7 @@ export default function PartCountsPage() {
           numericColumns={['total_qty']}
           defaultSorting={[{ id: 'total_qty', desc: true }]}
           onRowClick={(row) => {
-            router.push(`/parts/${row.original.design_id}?from=part-counts`);
+            router.push(`/parts/${row.design_id}?from=part-counts`);
           }}
         />
       ) : (

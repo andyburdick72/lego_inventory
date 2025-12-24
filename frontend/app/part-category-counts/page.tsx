@@ -11,6 +11,7 @@ import {
 import { ViewToggle } from '@/components/view-toggle';
 import { PartCategoryCount, usePartCategoryCounts } from '@/lib/hooks/use-parts';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -110,7 +111,9 @@ export default function PartCategoryCountsPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
+          <Link href={APP_SAFE_MODE ? '/' : '/reporting-analytics'}>
+            ← Back to {APP_SAFE_MODE ? 'Home' : 'Reporting & Analytics'}
+          </Link>
         </Button>
         <div className="flex items-center justify-between">
           <div>

@@ -17,6 +17,7 @@ import { ViewToggle } from '@/components/view-toggle';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { formatNumber, isLightColor } from '@/lib/utils';
+import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import Link from 'next/link';
 
 export default function PartColorCountsPage() {
@@ -158,7 +159,9 @@ export default function PartColorCountsPage() {
     <div className="container mx-auto py-8">
       <div className="mb-6">
         <Button variant="outline" asChild className="mb-4">
-          <Link href="/reporting-analytics">← Back to Reporting & Analytics</Link>
+          <Link href={APP_SAFE_MODE ? '/' : '/reporting-analytics'}>
+            ← Back to {APP_SAFE_MODE ? 'Home' : 'Reporting & Analytics'}
+          </Link>
         </Button>
         <div className="flex items-center justify-between">
           <div>
@@ -206,7 +209,7 @@ export default function PartColorCountsPage() {
           numericColumns={['total_qty']}
           defaultSorting={[{ id: 'total_qty', desc: true }]}
           onRowClick={(row) => {
-            router.push(`/parts/${row.original.design_id}?from=part-color-counts`);
+            router.push(`/parts/${row.design_id}?from=part-color-counts`);
           }}
         />
       ) : (

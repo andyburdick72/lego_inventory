@@ -125,8 +125,8 @@ export default function PartDetailPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    // In safe mode we hide the Loose Parts tab entirely; ensure we never get stuck on it.
-    if (APP_SAFE_MODE && activeTab === 'loose') {
+    // In safe mode we don't render tabs at all; ensure we never get stuck on the loose view state.
+    if (APP_SAFE_MODE && activeTab !== 'sets') {
       setActiveTab('sets');
     }
   }, [activeTab]);
@@ -438,13 +438,134 @@ export default function PartDetailPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'loose' | 'sets')}>
-        <TabsList>
-          {!APP_SAFE_MODE && <TabsTrigger value="loose">Loose Parts</TabsTrigger>}
-          <TabsTrigger value="sets">In Sets</TabsTrigger>
-        </TabsList>
+      {APP_SAFE_MODE ? (
+        <div className="mt-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+            <h2 className="text-2xl font-semibold">In Sets</h2>
+            <ViewToggle
+              viewMode={setsViewMode}
+              onViewModeChange={setSetsViewMode}
+            />
+          </div>
 
-        {!APP_SAFE_MODE && (
+          {setsLoading ? (
+            <div className="text-muted-foreground">Loading...</div>
+          ) : sets && sets.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Not in any sets.
+            </div>
+          ) : setsViewMode === 'table' ? (
+            <DataTable
+              columns={setsColumns}
+              data={sortedSets}
+              searchKeys={['set_number', 'set_name', 'status', 'color_name']}
+              searchPlaceholder="Search by set number, name, status, or color..."
+              numericColumns={['quantity']}
+              defaultSorting={[{ id: 'quantity', desc: true }]}
+            />
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {paginatedSetsCards.map((setItem, index) => (
+                  <Card
+                    key={`${setItem.set_number}-${setItem.color_id}-${index}`}
+                  >
+                    <CardContent className="pt-6">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="font-medium">
+                            <Link
+                              href={`/sets/${setItem.set_number}?from=parts`}
+                              className="hover:underline text-blue-600"
+                            >
+                              {setItem.set_number}
+                            </Link>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            {setItem.set_name}
+                          </div>
+                          {setItem.status && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Status: {getStatusLabel(setItem.status)}
+                            </div>
+                          )}
+                          <div className="text-sm mt-1">
+                            {setItem.hex ? (
+                              <div
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+                                style={{
+                                  backgroundColor: setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`,
+                                  color: isLightColor(setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`) ? '#000000' : '#ffffff',
+                                }}
+                              >
+                                {setItem.color_name}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">{setItem.color_name}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-lg">
+                            {formatNumber(setItem.quantity)}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              {setsTotalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {setsCardPageIndex * cardPageSize + 1} to{' '}
+                    {Math.min(
+                      (setsCardPageIndex + 1) * cardPageSize,
+                      sortedSets.length
+                    )}{' '}
+                    of {sortedSets.length} items
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSetsCardPageIndex(Math.max(0, setsCardPageIndex - 1))
+                      }
+                      disabled={setsCardPageIndex === 0}
+                      className="min-h-[44px] min-w-[44px]"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm whitespace-nowrap">
+                      Page {setsCardPageIndex + 1} of {setsTotalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSetsCardPageIndex(
+                          Math.min(setsTotalPages - 1, setsCardPageIndex + 1)
+                        )
+                      }
+                      disabled={setsCardPageIndex >= setsTotalPages - 1}
+                      className="min-h-[44px] min-w-[44px]"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'loose' | 'sets')}>
+          <TabsList>
+            <TabsTrigger value="loose">Loose Parts</TabsTrigger>
+            <TabsTrigger value="sets">In Sets</TabsTrigger>
+          </TabsList>
+
           <TabsContent value="loose" className="mt-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
               <h2 className="text-2xl font-semibold">Loose Parts</h2>
@@ -580,129 +701,129 @@ export default function PartDetailPage() {
               </>
             )}
           </TabsContent>
-        )}
 
-        <TabsContent value="sets" className="mt-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-            <h2 className="text-2xl font-semibold">In Sets</h2>
-            <ViewToggle
-              viewMode={setsViewMode}
-              onViewModeChange={setSetsViewMode}
-            />
-          </div>
-
-          {setsLoading ? (
-            <div className="text-muted-foreground">Loading...</div>
-          ) : sets && sets.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Not in any sets.
+          <TabsContent value="sets" className="mt-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+              <h2 className="text-2xl font-semibold">In Sets</h2>
+              <ViewToggle
+                viewMode={setsViewMode}
+                onViewModeChange={setSetsViewMode}
+              />
             </div>
-          ) : setsViewMode === 'table' ? (
-            <DataTable
-              columns={setsColumns}
-              data={sortedSets}
-              searchKeys={['set_number', 'set_name', 'status', 'color_name']}
-              searchPlaceholder="Search by set number, name, status, or color..."
-              numericColumns={['quantity']}
-              defaultSorting={[{ id: 'quantity', desc: true }]}
-            />
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {paginatedSetsCards.map((setItem, index) => (
-                  <Card
-                    key={`${setItem.set_number}-${setItem.color_id}-${index}`}
-                  >
-                    <CardContent className="pt-6">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="font-medium">
-                            <Link
-                              href={`/sets/${setItem.set_number}?from=parts`}
-                              className="hover:underline text-blue-600"
-                            >
-                              {setItem.set_number}
-                            </Link>
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-1">
-                            {setItem.set_name}
-                          </div>
-                          {setItem.status && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Status: {getStatusLabel(setItem.status)}
-                            </div>
-                          )}
-                          <div className="text-sm mt-1">
-                            {setItem.hex ? (
-                              <div
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
-                                style={{
-                                  backgroundColor: setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`,
-                                  color: isLightColor(setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`) ? '#000000' : '#ffffff',
-                                }}
-                              >
-                                {setItem.color_name}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">{setItem.color_name}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-bold text-lg">
-                            {formatNumber(setItem.quantity)}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+            {setsLoading ? (
+              <div className="text-muted-foreground">Loading...</div>
+            ) : sets && sets.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Not in any sets.
               </div>
-              {setsTotalPages > 1 && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
-                  <div className="text-sm text-muted-foreground">
-                    Showing {setsCardPageIndex * cardPageSize + 1} to{' '}
-                    {Math.min(
-                      (setsCardPageIndex + 1) * cardPageSize,
-                      sortedSets.length
-                    )}{' '}
-                    of {sortedSets.length} items
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setSetsCardPageIndex(Math.max(0, setsCardPageIndex - 1))
-                      }
-                      disabled={setsCardPageIndex === 0}
-                      className="min-h-[44px] min-w-[44px]"
+            ) : setsViewMode === 'table' ? (
+              <DataTable
+                columns={setsColumns}
+                data={sortedSets}
+                searchKeys={['set_number', 'set_name', 'status', 'color_name']}
+                searchPlaceholder="Search by set number, name, status, or color..."
+                numericColumns={['quantity']}
+                defaultSorting={[{ id: 'quantity', desc: true }]}
+              />
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {paginatedSetsCards.map((setItem, index) => (
+                    <Card
+                      key={`${setItem.set_number}-${setItem.color_id}-${index}`}
                     >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm whitespace-nowrap">
-                      Page {setsCardPageIndex + 1} of {setsTotalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setSetsCardPageIndex(
-                          Math.min(setsTotalPages - 1, setsCardPageIndex + 1)
-                        )
-                      }
-                      disabled={setsCardPageIndex >= setsTotalPages - 1}
-                      className="min-h-[44px] min-w-[44px]"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      <CardContent className="pt-6">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="font-medium">
+                              <Link
+                                href={`/sets/${setItem.set_number}?from=parts`}
+                                className="hover:underline text-blue-600"
+                              >
+                                {setItem.set_number}
+                              </Link>
+                            </div>
+                            <div className="text-sm text-muted-foreground mt-1">
+                              {setItem.set_name}
+                            </div>
+                            {setItem.status && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Status: {getStatusLabel(setItem.status)}
+                              </div>
+                            )}
+                            <div className="text-sm mt-1">
+                              {setItem.hex ? (
+                                <div
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+                                  style={{
+                                    backgroundColor: setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`,
+                                    color: isLightColor(setItem.hex.startsWith('#') ? setItem.hex : `#${setItem.hex}`) ? '#000000' : '#ffffff',
+                                  }}
+                                >
+                                  {setItem.color_name}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">{setItem.color_name}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-lg">
+                              {formatNumber(setItem.quantity)}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              )}
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
+                {setsTotalPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {setsCardPageIndex * cardPageSize + 1} to{' '}
+                      {Math.min(
+                        (setsCardPageIndex + 1) * cardPageSize,
+                        sortedSets.length
+                      )}{' '}
+                      of {sortedSets.length} items
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setSetsCardPageIndex(Math.max(0, setsCardPageIndex - 1))
+                        }
+                        disabled={setsCardPageIndex === 0}
+                        className="min-h-[44px] min-w-[44px]"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-sm whitespace-nowrap">
+                        Page {setsCardPageIndex + 1} of {setsTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setSetsCardPageIndex(
+                            Math.min(setsTotalPages - 1, setsCardPageIndex + 1)
+                          )
+                        }
+                        disabled={setsCardPageIndex >= setsTotalPages - 1}
+                        className="min-h-[44px] min-w-[44px]"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }
