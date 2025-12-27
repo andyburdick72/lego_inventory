@@ -63,6 +63,22 @@ class LEGOSetDTO(DTOBase):
     rebrickable_url: str | None = None
 
 
+class LEGOSetCopyDTO(DTOBase):
+    """A single physical copy of a set (one row in the `sets` table)."""
+
+    id: int
+    set_number: str
+    name: str
+    year: int | None = None
+    theme_id: int | None = None
+    theme_name: str | None = None
+    status: Status = Status.IN_BOX
+    added_at: str | None = None
+    total_parts: int | None = None
+    image_url: str | None = None
+    rebrickable_url: str | None = None
+
+
 class InventoryItemDTO(DTOBase):
     id: int
     part_id: str

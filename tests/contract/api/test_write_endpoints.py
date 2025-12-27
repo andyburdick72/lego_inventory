@@ -10,7 +10,11 @@ pytestmark = pytest.mark.contract
 if os.getenv("APP_SAFE_MODE") == "true":
     pytest.skip("Legacy write endpoints are disabled in set-centric safe mode.", allow_module_level=True)
 
-BASE = os.getenv("APP_BASE_URL", "http://localhost:8001")
+API_BASE = os.getenv("API_BASE_URL") or os.getenv("API_BASE") or ""
+if not API_BASE:
+    pytest.skip("Skipping contract write tests: API_BASE_URL or API_BASE not set", allow_module_level=True)
+
+BASE = API_BASE
 
 
 @pytest.fixture(scope="module")

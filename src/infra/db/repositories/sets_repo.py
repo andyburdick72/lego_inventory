@@ -26,6 +26,66 @@ class SetsRepo(BaseRepo):
             [set_id],
         )
 
+    def list_set_copies(self) -> list[dict]:
+        """
+        List all set copies (one row per physical copy).
+
+        Columns: id, set_num, name, year, theme_id, theme_name, status, added_at, image_url, rebrickable_url, total_parts
+        """
+        return self._all(
+            """
+            SELECT
+                s.id,
+                s.set_num,
+                s.name,
+                s.year,
+                s.theme_id,
+                t.name AS theme_name,
+                s.status,
+                s.added_at,
+                s.image_url,
+                s.rebrickable_url,
+                (
+                  SELECT COALESCE(SUM(sp.quantity), 0)
+                  FROM set_parts sp
+                  WHERE sp.set_num = s.set_num
+                ) AS total_parts
+            FROM sets s
+            LEFT JOIN themes t ON t.id = s.theme_id
+            ORDER BY s.added_at DESC, s.id DESC
+            """
+        )
+
+    def list_set_copies_by_num(self, set_num: str) -> list[dict]:
+        """
+        List all copies for a specific set_num (one row per physical copy).
+        """
+        return self._all(
+            """
+            SELECT
+                s.id,
+                s.set_num,
+                s.name,
+                s.year,
+                s.theme_id,
+                t.name AS theme_name,
+                s.status,
+                s.added_at,
+                s.image_url,
+                s.rebrickable_url,
+                (
+                  SELECT COALESCE(SUM(sp.quantity), 0)
+                  FROM set_parts sp
+                  WHERE sp.set_num = s.set_num
+                ) AS total_parts
+            FROM sets s
+            LEFT JOIN themes t ON t.id = s.theme_id
+            WHERE s.set_num = ?
+            ORDER BY s.added_at DESC, s.id DESC
+            """,
+            [set_num],
+        )
+
     def iter_parts_by_set(self, set_id: int) -> Iterable[dict]:
         """
         Yield all parts belonging to a set.
@@ -53,7 +113,7 @@ class SetsRepo(BaseRepo):
     def get_set_by_num(self, set_num: str) -> dict | None:
         return self._one(
             """
-            SELECT s.set_num, s.name, s.year, s.theme_id, s.image_url, s.rebrickable_url, s.status, s.added_at,
+            SELECT s.id, s.set_num, s.name, s.year, s.theme_id, s.image_url, s.rebrickable_url, s.status, s.added_at,
                    t.name AS theme_name
             FROM sets s
             LEFT JOIN themes t ON t.id = s.theme_id
@@ -187,6 +247,21 @@ class SetsRepo(BaseRepo):
         values.append(set_num)
         self.conn.execute(
             f"UPDATE sets SET {set_clause} WHERE set_num = ?",
+            values,
+        )
+        self.conn.commit()
+
+    def update_set_by_id(self, set_id: int, **fields) -> None:
+        """
+        Update a single set copy by id with the provided fields.
+        """
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values())
+        values.append(set_id)
+        self.conn.execute(
+            f"UPDATE sets SET {set_clause} WHERE id = ?",
             values,
         )
         self.conn.commit()

@@ -122,15 +122,25 @@ def conn_rw(temp_db_path):
           name TEXT NOT NULL,
           hex TEXT
         );
+        CREATE TABLE IF NOT EXISTS themes (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS sets (
-          set_num TEXT PRIMARY KEY,
+          id INTEGER PRIMARY KEY,
+          set_num TEXT NOT NULL,
           name TEXT NOT NULL,
           year INTEGER,
-          status TEXT
+          theme_id INTEGER,
+          image_url TEXT,
+          rebrickable_url TEXT,
+          status TEXT,
+          added_at TEXT,
+          FOREIGN KEY (theme_id) REFERENCES themes(id)
         );
         CREATE TABLE IF NOT EXISTS set_parts (
           id INTEGER PRIMARY KEY,
-          set_num TEXT NOT NULL REFERENCES sets(set_num) ON DELETE CASCADE,
+          set_num TEXT NOT NULL,
           design_id TEXT NOT NULL REFERENCES parts(design_id),
           color_id INTEGER NOT NULL REFERENCES colors(id),
           quantity INTEGER NOT NULL,

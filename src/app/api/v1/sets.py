@@ -5,10 +5,10 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.adapters import row_to_set, rows_to
+from app.adapters import row_to_set, row_to_set_copy, rows_to
 from app.di import get_db_connection, get_inventory_service, get_set_parts_service
 from app.errors import NotFoundError, ValidationError
-from core.dtos import LEGOSetDTO
+from core.dtos import LEGOSetCopyDTO, LEGOSetDTO
 from core.enums import Status
 from core.services.inventory_service import InventoryService
 from core.services.set_parts_service import SetPartsService
@@ -57,12 +57,197 @@ class UpdateSetStatusRequest(BaseModel):
     status: str
 
 
+def _apply_set_status_change_triggers(
+    *,
+    conn: sqlite3.Connection,
+    inventory_service: InventoryService,
+    previous_status: str | None,
+    new_status: str,
+    set_number: str,
+) -> None:
+    """
+    Apply the inventory side-effects for set status changes.
+
+    IMPORTANT: This operates on *one physical copy* worth of parts (one `set_parts` bill of materials).
+    """
+    drawers_repo = DrawersRepo(conn)
+
+    # Get putaway bin container_id if needed
+    putaway_bin = drawers_repo.get_put_away_bin()
+    putaway_bin_container_id = putaway_bin.get("container_id") if putaway_bin else None
+
+    sets_repo = SetsRepo(conn)
+    set_parts = list(sets_repo.list_parts_for_set(set_number))
+
+    # Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
+    if previous_status in ("loose_parts", "loose") and new_status == "teardown":
+        if putaway_bin_container_id:
+            for part in set_parts:
+                design_id = str(part.get("design_id", ""))
+                color_id = int(part.get("color_id", 0))
+                # Get all inventory items for this part+color (with IDs)
+                inventory_rows = conn.execute(
+                    """
+                    SELECT i.id, i.container_id, i.quantity
+                    FROM inventory i
+                    WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                    """,
+                    (design_id, color_id),
+                ).fetchall()
+                for row in inventory_rows:
+                    inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                    container_id = row["container_id"] if isinstance(row, dict) else row[1]
+                    quantity = row["quantity"] if isinstance(row, dict) else row[2]
+                    # Only move if not already in putaway bin
+                    if (
+                        inventory_id
+                        and container_id != putaway_bin_container_id
+                        and quantity > 0
+                    ):
+                        inventory_service.move_inventory(
+                            from_inventory_id=inventory_id,
+                            to_container_id=putaway_bin_container_id,
+                            quantity=quantity,
+                        )
+
+    # Trigger 2: Loose → Other: Remove all set parts from storage locations
+    elif previous_status in ("loose_parts", "loose") and new_status not in (
+        "loose_parts",
+        "loose",
+        "teardown",
+    ):
+        for part in set_parts:
+            design_id = str(part.get("design_id", ""))
+            color_id = int(part.get("color_id", 0))
+            # Get all inventory items for this part+color (with IDs)
+            inventory_rows = conn.execute(
+                """
+                SELECT i.id
+                FROM inventory i
+                WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                """,
+                (design_id, color_id),
+            ).fetchall()
+            for row in inventory_rows:
+                inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                if inventory_id:
+                    inventory_service.delete_inventory_item(inventory_id=inventory_id)
+
+    # Trigger 3: Other → Teardown: Add all set parts to Put Away bin
+    elif previous_status not in ("loose_parts", "loose", "teardown") and new_status == "teardown":
+        if putaway_bin_container_id:
+            for part in set_parts:
+                design_id = str(part.get("design_id", ""))
+                color_id = int(part.get("color_id", 0))
+                quantity = int(part.get("quantity", 0))
+                # Check if ignore_in_inventory flag is set
+                if part.get("ignore_in_inventory", 0) == 1:
+                    continue
+                # Check if inventory item already exists for this part+color in putaway bin
+                existing_row = conn.execute(
+                    """
+                    SELECT i.id, i.quantity
+                    FROM inventory i
+                    WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                      AND i.container_id = ?
+                    LIMIT 1
+                    """,
+                    (design_id, color_id, putaway_bin_container_id),
+                ).fetchone()
+                if existing_row:
+                    # Update quantity
+                    existing_id = (
+                        existing_row["id"] if isinstance(existing_row, dict) else existing_row[0]
+                    )
+                    existing_qty = (
+                        existing_row["quantity"]
+                        if isinstance(existing_row, dict)
+                        else existing_row[1]
+                    )
+                    new_qty = existing_qty + quantity
+                    inventory_service.update_inventory_quantity(inventory_id=existing_id, quantity=new_qty)
+                else:
+                    # Create new inventory item
+                    conn.execute(
+                        """
+                        INSERT INTO inventory (design_id, color_id, quantity, status, container_id)
+                        VALUES (?, ?, ?, 'loose', ?)
+                        """,
+                        (design_id, color_id, quantity, putaway_bin_container_id),
+                    )
+                    conn.commit()
+
+    # Trigger 4: Teardown → Loose: Move all set parts from storage to Put Away bin
+    elif previous_status == "teardown" and new_status in ("loose_parts", "loose"):
+        if putaway_bin_container_id:
+            for part in set_parts:
+                design_id = str(part.get("design_id", ""))
+                color_id = int(part.get("color_id", 0))
+                # Check if ignore_in_inventory flag is set
+                if part.get("ignore_in_inventory", 0) == 1:
+                    continue
+                # Get all inventory items for this part+color
+                inventory_rows = conn.execute(
+                    """
+                    SELECT i.id, i.container_id, i.quantity
+                    FROM inventory i
+                    WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
+                    """,
+                    (design_id, color_id),
+                ).fetchall()
+                for row in inventory_rows:
+                    inventory_id = row["id"] if isinstance(row, dict) else row[0]
+                    container_id = row["container_id"] if isinstance(row, dict) else row[1]
+                    quantity = row["quantity"] if isinstance(row, dict) else row[2]
+                    # Only move if not already in putaway bin
+                    if (
+                        inventory_id
+                        and container_id != putaway_bin_container_id
+                        and quantity > 0
+                    ):
+                        inventory_service.move_inventory(
+                            from_inventory_id=inventory_id,
+                            to_container_id=putaway_bin_container_id,
+                            quantity=quantity,
+                        )
+
+
 @router.get("/count")
 def get_sets_count(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B008
     """Get the total count of sets."""
     row = conn.execute("SELECT COUNT(*) AS count FROM sets").fetchone()
     count = row["count"] if isinstance(row, dict) else row[0] if row else 0
     return {"count": count}
+
+
+@router.get("/copies", response_model=list[LEGOSetCopyDTO])
+def list_set_copies(conn: sqlite3.Connection = Depends(get_db_connection)):  # noqa: B008
+    """List all set copies (one row per physical copy)."""
+    sets_repo = SetsRepo(conn)
+    rows = sets_repo.list_set_copies()
+    rows_as_dicts = [dict(r) for r in rows]
+    items = rows_to(row_to_set_copy, [{"set_number": r.get("set_num"), **r} for r in rows_as_dicts])
+    return [d.model_dump() for d in items]
+
+
+@router.get("/{set_number}/copies", response_model=list[LEGOSetCopyDTO])
+def list_set_copies_for_set(
+    set_number: str, conn: sqlite3.Connection = Depends(get_db_connection)  # noqa: B008
+):
+    """List all copies for a specific set number (one row per physical copy)."""
+    sets_repo = SetsRepo(conn)
+    rows = sets_repo.list_set_copies_by_num(set_number)
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": f"Set {set_number} not found",
+                "code": "not_found",
+            },
+        )
+    rows_as_dicts = [dict(r) for r in rows]
+    items = rows_to(row_to_set_copy, [{"set_number": r.get("set_num"), **r} for r in rows_as_dicts])
+    return [d.model_dump() for d in items]
 
 
 @router.get("", response_model=list[LEGOSetDTO])
@@ -197,7 +382,12 @@ def update_set_status(
     conn: sqlite3.Connection = Depends(get_db_connection),  # noqa: B008
     inventory_service: InventoryService = Depends(get_inventory_service),  # noqa: B008
 ):
-    """Update the status of a set."""
+    """
+    Update the status of a set.
+
+    NOTE: If multiple copies exist for this set number, this endpoint returns 409 and you must
+    update a specific copy via PATCH /sets/copies/{set_id}/status.
+    """
     # Validate status first
     try:
         status_enum = Status.from_any(request.status)
@@ -210,7 +400,36 @@ def update_set_status(
             },
         ) from e
 
-    # Check if set exists
+    # Check if set exists and whether it's ambiguous (multiple copies)
+    copies_row = conn.execute(
+        "SELECT COUNT(*) AS quantity FROM sets WHERE set_num = ?",
+        (set_number,),
+    ).fetchone()
+    copies = (
+        copies_row["quantity"]
+        if isinstance(copies_row, dict)
+        else (copies_row[0] if copies_row else 0)
+    )
+    if copies == 0:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": f"Set {set_number} not found",
+                "code": "not_found",
+            },
+        )
+    if copies > 1:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"Set {set_number} has {copies} copies; update a specific copy via "
+                    "PATCH /sets/copies/{set_id}/status"
+                ),
+                "code": "conflict",
+            },
+        )
+
     sets_repo = SetsRepo(conn)
     try:
         existing_set = sets_repo.get_set_by_num(set_number)
@@ -256,9 +475,12 @@ def update_set_status(
     previous_status = existing_set.get("status")
     new_status = status_enum.value
 
-    # Update status
+    # Update status (single copy)
     try:
-        sets_repo.update_set_by_num(set_number, status=new_status)
+        set_id = int(existing_set.get("id") or 0)
+        if set_id <= 0:
+            raise ValueError("Invalid set id")
+        sets_repo.update_set_by_id(set_id, status=new_status)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -275,152 +497,13 @@ def update_set_status(
 
     # Handle status change triggers (location-dependent)
     try:
-        drawers_repo = DrawersRepo(conn)
-
-        # Get putaway bin container_id if needed
-        putaway_bin = drawers_repo.get_put_away_bin()
-        putaway_bin_container_id = putaway_bin.get("container_id") if putaway_bin else None
-
-        # Get all parts for the set
-        set_parts = list(sets_repo.list_parts_for_set(set_number))
-
-        # Trigger 1: Loose → Teardown: Move all set parts from storage to Put Away bin
-        if previous_status in ("loose_parts", "loose") and new_status == "teardown":
-            if putaway_bin_container_id:
-                for part in set_parts:
-                    design_id = str(part.get("design_id", ""))
-                    color_id = int(part.get("color_id", 0))
-                    # Get all inventory items for this part+color (with IDs)
-                    inventory_rows = conn.execute(
-                        """
-                        SELECT i.id, i.container_id, i.quantity
-                        FROM inventory i
-                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
-                        """,
-                        (design_id, color_id),
-                    ).fetchall()
-                    for row in inventory_rows:
-                        inventory_id = row["id"] if isinstance(row, dict) else row[0]
-                        container_id = row["container_id"] if isinstance(row, dict) else row[1]
-                        quantity = row["quantity"] if isinstance(row, dict) else row[2]
-                        # Only move if not already in putaway bin
-                        if (
-                            inventory_id
-                            and container_id != putaway_bin_container_id
-                            and quantity > 0
-                        ):
-                            inventory_service.move_inventory(
-                                from_inventory_id=inventory_id,
-                                to_container_id=putaway_bin_container_id,
-                                quantity=quantity,
-                            )
-
-        # Trigger 2: Loose → Other: Remove all set parts from storage locations
-        elif previous_status in ("loose_parts", "loose") and new_status not in (
-            "loose_parts",
-            "loose",
-            "teardown",
-        ):
-            for part in set_parts:
-                design_id = str(part.get("design_id", ""))
-                color_id = int(part.get("color_id", 0))
-                # Get all inventory items for this part+color (with IDs)
-                inventory_rows = conn.execute(
-                    """
-                    SELECT i.id
-                    FROM inventory i
-                    WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
-                    """,
-                    (design_id, color_id),
-                ).fetchall()
-                for row in inventory_rows:
-                    inventory_id = row["id"] if isinstance(row, dict) else row[0]
-                    if inventory_id:
-                        inventory_service.delete_inventory_item(inventory_id=inventory_id)
-
-        # Trigger 3: Other → Teardown: Add all set parts to Put Away bin
-        elif (
-            previous_status not in ("loose_parts", "loose", "teardown") and new_status == "teardown"
-        ):
-            if putaway_bin_container_id:
-                for part in set_parts:
-                    design_id = str(part.get("design_id", ""))
-                    color_id = int(part.get("color_id", 0))
-                    quantity = int(part.get("quantity", 0))
-                    # Check if ignore_in_inventory flag is set
-                    if part.get("ignore_in_inventory", 0) == 1:
-                        continue
-                    # Check if inventory item already exists for this part+color in putaway bin
-                    existing_row = conn.execute(
-                        """
-                        SELECT i.id, i.quantity
-                        FROM inventory i
-                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose' 
-                          AND i.container_id = ?
-                        LIMIT 1
-                        """,
-                        (design_id, color_id, putaway_bin_container_id),
-                    ).fetchone()
-                    if existing_row:
-                        # Update quantity
-                        existing_id = (
-                            existing_row["id"]
-                            if isinstance(existing_row, dict)
-                            else existing_row[0]
-                        )
-                        existing_qty = (
-                            existing_row["quantity"]
-                            if isinstance(existing_row, dict)
-                            else existing_row[1]
-                        )
-                        new_qty = existing_qty + quantity
-                        inventory_service.update_inventory_quantity(
-                            inventory_id=existing_id, quantity=new_qty
-                        )
-                    else:
-                        # Create new inventory item
-                        conn.execute(
-                            """
-                            INSERT INTO inventory (design_id, color_id, quantity, status, container_id)
-                            VALUES (?, ?, ?, 'loose', ?)
-                            """,
-                            (design_id, color_id, quantity, putaway_bin_container_id),
-                        )
-                        conn.commit()
-
-        # Trigger 4: Teardown → Loose: Move all set parts from storage to Put Away bin
-        elif previous_status == "teardown" and new_status in ("loose_parts", "loose"):
-            if putaway_bin_container_id:
-                for part in set_parts:
-                    design_id = str(part.get("design_id", ""))
-                    color_id = int(part.get("color_id", 0))
-                    # Check if ignore_in_inventory flag is set
-                    if part.get("ignore_in_inventory", 0) == 1:
-                        continue
-                    # Get all inventory items for this part+color
-                    inventory_rows = conn.execute(
-                        """
-                        SELECT i.id, i.container_id, i.quantity
-                        FROM inventory i
-                        WHERE i.design_id = ? AND i.color_id = ? AND i.status = 'loose'
-                        """,
-                        (design_id, color_id),
-                    ).fetchall()
-                    for row in inventory_rows:
-                        inventory_id = row["id"] if isinstance(row, dict) else row[0]
-                        container_id = row["container_id"] if isinstance(row, dict) else row[1]
-                        quantity = row["quantity"] if isinstance(row, dict) else row[2]
-                        # Only move if not already in putaway bin
-                        if (
-                            inventory_id
-                            and container_id != putaway_bin_container_id
-                            and quantity > 0
-                        ):
-                            inventory_service.move_inventory(
-                                from_inventory_id=inventory_id,
-                                to_container_id=putaway_bin_container_id,
-                                quantity=quantity,
-                            )
+        _apply_set_status_change_triggers(
+            conn=conn,
+            inventory_service=inventory_service,
+            previous_status=previous_status,
+            new_status=new_status,
+            set_number=set_number,
+        )
     except Exception as e:
         # Log error but don't fail the status update
         import traceback
@@ -429,6 +512,74 @@ def update_set_status(
         traceback.print_exc()
 
     return {"updated": set_number, "status": status_enum.value}
+
+
+@router.patch("/copies/{set_id}/status")
+def update_set_copy_status(
+    set_id: int,
+    request: UpdateSetStatusRequest,
+    conn: sqlite3.Connection = Depends(get_db_connection),  # noqa: B008
+    inventory_service: InventoryService = Depends(get_inventory_service),  # noqa: B008
+):
+    """Update the status for a specific set copy (by id)."""
+    # Validate status first
+    try:
+        status_enum = Status.from_any(request.status)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Invalid status: {str(e)}",
+                "code": "validation_error",
+            },
+        ) from e
+
+    sets_repo = SetsRepo(conn)
+    existing = sets_repo.get_set(set_id)
+    if not existing:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": f"Set copy {set_id} not found", "code": "not_found"},
+        )
+
+    previous_status = existing.get("status")
+    new_status = status_enum.value
+    set_number = str(existing.get("set_num") or "")
+    if not set_number:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Set copy is missing set_num", "code": "internal_error"},
+        )
+
+    try:
+        sets_repo.update_set_by_id(set_id, status=new_status)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Error updating set copy status: {str(e)}",
+                "code": "internal_error",
+            },
+        ) from e
+
+    if get_settings().safe_mode:
+        return {"updated": set_id, "set_number": set_number, "status": new_status}
+
+    try:
+        _apply_set_status_change_triggers(
+            conn=conn,
+            inventory_service=inventory_service,
+            previous_status=previous_status,
+            new_status=new_status,
+            set_number=set_number,
+        )
+    except Exception as e:
+        import traceback
+
+        print(f"Warning: Error handling status change triggers: {e}")
+        traceback.print_exc()
+
+    return {"updated": set_id, "set_number": set_number, "status": new_status}
 
 
 @router.get("/{set_number}/parts-locations", response_model=list[SetPartWithLocationsDTO])

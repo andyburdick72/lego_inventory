@@ -236,6 +236,29 @@ def test_sets_repo_basic_and_total(conn_rw):
     row = sets.get_set_by_num("80000-1")
     assert row is not None
     assert row["set_num"] == "80000-1"
+
+    # Insert a second physical copy with a different status
+    conn_rw.execute(
+        """
+        INSERT INTO sets (set_num, name, year, theme_id, image_url, rebrickable_url, status, added_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("80000-1", row.get("name"), row.get("year"), row.get("theme_id"), None, None, "built", "2099-01-01T00:00:00"),
+    )
+    conn_rw.commit()
+
+    copies = sets.list_set_copies_by_num("80000-1")
+    assert len(copies) >= 2
+    copy_ids = [int(c["id"]) for c in copies]
+    assert all(i > 0 for i in copy_ids)
+
+    # Update a single copy by id (should not affect other copies)
+    target_id = copy_ids[0]
+    sets.update_set_by_id(target_id, status="wip")
+    updated = sets.get_set(target_id)
+    assert updated is not None
+    assert updated["status"] == "wip"
+
     total = sets.set_total_for_statuses(["wip", "built", "in_box", "teardown"])
     assert total >= 3
 

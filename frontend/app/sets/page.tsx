@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/select';
 import { ViewToggle } from '@/components/view-toggle';
 import { api } from '@/lib/api';
-import { LEGOSet, useSets } from '@/lib/hooks/use-sets';
+import { LEGOSetCopy, useSetCopiesList } from '@/lib/hooks/use-sets';
 import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { formatNumber, getStatusLabel, showApiErrorToast, showErrorToast, showSuccessToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
@@ -58,127 +58,173 @@ export default function SetsPage() {
   }>>([]);
   const [setStatuses, setSetStatuses] = useState<Record<string, string>>({});
   const router = useRouter();
-  const { data: sets, isLoading, error } = useSets();
+  const { data: setCopies, isLoading, error } = useSetCopiesList();
+
+  const setCopiesWithLabels = useMemo(() => {
+    if (!setCopies) return [];
+    const grouped = new Map<string, LEGOSetCopy[]>();
+    for (const c of setCopies) {
+      const arr = grouped.get(c.set_number) ?? [];
+      arr.push(c);
+      grouped.set(c.set_number, arr);
+    }
+    // Stable-ish numbering: newest (added_at/id) first => Copy #1
+    const metaById = new Map<
+      number,
+      {
+        copy_count: number;
+        copy_index: number;
+        copy_label: string | null;
+      }
+    >();
+    for (const [setNumber, copies] of grouped.entries()) {
+      const sorted = [...copies].sort((a, b) => {
+        const aKey = a.added_at ?? '';
+        const bKey = b.added_at ?? '';
+        if (aKey !== bKey) return bKey.localeCompare(aKey);
+        return b.id - a.id;
+      });
+      const copyCount = sorted.length;
+      sorted.forEach((copy, idx) => {
+        metaById.set(copy.id, {
+          copy_count: copyCount,
+          copy_index: idx + 1,
+          copy_label: copyCount > 1 ? `#${idx + 1}` : null,
+        });
+      });
+    }
+    return setCopies.map((c) => ({
+      ...c,
+      ...(metaById.get(c.id) ?? { copy_count: 1, copy_index: 1, copy_label: null }),
+    }));
+  }, [setCopies]);
 
   // Paginate sets for card view
   const paginatedSets = useMemo(() => {
-    if (!sets) return [];
+    if (!setCopiesWithLabels) return [];
     const startIndex = cardPageIndex * cardPageSize;
     const endIndex = startIndex + cardPageSize;
-    return sets.slice(startIndex, endIndex);
-  }, [sets, cardPageIndex, cardPageSize]);
+    return setCopiesWithLabels.slice(startIndex, endIndex);
+  }, [setCopiesWithLabels, cardPageIndex, cardPageSize]);
 
-  const totalPages = Math.ceil((sets?.length || 0) / cardPageSize);
+  const totalPages = Math.ceil((setCopiesWithLabels?.length || 0) / cardPageSize);
 
-  const handleRowClick = (set: LEGOSet) => {
-    router.push(`/sets/${set.set_number}?from=sets`);
+  const handleRowClick = (copy: LEGOSetCopy & { copy_count: number; copy_index: number; copy_label: string | null }) => {
+    const href =
+      copy.copy_count > 1
+        ? `/sets/${copy.set_number}?from=sets&copy_id=${copy.id}`
+        : `/sets/${copy.set_number}?from=sets`;
+    router.push(href);
   };
 
-  const columns: ColumnDef<LEGOSet>[] = [
-    {
-      accessorKey: 'set_number',
-      header: 'Set Number',
-      cell: ({ row }) => {
-        const set = row.original;
-        return (
-          <Link
-            href={`/sets/${set.set_number}?from=sets`}
-            className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {set.set_number}
-          </Link>
-        );
+  const columns: ColumnDef<
+    LEGOSetCopy & { copy_count: number; copy_index: number; copy_label: string | null }
+  >[] = [
+      {
+        accessorKey: 'set_number',
+        header: 'Set Number',
+        cell: ({ row }) => {
+          const set = row.original;
+          const href =
+            set.copy_count > 1
+              ? `/sets/${set.set_number}?from=sets&copy_id=${set.id}`
+              : `/sets/${set.set_number}?from=sets`;
+          return (
+            <Link
+              href={href}
+              className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {set.set_number}
+            </Link>
+          );
+        },
       },
-    },
-    {
-      id: 'image',
-      header: 'Image',
-      cell: ({ row }) => {
-        const set = row.original;
-        if (!set.image_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <img
-            src={set.image_url}
-            alt={set.name}
-            className="h-16 w-auto"
-            onClick={(e) => e.stopPropagation()}
-          />
-        );
+      {
+        id: 'image',
+        header: 'Image',
+        cell: ({ row }) => {
+          const set = row.original;
+          if (!set.image_url) return <span className="text-muted-foreground">—</span>;
+          return (
+            <img
+              src={set.image_url}
+              alt={set.name}
+              className="h-16 w-auto"
+              onClick={(e) => e.stopPropagation()}
+            />
+          );
+        },
       },
-    },
-    {
-      accessorKey: 'name',
-      header: 'Name',
-    },
-    {
-      accessorKey: 'year',
-      header: 'Year',
-      cell: ({ row }) => {
-        const year = row.original.year;
-        return <span className="text-muted-foreground">{year || '—'}</span>;
+      {
+        accessorKey: 'name',
+        header: 'Name',
       },
-    },
-    {
-      accessorKey: 'theme_name',
-      header: 'Theme',
-      cell: ({ row }) => {
-        const theme = row.original.theme_name;
-        return <span className="text-muted-foreground">{theme || '—'}</span>;
+      {
+        accessorKey: 'year',
+        header: 'Year',
+        cell: ({ row }) => {
+          const year = row.original.year;
+          return <span className="text-muted-foreground">{year || '—'}</span>;
+        },
       },
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ row }) => {
-        const status = row.original.status;
-        return (
-          <span>{getStatusLabel(status)}</span>
-        );
+      {
+        accessorKey: 'theme_name',
+        header: 'Theme',
+        cell: ({ row }) => {
+          const theme = row.original.theme_name;
+          return <span className="text-muted-foreground">{theme || '—'}</span>;
+        },
       },
-    },
-    {
-      accessorKey: 'quantity',
-      header: 'Quantity',
-      cell: ({ row }) => {
-        return (
-          <div className="text-right">
-            {formatNumber(row.original.quantity)}
-          </div>
-        );
+      {
+        accessorKey: 'total_parts',
+        header: 'Parts',
+        cell: ({ row }) => {
+          return (
+            <div className="text-right">
+              {formatNumber(row.original.total_parts)}
+            </div>
+          );
+        },
       },
-    },
-    {
-      accessorKey: 'total_parts',
-      header: 'Parts',
-      cell: ({ row }) => {
-        return (
-          <div className="text-right">
-            {formatNumber(row.original.total_parts)}
-          </div>
-        );
+      {
+        id: 'rebrickable_link',
+        header: 'Rebrickable',
+        cell: ({ row }) => {
+          const set = row.original;
+          if (!set.rebrickable_url) return <span className="text-muted-foreground">—</span>;
+          return (
+            <a
+              href={set.rebrickable_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View <ExternalLink className="h-3 w-3" />
+            </a>
+          );
+        },
       },
-    },
-    {
-      id: 'rebrickable_link',
-      header: 'Rebrickable',
-      cell: ({ row }) => {
-        const set = row.original;
-        if (!set.rebrickable_url) return <span className="text-muted-foreground">—</span>;
-        return (
-          <a
-            href={set.rebrickable_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            View <ExternalLink className="h-3 w-3" />
-          </a>
-        );
+      {
+        id: 'copy',
+        header: 'Copy',
+        accessorFn: (row) => row.copy_label ?? '',
+        cell: ({ row }) => {
+          const copy = row.original;
+          if (copy.copy_count <= 1) return <span className="text-muted-foreground">—</span>;
+          return <span className="font-medium">{copy.copy_label}</span>;
+        },
       },
-    },
-  ];
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => {
+          const status = row.original.status;
+          return <span>{getStatusLabel(status)}</span>;
+        },
+      },
+    ];
 
   if (isLoading) {
     return (
@@ -317,10 +363,10 @@ export default function SetsPage() {
               />
             </div>
           </div>
-          {!isLoading && sets && (
+          {!isLoading && setCopiesWithLabels && (
             <div className="text-sm">
-              <span className="text-muted-foreground">Total Sets: </span>
-              <span className="font-medium">{formatNumber(sets.length)}</span>
+              <span className="text-muted-foreground">Total Set Copies: </span>
+              <span className="font-medium">{formatNumber(setCopiesWithLabels.length)}</span>
             </div>
           )}
           {isLoading && (
@@ -329,15 +375,15 @@ export default function SetsPage() {
         </div>
       </div>
 
-      {sets && sets.length === 0 ? (
+      {setCopiesWithLabels && setCopiesWithLabels.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           No sets found.
         </div>
       ) : viewMode === 'table' ? (
         <DataTable
           columns={columns}
-          data={sets || []}
-          searchKeys={['set_number', 'name', 'year', 'theme_name', 'status']}
+          data={setCopiesWithLabels || []}
+          searchKeys={['copy_label', 'set_number', 'name', 'year', 'theme_name', 'status']}
           searchPlaceholder="Search by set number, name, year, theme, or status (e.g., 'In Box', 'Work in Progress')..."
           onRowClick={handleRowClick}
           exportFilename="sets"
@@ -348,14 +394,18 @@ export default function SetsPage() {
         <>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {paginatedSets.map((set) => (
-              <Card key={set.set_number}>
+              <Card key={`${set.set_number}-${set.id}`}>
                 <CardHeader>
                   <CardTitle>
                     <Link
-                      href={`/sets/${set.set_number}?from=sets`}
+                      href={
+                        set.copy_count > 1
+                          ? `/sets/${set.set_number}?from=sets&copy_id=${set.id}`
+                          : `/sets/${set.set_number}?from=sets`
+                      }
                       className="text-blue-600 hover:text-blue-800 hover:underline"
                     >
-                      {set.set_number}
+                      {set.copy_count > 1 ? `${set.set_number} ${set.copy_label}` : set.set_number}
                     </Link>
                   </CardTitle>
                   <CardDescription>{set.name}</CardDescription>
@@ -380,10 +430,12 @@ export default function SetsPage() {
                         {getStatusLabel(set.status)}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Quantity:</span>
-                      <span className="font-medium">{formatNumber(set.quantity)}</span>
-                    </div>
+                    {set.copy_count > 1 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Copy:</span>
+                        <span className="font-medium">{set.copy_label}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Parts:</span>
                       <span className="font-medium">{formatNumber(set.total_parts)}</span>
@@ -417,18 +469,18 @@ export default function SetsPage() {
             <div className="flex items-center gap-2">
               <p className="text-sm text-muted-foreground">
                 Showing {formatNumber(cardPageIndex * cardPageSize + 1)} to{' '}
-                {formatNumber(Math.min((cardPageIndex + 1) * cardPageSize, sets?.length || 0))}{' '}
-                of {formatNumber(sets?.length || 0)} results
+                {formatNumber(Math.min((cardPageIndex + 1) * cardPageSize, setCopiesWithLabels?.length || 0))}{' '}
+                of {formatNumber(setCopiesWithLabels?.length || 0)} results
               </p>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <p className="text-sm text-muted-foreground">Cards per page:</p>
                 <Select
-                  value={cardPageSize >= (sets?.length || 0) ? 'all' : String(cardPageSize)}
+                  value={cardPageSize >= (setCopiesWithLabels?.length || 0) ? 'all' : String(cardPageSize)}
                   onValueChange={(value) => {
                     if (value === 'all') {
-                      setCardPageSize(sets?.length || 0);
+                      setCardPageSize(setCopiesWithLabels?.length || 0);
                     } else {
                       setCardPageSize(Number(value));
                     }

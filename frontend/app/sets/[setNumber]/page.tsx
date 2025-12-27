@@ -26,19 +26,20 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ViewToggle } from '@/components/view-toggle';
 import {
   SetPart,
   SetPartWithLocations,
   useSet,
+  useSetCopies,
   useSetParts,
   useSetPartsWithLocations,
-  useUpdateSetStatus,
+  useUpdateSetCopyStatus,
 } from '@/lib/hooks/use-sets';
+import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { APP_SAFE_MODE } from '@/lib/safe-mode';
 import { formatNumber, getStatusLabel, isLightColor, showApiErrorToast } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
-import { ViewToggle } from '@/components/view-toggle';
-import { useViewMode } from '@/lib/hooks/use-view-mode';
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -111,26 +112,79 @@ export default function SetDetailPage() {
   const [cardPageSize, setCardPageSize] = useState(20);
   const [editStatusDialogOpen, setEditStatusDialogOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [selectedCopyId, setSelectedCopyId] = useState<number | null>(null);
   const [confirmationDialogOpen, setConfirmationDialogOpen] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [confirmationAction, setConfirmationAction] = useState<(() => Promise<void>) | null>(null);
 
   const { data: set, isLoading: setLoading } = useSet(setNumber);
+  const { data: copies, isLoading: copiesLoading } = useSetCopies(setNumber);
   const { data: parts, isLoading: partsLoading } = useSetParts(setNumber);
   const { data: partsWithLocations, isLoading: partsWithLocationsLoading } =
     useSetPartsWithLocations(setNumber);
-  const updateStatus = useUpdateSetStatus();
+  const updateStatus = useUpdateSetCopyStatus();
+
+  // Initialize selected copy from query param (copy_id) or default to the newest copy.
+  useEffect(() => {
+    const copyIdParam = searchParams.get('copy_id');
+    if (copyIdParam) {
+      const parsed = Number(copyIdParam);
+      if (!Number.isNaN(parsed)) setSelectedCopyId(parsed);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (selectedCopyId == null && copies && copies.length > 0) {
+      setSelectedCopyId(copies[0].id);
+    }
+  }, [copies, selectedCopyId]);
+
+  const selectedCopy = useMemo(() => {
+    if (!copies || copies.length === 0) return null;
+    return copies.find((c) => c.id === selectedCopyId) ?? copies[0];
+  }, [copies, selectedCopyId]);
 
   // Check if set status is loose_parts or teardown
   const showPartLocationsTab = useMemo(() => {
-    return !APP_SAFE_MODE && (set?.status === 'loose_parts' || set?.status === 'teardown');
-  }, [set?.status]);
+    return (
+      !APP_SAFE_MODE &&
+      (selectedCopy?.status === 'loose_parts' || selectedCopy?.status === 'teardown')
+    );
+  }, [selectedCopy?.status]);
 
   // Calculate total parts from parts data since API doesn't include it
   const totalParts = useMemo(() => {
     if (!parts) return 0;
     return parts.reduce((sum, part) => sum + part.quantity, 0);
   }, [parts]);
+
+  const copiesSorted = useMemo(() => {
+    if (!copies) return [];
+    return [...copies].sort((a, b) => {
+      const aKey = a.added_at ?? '';
+      const bKey = b.added_at ?? '';
+      if (aKey !== bKey) return bKey.localeCompare(aKey);
+      return b.id - a.id;
+    });
+  }, [copies]);
+
+  const copyLabelById = useMemo(() => {
+    const map = new Map<number, string>();
+    copiesSorted.forEach((c, idx) => map.set(c.id, `#${idx + 1}`));
+    return map;
+  }, [copiesSorted]);
+
+  const copiesStatusSummary = useMemo(() => {
+    if (!copiesSorted.length) return '';
+    const counts = new Map<string, number>();
+    for (const c of copiesSorted) {
+      counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
+    }
+    const parts = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([status, count]) => `${getStatusLabel(status)}: ${count}`);
+    return parts.join(', ');
+  }, [copiesSorted]);
 
   // Sort parts by quantity descending for card view
   const sortedParts = useMemo(() => {
@@ -434,7 +488,7 @@ export default function SetDetailPage() {
     },
   ];
 
-  if (setLoading) {
+  if (setLoading || copiesLoading) {
     return (
       <div className="container mx-auto py-8">
         <div className="text-muted-foreground">Loading set...</div>
@@ -442,7 +496,7 @@ export default function SetDetailPage() {
     );
   }
 
-  if (!set) {
+  if (!set || !selectedCopy) {
     return (
       <div className="container mx-auto py-8">
         <div className="text-destructive">Set not found.</div>
@@ -456,7 +510,7 @@ export default function SetDetailPage() {
         <Button variant="outline" asChild className="min-h-[44px]">
           <Link href={backLink.href}>← Back to {backLink.label}</Link>
         </Button>
-        
+
         {/* Set Header - Stack on mobile */}
         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start">
           {set.image_url && (
@@ -467,29 +521,55 @@ export default function SetDetailPage() {
             />
           )}
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl md:text-3xl font-bold break-words">{set.set_number}</h1>
-            <h2 className="text-lg md:text-xl text-muted-foreground mt-2 break-words">{set.name}</h2>
-            
+            <h1 className="text-2xl md:text-3xl font-bold wrap-break-word">{set.set_number}</h1>
+            <h2 className="text-lg md:text-xl text-muted-foreground mt-2 wrap-break-word">{set.name}</h2>
+
             {/* Stats - Stack on mobile */}
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-4 text-sm">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-4 text-sm sm:items-center">
               {set.year && (
-                <div>
+                <div className="inline-flex items-center gap-1">
                   <span className="text-muted-foreground">Year: </span>
                   <span className="font-medium">{set.year}</span>
                 </div>
               )}
+              {copiesSorted.length > 1 && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-muted-foreground">Copy: </span>
+                  <Select
+                    value={String(selectedCopy.id)}
+                    onValueChange={(value) => {
+                      const nextId = Number(value);
+                      setSelectedCopyId(nextId);
+
+                      // Keep URL in sync so sharing/refreshing preserves the selected copy.
+                      const nextParams = new URLSearchParams(searchParams.toString());
+                      nextParams.set('copy_id', value);
+                      router.replace(`/sets/${setNumber}?${nextParams.toString()}`);
+                    }}
+                  >
+                    <SelectTrigger className="w-[160px] h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {copiesSorted.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {copyLabelById.get(c.id) ?? '#?'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <div>
+                <div className="inline-flex items-center gap-1">
                   <span className="text-muted-foreground">Status: </span>
-                  <span className="font-medium">
-                    {getStatusLabel(set.status)}
-                  </span>
+                  <span className="font-medium">{getStatusLabel(selectedCopy.status)}</span>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setSelectedStatus(set.status);
+                    setSelectedStatus(selectedCopy.status);
                     setEditStatusDialogOpen(true);
                   }}
                   className="min-h-[44px] sm:min-h-0 w-fit"
@@ -497,18 +577,31 @@ export default function SetDetailPage() {
                   Edit
                 </Button>
               </div>
-              <div>
-                <span className="text-muted-foreground">Quantity: </span>
-                <span className="font-medium">{formatNumber(set.quantity)}</span>
-              </div>
-              <div>
+              <div className="inline-flex items-center gap-1">
                 <span className="text-muted-foreground">Parts: </span>
                 <span className="font-medium">
                   {partsLoading ? '...' : formatNumber(totalParts)}
                 </span>
               </div>
             </div>
-            
+
+            {copiesSorted.length > 1 && (
+              <div className="mt-2 text-sm text-muted-foreground flex flex-col sm:flex-row gap-2 sm:gap-4">
+                <div>
+                  <span className="font-medium text-foreground">Copies:</span>{' '}
+                  <span className="font-medium text-foreground">
+                    {formatNumber(copiesSorted.length)}
+                  </span>
+                </div>
+                {copiesStatusSummary && (
+                  <div>
+                    <span className="font-medium text-foreground">All copies:</span>{' '}
+                    {copiesStatusSummary}
+                  </div>
+                )}
+              </div>
+            )}
+
             {set.rebrickable_url && (
               <Button className="mt-4" variant="outline" asChild>
                 <a
@@ -1122,7 +1215,8 @@ export default function SetDetailPage() {
           <DialogHeader>
             <DialogTitle>Edit Set Status</DialogTitle>
             <DialogDescription>
-              Update the status for {set.set_number}: {set.name}
+              Update the status for {set.set_number}
+              {copiesSorted.length > 1 ? ` ${copyLabelById.get(selectedCopy.id) ?? ''}` : ''}: {set.name}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -1151,7 +1245,7 @@ export default function SetDetailPage() {
             </Button>
             <Button
               onClick={async () => {
-                const previousStatus = set?.status;
+                const previousStatus = selectedCopy.status;
 
                 // Check for status transitions that trigger inventory changes
                 const isLooseStatus = (status: string) => status === 'loose_parts' || status === 'loose';
@@ -1163,7 +1257,7 @@ export default function SetDetailPage() {
                 const executeStatusUpdate = async (shouldOpenWizard: boolean) => {
                   try {
                     await updateStatus.mutateAsync({
-                      setNumber,
+                      setId: selectedCopy.id,
                       status: selectedStatus,
                     });
                     setEditStatusDialogOpen(false);

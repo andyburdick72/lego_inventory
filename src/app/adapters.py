@@ -8,6 +8,7 @@ from core.dtos import (
     DrawerSummaryDTO,
     InventoryItemDTO,
     LEGOSetDTO,
+    LEGOSetCopyDTO,
 )
 from core.enums import Status
 
@@ -44,6 +45,23 @@ def row_to_set(row: Mapping) -> LEGOSetDTO:
         status=Status.from_any(row.get("status")) or Status.IN_BOX,
         total_parts=row.get("total_parts"),
         quantity=int(row.get("quantity") or 1),
+        image_url=row.get("image_url"),
+        rebrickable_url=row.get("rebrickable_url"),
+    )
+    return dto
+
+
+def row_to_set_copy(row: Mapping) -> LEGOSetCopyDTO:
+    dto = LEGOSetCopyDTO(
+        id=int(row.get("id") or 0),
+        set_number=str(row.get("set_number") or ""),
+        name=str(row.get("name") or ""),
+        year=row.get("year"),
+        theme_id=row.get("theme_id"),
+        theme_name=row.get("theme_name"),
+        status=Status.from_any(row.get("status")) or Status.IN_BOX,
+        added_at=row.get("added_at"),
+        total_parts=row.get("total_parts"),
         image_url=row.get("image_url"),
         rebrickable_url=row.get("rebrickable_url"),
     )

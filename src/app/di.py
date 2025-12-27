@@ -33,6 +33,8 @@ from infra.db.repositories.sets_repo import SetsRepo as SetsRepoImpl
 # Connection helper
 # -----------------------------
 
+_SCHEMA_INIT_FOR_DB_PATHS: set[str] = set()
+
 
 def _get_conn() -> sqlite3.Connection:
     """Create a sqlite3 connection using the app settings.
@@ -68,6 +70,19 @@ def _get_conn() -> sqlite3.Connection:
     except Exception:
         # Best-effort in case PRAGMAs aren't supported
         pass
+
+    # Ensure schema exists for this DB path (important for tests that point APP_DB_PATH at a fresh
+    # temporary file). This is idempotent (CREATE TABLE IF NOT EXISTS).
+    db_path_key = str(db_path)
+    if db_path_key not in _SCHEMA_INIT_FOR_DB_PATHS:
+        try:
+            from infra.db.inventory_db import init_db
+
+            init_db()
+            _SCHEMA_INIT_FOR_DB_PATHS.add(db_path_key)
+        except Exception:
+            # If schema init fails, let downstream code raise a clearer error.
+            pass
     return conn
 
 

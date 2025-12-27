@@ -52,6 +52,38 @@ def test_list_sets():
             assert "total_parts" in set_item or "total_parts" in set_item
 
 
+def test_list_set_copies():
+    """Test listing all set copies (one row per physical copy)."""
+    _skip_if_no_api()
+    with _client() as c:
+        r = c.get("/sets/copies")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        if data:
+            item = data[0]
+            assert "id" in item
+            assert "set_number" in item
+            assert "name" in item
+            assert "status" in item
+
+
+def test_list_set_copies_for_set_number():
+    """Test listing copies for a specific set_number."""
+    _skip_if_no_api()
+    with _client() as c:
+        sets_r = c.get("/sets")
+        if sets_r.status_code != 200 or not sets_r.json():
+            pytest.skip("No sets available for testing")
+        set_number = sets_r.json()[0]["set_number"]
+        r = c.get(f"/sets/{set_number}/copies")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert all("id" in x for x in data)
+
+
 def test_get_set_by_number():
     """Test getting a specific set."""
     _skip_if_no_api()
@@ -113,17 +145,40 @@ def test_update_set_status():
             pytest.skip("No sets available for testing")
 
         set_num = sets_r.json()[0]["set_number"]
-        original_status = sets_r.json()[0]["status"]
 
-        # Try updating to a different status
-        new_status = "built" if original_status != "built" else "in_box"
-        r = c.patch(f"/sets/{set_num}/status", json={"status": new_status})
-        assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == new_status
+        set_detail = c.get(f"/sets/{set_num}")
+        assert set_detail.status_code == 200
+        quantity = int(set_detail.json().get("quantity") or 1)
 
-        # Restore original status
-        c.patch(f"/sets/{set_num}/status", json={"status": original_status})
+        if quantity <= 1:
+            original_status = set_detail.json()["status"]
+            new_status = "built" if original_status != "built" else "in_box"
+            r = c.patch(f"/sets/{set_num}/status", json={"status": new_status})
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == new_status
+            # Restore original status
+            c.patch(f"/sets/{set_num}/status", json={"status": original_status})
+        else:
+            # Old endpoint should refuse ambiguous updates
+            r = c.patch(f"/sets/{set_num}/status", json={"status": "built"})
+            assert r.status_code == 409
+
+            # Update a specific copy instead
+            copies_r = c.get(f"/sets/{set_num}/copies")
+            assert copies_r.status_code == 200
+            copies = copies_r.json()
+            assert copies
+            copy_id = copies[0]["id"]
+            original_status = copies[0]["status"]
+            new_status = "built" if original_status != "built" else "in_box"
+
+            r2 = c.patch(f"/sets/copies/{copy_id}/status", json={"status": new_status})
+            assert r2.status_code == 200
+            assert r2.json()["status"] == new_status
+
+            # Restore
+            c.patch(f"/sets/copies/{copy_id}/status", json={"status": original_status})
 
 
 def test_update_set_status_invalid():

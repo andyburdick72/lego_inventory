@@ -22,6 +22,14 @@ app = FastAPI(
     description="REST API for LEGO inventory management system",
 )
 
+# Ensure the SQLite schema exists (especially important for tests that point APP_DB_PATH at a
+# temporary DB file). This is safe to call repeatedly because it uses CREATE TABLE IF NOT EXISTS.
+@app.on_event("startup")
+def _startup_init_db() -> None:
+    from infra.db.inventory_db import init_db
+
+    init_db()
+
 # Enable CORS for Next.js frontend
 # In development, allow all origins to support access from other devices on the network
 # In production, this should be restricted to specific domains

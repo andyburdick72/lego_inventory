@@ -91,13 +91,12 @@ def _lastrowid(cur: sqlite3.Cursor) -> int:
     return int(rid)
 
 
-# Centralized DB path from settings (allows .env overrides)
-DB_PATH = get_settings().db_path
-
-
 # --------------------------------------------------------------------------- helpers
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    # IMPORTANT: Resolve db_path at connection time so tests can safely override APP_DB_PATH and
+    # clear the settings cache without being stuck with a stale module-level DB_PATH.
+    db_path = get_settings().db_path
+    conn = sqlite3.connect(str(db_path), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # Apply robust defaults on every connection
     conn.execute("PRAGMA journal_mode=WAL;")

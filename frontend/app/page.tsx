@@ -116,7 +116,8 @@ export default function HomePage() {
             <CardContent className="pt-6">
               {setsCount && (
                 <div className="text-sm text-muted-foreground mb-3">
-                  Total Sets: <span className="font-medium text-foreground">{formatNumber(setsCount.count)}</span>
+                  Total Set Copies:{' '}
+                  <span className="font-medium text-foreground">{formatNumber(setsCount.count)}</span>
                 </div>
               )}
               <Button asChild className="bg-red-600 hover:bg-red-700 text-white">
