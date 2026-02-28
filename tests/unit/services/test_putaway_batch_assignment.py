@@ -6,8 +6,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.main import app
+from app.settings import get_settings
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def putaway_endpoint_enabled(monkeypatch):
+    """Ensure putaway endpoints are not gated by safe mode (they return 410 when gated)."""
+    monkeypatch.setenv("APP_SAFE_MODE", "false")
+    get_settings.cache_clear()
 
 
 def test_batch_assign_empty_assignments():
