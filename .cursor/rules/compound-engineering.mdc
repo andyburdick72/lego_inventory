@@ -1,0 +1,24 @@
+---
+description: Prompt Andy to save reusable patterns to personal-ai
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Compound Engineering
+
+When completing any task, if the approach, prompt, or pattern could be reused 
+in future sessions, flag it:
+"💡 This could be saved as a [skill/command/prompt] in personal-ai — want me 
+to draft it?"
+
+Look for:
+- A reusable instruction set → personal-ai/skills/
+- A reusable prompt → personal-ai/prompts/
+- A repo-specific Claude Code command → .claude/commands/
+- A repo-specific Cursor rule → .cursor/rules/
+- A project convention → relevant CLAUDE.md
+
+Only flag things that would meaningfully improve a future session. Don't flag 
+obvious or generic patterns.
+
+Confirm what was created when done.
