@@ -1,0 +1,23 @@
+---
+description: lego_inventory — Ervin-Burdick's Bricks LEGO inventory management system
+alwaysApply: true
+---
+
+# lego_inventory — Ervin-Burdick's Bricks
+
+LEGO inventory management website for tracking sets, parts, and personal inventory. A personal side project.
+
+## Stack
+- Python backend: Flask, SQLAlchemy 2.0, Pydantic v2, pydantic-settings
+- Frontend: Next.js (in `/frontend`)
+- Testing: pytest (`pytest.ini`), with coverage reporting
+- Type checking: mypy (`mypy.ini`)
+- Source layout: `src/` → `app/`, `core/`, `infra/`, `integrations/`, `scripts/`, `utils/`
+
+## Key Rules
+- Understand existing design choices before suggesting new code
+- Follow the established `src/` layout — don't create new top-level directories
+- Give complete, working code with all necessary imports
+- Prefer clear, well-structured, tested code over quick hacks
+- Stay aligned with existing naming conventions and file structure
+- Verify mypy and pytest pass before considering a change complete
