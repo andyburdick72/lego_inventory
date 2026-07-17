@@ -1,0 +1,21 @@
+---
+description: Use gh CLI as andyburdick72 for GitHub issues/projects in this repo
+alwaysApply: true
+---
+
+# GitHub issues (andyburdick72/lego_inventory)
+
+Use the **GitHub CLI** with the **andyburdick72** account. Do not use `andy-cleverlawn` here.
+
+- When the user references an issue by **number** or URL, run:
+
+  `gh issue view <N> --repo andyburdick72/lego_inventory --json title,body,state,labels,assignees,milestone,url,projectItems`
+
+  Add **`comments`** only when the thread matters.
+
+- Prefer **`--json`** for structured fields. Do not scrape HTML or use anonymous GitHub API.
+
+- **Project #1** (Priority / Size / Status): needs `project` scope (`gh auth refresh -h github.com -s read:project,project` as andyburdick72). If `projectItems` is empty or `gh project` errors, say so — do not invent board state.
+
+- **Never** create `priority:*` / `size:*` labels. Those are project fields.
+- **Never** invent new labels; use existing `type:*` / `area:*` / `copilot` only.

@@ -1,0 +1,23 @@
+---
+description: TypeScript quality for new and heavily edited TS/TSX in frontend/
+globs:
+  - 'frontend/**/*.ts'
+  - 'frontend/**/*.tsx'
+alwaysApply: false
+---
+
+# TypeScript (LEGO inventory frontend)
+
+Applies when creating or substantially modifying `.ts` / `.tsx` under `frontend/`.
+
+## Required
+
+1. **No implicit `any`** — type parameters, returns, and significant locals where it aids maintenance.
+2. **Shared types** — prefer `frontend/lib/` types or colocated types; don't duplicate DTO shapes across hooks.
+3. **Run typecheck** before considering work done: `cd frontend && npx tsc --noEmit` (and `npm run lint`).
+4. **API shapes** — keep axios/React Query hooks aligned with `/api/v1` contracts; update both when changing payloads.
+
+## Don't cargo-cult from other repos
+
+- No Supabase `Database` types or HWH CRM patterns until this repo actually adopts them (Deploy epic).
+- Don't introduce new UI libraries when shadcn/`components/ui` already covers the need.

@@ -24,6 +24,20 @@ This repo belongs to the **andyburdick72** account. Use the github-personal MCP 
 ### Creating issues
 Prefer `/create-issue` or `scripts/gh_create_issue.sh`. Always: add to Project #1, set Status/Priority/Size, assign Andy. Need `gh` scopes `repo` + `project` (or `read:project`) on the personal account.
 
+## Available commands
+
+| Command | Purpose |
+|---|---|
+| `/create-issue` | File issue with labels + Project #1 fields |
+| `/review-roadmap` | Audit open issues vs board/labels/milestones |
+| `/close-issue` | Commit, comment, close, mark Done on Project #1 |
+| `/docs` | Documentation + agent-context steward |
+| `/qa` | Code review / quality gate |
+| `/refactor` | Behavior-preserving cleanup only |
+| `/save-learning` | Capture reusable skills/commands/prompts |
+
+Cursor mirrors live under `.cursor/prompts/`. Cross-repo hygiene: personal-ai skill `github-issue-hygiene`.
+
 ## Project Context
 
 Personal side project. Solo developer (Andy). Not a business product — built for managing a personal LEGO collection. Low stakes, experimental.
@@ -37,7 +51,7 @@ Personal side project. Solo developer (Andy). Not a business product — built f
 - Config loaded via `app/settings.py` → `get_settings()` (cached); env prefix `APP_`; `.env` at `data/.env`
 
 **Frontend** (`frontend/`)
-- Next.js (port 3001), React Query, Radix UI, Tailwind
+- Next.js (port 3001), TypeScript (strict), React Query, Radix UI / shadcn, Tailwind
 
 ## Source Layout
 
@@ -50,11 +64,13 @@ src/
   integrations/ # Rebrickable API client
   scripts/    # One-off data scripts
   utils/      # Shared helpers
+frontend/     # Next.js App Router (TypeScript)
 tests/
   unit/       # Fast, isolated
   infra/      # DB/repository tests
   contract/   # HTTP-level tests against a live test server (marked `contract`)
   smoke/      # Smoke tests
+docs/architecture/  # C4 PlantUML (+ rendered/); `make render`
 ```
 
 ## Running Locally
@@ -69,6 +85,10 @@ The script activates `.venv`, installs deps, spins up a temporary test DB for co
 **Env vars of note:**
 - `APP_SAFE_MODE=true` — enables set-centric safe mode (hides location-dependent UI/endpoints)
 - `APP_DB_PATH` — override DB path (used by dev.sh for test isolation)
+
+## Deployment (planned)
+
+Target: single Render Web Service + Supabase + Basic Auth at **bricks.ervinburdick.com** (epic #28 / milestone *Deploy: bricks.ervinburdick.com*). Apex **ervinburdick.com** stays on personal-ai. Until that ships, local dual-process (`./dev.sh`) is the supported path. Add `docs/DEPLOYING.md` when Render is wired.
 
 ## Testing
 
@@ -86,6 +106,7 @@ pytest -m contract
 - Line-length: 100 (`pyproject.toml`)
 - Linting: ruff (select E, F, I, UP, B); formatting: black
 - Type checking: mypy (strict-ish; `ignore_missing_imports = true`)
+- Frontend: `cd frontend && npm run lint` / `npx tsc --noEmit`
 - Coverage threshold: 70%
 
 ## Key Conventions
@@ -95,3 +116,12 @@ pytest -m contract
 - DTOs/enums belong in `src/core/`; DB models and repos in `src/infra/`
 - Contract tests hit a real (ephemeral) SQLite DB — do not mock the DB layer
 - `APP_SAFE_MODE` gates features both server-side and in the Next.js frontend via `NEXT_PUBLIC_APP_SAFE_MODE`
+
+## Common pitfalls
+
+- **Wrong `gh` account** — personal repo; switch to `andyburdick72` before issue/project ops
+- **Priority/Size as labels** — use Project #1 fields only
+- **One-issue milestones** — don't create them; use the board
+- **Forgetting settings cache** — clear `get_settings.cache_clear()` in tests that change `APP_DB_PATH`
+- **Safe mode** — location/drawer/putaway APIs return 410 when `APP_SAFE_MODE=true`
+- **CORS / API URL** — frontend defaults to hostname:8001 unless `NEXT_PUBLIC_API_URL` is set (will change with same-origin Node APIs)
