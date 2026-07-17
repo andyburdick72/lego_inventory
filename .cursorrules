@@ -97,6 +97,8 @@ SQLite-backed inventory management system for LEGO parts and sets. Integrates wi
   - `area:*` (backend, frontend, scripts)
   - `copilot` (for multi-file work)
 - Set **Priority** (P1/P2/P3) and **Size** (S/M/L) as Project #1 fields — not as labels
+- Prefer `/create-issue` or `scripts/gh_create_issue.sh`; never invent labels or one-issue milestones
+- Use `gh` as **andyburdick72** only (not andy-cleverlawn)
 - Include acceptance criteria
 - Reference related issues/PRs
 

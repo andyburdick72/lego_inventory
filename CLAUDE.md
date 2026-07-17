@@ -4,7 +4,25 @@ Personal LEGO inventory management system. Flask/FastAPI backend + Next.js front
 
 ## GitHub
 
-This repo belongs to the andyburdick72 account. Use the github-personal MCP connector.
+This repo belongs to the **andyburdick72** account. Use the github-personal MCP connector and `gh` as `andyburdick72` (never `andy-cleverlawn` here).
+
+### Roadmap board
+- **Project #1**: [LEGO Inventory Management System Roadmap](https://github.com/users/andyburdick72/projects/1)
+- **Status**: To Do / In Progress / Done
+- **Priority** / **Size**: project fields (`P1|P2|P3`, `S|M|L`) — **not** labels
+- Default assignee: `andyburdick72`
+
+### Labels (existing only — do not invent new ones)
+- `type:*` — feature | bug | refactor | test | exploration
+- `area:*` — backend | frontend | scripts
+- `copilot` — multi-file / AI-assisted work
+
+### Milestones
+- Epic-style only (multiple related issues). Current: *Deploy: bricks.ervinburdick.com*.
+- Do **not** create one-issue “phase” milestones; track single issues with project Status/Priority/Size.
+
+### Creating issues
+Prefer `/create-issue` or `scripts/gh_create_issue.sh`. Always: add to Project #1, set Status/Priority/Size, assign Andy. Need `gh` scopes `repo` + `project` (or `read:project`) on the personal account.
 
 ## Project Context
 
