@@ -51,21 +51,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: size
+  - type: markdown
     attributes:
-      label: Size
-      options: [S, M, L]
-    validations:
-      required: true
-
-  - type: dropdown
-    id: priority
-    attributes:
-      label: Priority
-      options: [P1, P2, P3]
-    validations:
-      required: true
+      value: |
+        After filing, set **Priority** (P1/P2/P3) and **Size** (S/M/L) on
+        [Project #1](https://github.com/users/andyburdick72/projects/1)
+        (these are project fields, not labels).
 
   - type: input
     id: branch

@@ -505,12 +505,15 @@ This repo tracks the roadmap in GitHub Issues and a Project board (user project:
 ### Labels
 - `type:*` → feature | refactor | test | bug | exploration  
 - `area:*` → backend | frontend | scripts  
-- `priority:*` → P1 | P2 | P3  
-- `size:*` → S | M | L  
 - `copilot` → multi-file or cross-cutting work where Copilot Pro will help
 
+### Project fields (not labels)
+- **Priority** → P1 | P2 | P3  
+- **Size** → S | M | L  
+- Set these on Project #1 cards after creating an issue (or via `scripts/gh_create_issue.sh`).
+
 ### Milestones & Project
-- 13 milestones mirror the roadmap phases (e.g., *Refactor: write endpoints*, *Part-Out Wizard*).  
+- Use milestones for multi-issue epics (e.g. *Deploy: bricks.ervinburdick.com*). Prefer Project #1 Status / Priority / Size for single-issue tracking.  
 - A GitHub Actions workflow auto-adds any new issue to the Project using the repo variable **`LEGO_PROJECT_ID`**.
 
 ### Scripts (one-time setup / regeneration)

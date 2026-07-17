@@ -2,7 +2,7 @@
 name: Add Rebrickable Part Categories
 about: Add part category support from Rebrickable API
 title: 'Add Rebrickable Part Categories'
-labels: 'type:feature, area:backend, area:frontend, priority:P3, size:M'
+labels: 'type:feature, area:backend, area:frontend'
 assignees: ''
 projects: '1'
 ---

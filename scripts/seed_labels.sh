@@ -27,13 +27,7 @@ mk "area:backend"      "0E8A16"
 mk "area:frontend"     "FBCA04"
 mk "area:scripts"      "C5DEF5"
 
-mk "size:S"            "BFD4F2"
-mk "size:M"            "006B75"
-mk "size:L"            "D4C5F9"
-
-mk "priority:P1"       "EE0701"
-mk "priority:P2"       "FBCA04"
-mk "priority:P3"       "C2E0C6"
+# Priority (P1/P2/P3) and Size (S/M/L) live on Project #1 fields, not as labels.
 
 # ---- Copilot label ----
 mk "copilot"           "6f42c1" "AI-assisted / multi-file work"

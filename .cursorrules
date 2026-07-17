@@ -95,9 +95,8 @@ SQLite-backed inventory management system for LEGO parts and sets. Integrates wi
 - Use appropriate labels:
   - `type:*` (feature, refactor, test, bug, exploration)
   - `area:*` (backend, frontend, scripts)
-  - `priority:*` (P1, P2, P3)
-  - `size:*` (S, M, L)
   - `copilot` (for multi-file work)
+- Set **Priority** (P1/P2/P3) and **Size** (S/M/L) as Project #1 fields — not as labels
 - Include acceptance criteria
 - Reference related issues/PRs
 
