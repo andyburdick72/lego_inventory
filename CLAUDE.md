@@ -80,11 +80,13 @@ docs/architecture/  # C4 PlantUML (+ rendered/); `make render`
 ./dev.sh cov    # same but with coverage merge
 ```
 
-The script activates `.venv`, installs deps, spins up a temporary test DB for contract tests, then starts FastAPI (port 8001) and Next.js (port 3001).
+The script activates `.venv`, installs **Python** deps, spins up a temporary test DB for contract tests, then starts FastAPI (port 8001) and Next.js (port 3001). First-time: create `.venv` and run `cd frontend && npm install` (dev.sh does not install Node deps).
 
 **Env vars of note:**
 - `APP_SAFE_MODE=true` — enables set-centric safe mode (hides location-dependent UI/endpoints)
 - `APP_DB_PATH` — override DB path (used by dev.sh for test isolation)
+
+**Moving machines (local SQLite):** see [`docs/MIGRATE_MACHINE.md`](docs/MIGRATE_MACHINE.md). Do not copy `.venv` / `node_modules`; copy `data/` via a private zip.
 
 ## Deployment (planned)
 

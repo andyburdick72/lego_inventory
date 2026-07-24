@@ -1,5 +1,10 @@
 # LEGO Inventory System - Documentation
 
+## Ops / local workflow
+
+- **[Move to another machine](./MIGRATE_MACHINE.md)** — package/restore gitignored `data/` (SQLite + `.env`) until Render/Supabase deploy is live
+- Main project setup: [`../README.md`](../README.md)
+
 ## Modernization Guides
 
 If you're looking to modernize your LEGO inventory system, start here:

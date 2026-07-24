@@ -89,6 +89,7 @@ lego_inventory/
 │   ├── contract/api/                     # API contract tests
 │   └── smoke/                            # Smoke tests
 ├── docs/
+│   ├── MIGRATE_MACHINE.md                # Move local DB/.env to another machine
 │   └── architecture/                     # C4 architecture diagrams
 │       ├── *.puml                        # PlantUML source files
 │       └── rendered/                     # Generated SVG diagrams
@@ -125,7 +126,7 @@ The component diagram shows the internal structure of the FastAPI backend, inclu
 ---
 
 ## **Prerequisites**
-- **Python 3.9+**
+- **Python 3.10+** (3.13 recommended)
 - **Node.js 18+** (for Next.js frontend)
 - Rebrickable API credentials in `data/.env`:
 ```env
@@ -147,15 +148,26 @@ git clone https://github.com/andyburdick72/lego_inventory.git
 cd lego_inventory
 ```
 
-### 2. Using `dev.sh` for setup and running
-The `dev.sh` script is the preferred way to set up and run the project. It handles environment setup, dependency installation, testing, and starts both servers.
+If you use SSH host aliases for multiple GitHub accounts, clone with your personal-account host (for example `git@github.com-andyburdick72:andyburdick72/lego_inventory.git`) rather than a stale/unconfigured alias.
 
-**Basic usage:**
+### 2. Using `dev.sh` for setup and running
+The `dev.sh` script is the preferred way to set up and run the project. It handles Python environment setup, dependency installation, testing, and starts both servers.
+
+**First-time on a machine**, create the venv and install frontend deps before relying on `dev.sh`:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+cd frontend && npm install && cd ..
+./dev.sh
+```
+
+**Basic usage (venv already active or present):**
 ```bash
 ./dev.sh
 ```
 This will:
-- Install/update dependencies
+- Install/update **Python** dependencies
 - Run all tests (unit, smoke, contract)
 - Start the Next.js frontend on port 3001
 - Start the FastAPI backend on port 8001
@@ -166,7 +178,18 @@ This will:
 ```
 This runs all tests with coverage reporting and merges unit + contract test coverage, then starts both servers.
 
-**Note:** `dev.sh` automatically kills any existing servers on ports 3001 and 8001 before starting new ones to ensure fresh code is loaded.
+**Notes:**
+- `dev.sh` kills any existing servers on ports 3001 and 8001 before starting new ones.
+- It does **not** run `npm install`; do that once under `frontend/` when `node_modules` is missing.
+- Both servers are required — UI alone shows “Error loading …” if the API on `:8001` is down.
+- For day-to-day coding after deps exist, you can start API + UI in two terminals (see [Moving to a new machine](#moving-to-a-new-machine-local-data)).
+
+### Moving to a new machine (local data)
+
+Until hosted deploy (Render + Supabase) is live, the SQLite DB and `data/.env` are **gitignored** and must be copied separately. Do **not** copy `.venv` or `frontend/node_modules` between machines — recreate them on the destination.
+
+Full packaging / restore / troubleshooting guide: **[`docs/MIGRATE_MACHINE.md`](docs/MIGRATE_MACHINE.md)**.
+When you build a local-data zip, optionally include that file at the zip root as `MIGRATE_SETUP.md` so the archive is self-describing without the repo.
 
 ### macOS Launcher (optional)
 
